@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore locked dependencies
+        run: dotnet restore --locked-mode
+
+      - name: Build Release
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test Release
+        run: dotnet test --configuration Release --no-build
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: src/LittleAges.Web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src/LittleAges.Web
+        run: npm ci
+
+      - name: Lint
+        working-directory: src/LittleAges.Web
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: src/LittleAges.Web
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: src/LittleAges.Web
+        run: npm test
+
+      - name: Production build
+        working-directory: src/LittleAges.Web
+        run: npm run build

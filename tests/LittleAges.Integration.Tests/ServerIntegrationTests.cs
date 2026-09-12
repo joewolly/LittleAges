@@ -29,6 +29,7 @@ public sealed class ServerIntegrationTests
             Assert.Equal("Running", statusDocument.RootElement.GetProperty("state").GetString());
             Assert.Equal(0, statusDocument.RootElement.GetProperty("worldMinute").GetInt64());
             Assert.Equal(0, statusDocument.RootElement.GetProperty("pendingEventCount").GetInt32());
+            Assert.Equal("18446744073709551615", statusDocument.RootElement.GetProperty("worldSeed").GetString());
             Assert.True(File.Exists(Path.Combine(dataRoot, "integration-world.db")));
         });
     }

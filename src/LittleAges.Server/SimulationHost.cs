@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using System.Globalization;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
@@ -18,7 +19,7 @@ public sealed record ServerStatusSnapshot(
     SimulationHostState State,
     long WorldMinute,
     int PendingEventCount,
-    ulong WorldSeed,
+    string WorldSeed,
     string? Error);
 
 public sealed record CheckpointCommandResult(bool Succeeded, long WorldMinute);
@@ -64,7 +65,7 @@ public sealed partial class SimulationHost : BackgroundService
     {
         _options = options;
         _logger = logger;
-        _status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, options.WorldSeed.Value, null);
+        _status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
     }
 
     public ServerStatusSnapshot Status => Volatile.Read(ref _status);
@@ -252,10 +253,12 @@ public sealed partial class SimulationHost : BackgroundService
             state,
             engine?.CurrentMinute.Value ?? 0,
             engine?.PendingEventCount ?? 0,
-            engine?.Seed.Value ?? _options.WorldSeed.Value,
+            FormatWorldSeed(engine?.Seed.Value ?? _options.WorldSeed.Value),
             error);
         Interlocked.Exchange(ref _status, status);
     }
+
+    private static string FormatWorldSeed(ulong seed) => seed.ToString(CultureInfo.InvariantCulture);
 
     [LoggerMessage(EventId = 1000, Level = LogLevel.Information, Message = "Simulation host running for world {ActiveWorld} at minute {WorldMinute}")]
     private partial void LogHostRunning(string activeWorld, long worldMinute);
