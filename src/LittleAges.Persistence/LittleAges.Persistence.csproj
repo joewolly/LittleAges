@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LittleAges.Persistence</AssemblyName>
+    <RootNamespace>LittleAges.Persistence</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LittleAges.Domain\LittleAges.Domain.csproj" />
+    <ProjectReference Include="..\LittleAges.Simulation\LittleAges.Simulation.csproj" />
+  </ItemGroup>
+</Project>

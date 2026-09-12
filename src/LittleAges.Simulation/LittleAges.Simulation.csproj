@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LittleAges.Simulation</AssemblyName>
+    <RootNamespace>LittleAges.Simulation</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LittleAges.Domain\LittleAges.Domain.csproj" />
+  </ItemGroup>
+</Project>
