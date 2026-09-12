@@ -1,4 +1,5 @@
 using LittleAges.Domain;
+using System.Text.Json;
 
 namespace LittleAges.Simulation;
 
@@ -43,7 +44,8 @@ public sealed record SimulationStatusSnapshot
         WorldMinute worldMinute,
         int pendingEventCount,
         int processedEventCount,
-        IReadOnlyList<SyntheticEventExecution> processedEvents)
+        IReadOnlyList<SyntheticEventExecution> processedEvents,
+        WorldMap? world = null)
     {
         ArgumentNullException.ThrowIfNull(processedEvents);
         Seed = seed;
@@ -51,6 +53,7 @@ public sealed record SimulationStatusSnapshot
         PendingEventCount = pendingEventCount;
         ProcessedEventCount = processedEventCount;
         ProcessedEvents = Freeze(processedEvents);
+        World = world;
     }
 
     public WorldSeed Seed { get; }
@@ -58,6 +61,7 @@ public sealed record SimulationStatusSnapshot
     public int PendingEventCount { get; }
     public int ProcessedEventCount { get; }
     public IReadOnlyList<SyntheticEventExecution> ProcessedEvents { get; }
+    public WorldMap? World { get; }
 
     private static System.Collections.ObjectModel.ReadOnlyCollection<T> Freeze<T>(IEnumerable<T> values) =>
         Array.AsReadOnly(values.ToArray());
@@ -75,6 +79,20 @@ public sealed record SimulationPersistenceSnapshot
         string worldConfiguration,
         DeterministicCountersSnapshot counters,
         IReadOnlyList<ScheduledEventSnapshot> scheduledEvents)
+        : this(seed, worldMinute, worldSchemaVersion, simulationRulesVersion, applicationVersion, worldConfiguration, counters, scheduledEvents, null)
+    {
+    }
+
+    public SimulationPersistenceSnapshot(
+        WorldSeed seed,
+        WorldMinute worldMinute,
+        string worldSchemaVersion,
+        string simulationRulesVersion,
+        string applicationVersion,
+        string worldConfiguration,
+        DeterministicCountersSnapshot counters,
+        IReadOnlyList<ScheduledEventSnapshot> scheduledEvents,
+        WorldMap? world)
     {
         ArgumentNullException.ThrowIfNull(scheduledEvents);
         Seed = seed;
@@ -101,6 +119,7 @@ public sealed record SimulationPersistenceSnapshot
         }
 
         ScheduledEvents = Freeze(validatedEvents);
+        World = world;
     }
 
     public WorldSeed Seed { get; }
@@ -111,6 +130,8 @@ public sealed record SimulationPersistenceSnapshot
     public string WorldConfiguration { get; }
     public DeterministicCountersSnapshot Counters { get; }
     public IReadOnlyList<ScheduledEventSnapshot> ScheduledEvents { get; }
+    /// <summary>Persisted generated world when available. Null is accepted for legacy M0 snapshots.</summary>
+    public WorldMap? World { get; }
 
     private static string RequireMetadata(string value, string parameterName) =>
         string.IsNullOrWhiteSpace(value)
@@ -160,6 +181,7 @@ public sealed class SimulationEngine
         ApplicationVersion = RequireMetadata(applicationVersion, nameof(applicationVersion));
         WorldConfiguration = worldConfiguration ?? throw new ArgumentNullException(nameof(worldConfiguration));
         _counters = new DeterministicCounters();
+        World = CreateWorld(seed, worldConfiguration);
     }
 
     public SimulationEngine(SimulationPersistenceSnapshot snapshot)
@@ -173,6 +195,7 @@ public sealed class SimulationEngine
         ApplicationVersion = snapshot.ApplicationVersion;
         WorldConfiguration = snapshot.WorldConfiguration;
         _counters = new DeterministicCounters(snapshot.Counters);
+        World = snapshot.World ?? CreateWorld(snapshot.Seed, snapshot.WorldConfiguration);
 
         foreach (var scheduledEvent in snapshot.ScheduledEvents)
         {
@@ -191,6 +214,7 @@ public sealed class SimulationEngine
     public string SimulationRulesVersion { get; }
     public string ApplicationVersion { get; }
     public string WorldConfiguration { get; }
+    public WorldMap World { get; }
     public int PendingEventCount => _scheduledEvents.Count;
     public int ProcessedEventCount => _processedEvents.Count;
     public DeterministicCountersSnapshot CounterSnapshot => _counters.Snapshot;
@@ -270,7 +294,7 @@ public sealed class SimulationEngine
     }
 
     public SimulationStatusSnapshot CreateReadSnapshot() =>
-        new(Seed, CurrentMinute, PendingEventCount, ProcessedEventCount, _processedEvents);
+        new(Seed, CurrentMinute, PendingEventCount, ProcessedEventCount, _processedEvents, World);
 
     public SimulationStatusSnapshot CreateStatusSnapshot() => CreateReadSnapshot();
 
@@ -287,7 +311,8 @@ public sealed class SimulationEngine
             ApplicationVersion,
             WorldConfiguration,
             _counters.Snapshot,
-            events);
+            events,
+            World);
     }
 
     public static SimulationEngine FromPersistenceSnapshot(SimulationPersistenceSnapshot snapshot) => new(snapshot);
@@ -323,4 +348,24 @@ public sealed class SimulationEngine
         string.IsNullOrWhiteSpace(value)
             ? throw new ArgumentException("Metadata must not be empty.", parameterName)
             : value;
+
+    private static WorldMap CreateWorld(WorldSeed seed, string configuration)
+    {
+        var parsed = string.IsNullOrWhiteSpace(configuration) || configuration == "{}"
+            ? WorldGenerationConfiguration.Default
+            : TryParseConfiguration(configuration);
+        return new WorldGenerator().Generate(seed, parsed);
+    }
+
+    private static WorldGenerationConfiguration TryParseConfiguration(string configuration)
+    {
+        try { return WorldGenerationConfiguration.FromCanonicalJson(configuration); }
+        catch (Exception exception) when (exception is FormatException or JsonException or ArgumentException or NotSupportedException)
+        {
+            // M0 callers used arbitrary JSON metadata blobs. Preserve that narrow legacy
+            // shape, but never hide an attempted versioned M1 configuration error.
+            if (configuration.Contains("\"version\"", StringComparison.Ordinal)) throw;
+            return WorldGenerationConfiguration.Default;
+        }
+    }
 }
