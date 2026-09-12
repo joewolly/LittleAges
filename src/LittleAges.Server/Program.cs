@@ -21,6 +21,11 @@ builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequired
 var app = builder.Build();
 app.MapHealthChecks("/api/v1/health", new HealthCheckOptions());
 app.MapGet("/api/v1/status", (SimulationHost simulationHost) => Results.Ok(simulationHost.Status));
+app.MapGet("/api/v1/world", (SimulationHost simulationHost) =>
+{
+    var world = simulationHost.Status.World;
+    return world is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(world);
+});
 
 app.Run();
 

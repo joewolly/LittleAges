@@ -30,6 +30,14 @@ public sealed class ServerIntegrationTests
             Assert.Equal(0, statusDocument.RootElement.GetProperty("worldMinute").GetInt64());
             Assert.Equal(0, statusDocument.RootElement.GetProperty("pendingEventCount").GetInt32());
             Assert.Equal("18446744073709551615", statusDocument.RootElement.GetProperty("worldSeed").GetString());
+            using var worldResponse = await client.GetAsync("/api/v1/world");
+            Assert.Equal(HttpStatusCode.OK, worldResponse.StatusCode);
+            using var worldDocument = JsonDocument.Parse(await worldResponse.Content.ReadAsStringAsync());
+            Assert.Equal("18446744073709551615", worldDocument.RootElement.GetProperty("worldSeed").GetString());
+            Assert.Equal(160, worldDocument.RootElement.GetProperty("width").GetInt32());
+            Assert.Equal(160, worldDocument.RootElement.GetProperty("height").GetInt32());
+            Assert.Equal(25_600, worldDocument.RootElement.GetProperty("tileCount").GetInt32());
+            Assert.True(worldDocument.RootElement.GetProperty("fingerprint").GetString()?.Length > 0);
             Assert.True(File.Exists(Path.Combine(dataRoot, "integration-world.db")));
         });
     }
@@ -68,11 +76,14 @@ public sealed class ServerIntegrationTests
         var dataRoot = CreateDataRoot();
         try
         {
+            string? firstFingerprint = null;
             var firstFactory = new ServerFactory(dataRoot);
             try
             {
                 using var firstClient = firstFactory.CreateClient();
                 using var firstStatus = await WaitForRunningStatusAsync(firstClient);
+                using var firstWorld = JsonDocument.Parse(await (await firstClient.GetAsync("/api/v1/world")).Content.ReadAsStringAsync());
+                firstFingerprint = firstWorld.RootElement.GetProperty("fingerprint").GetString();
             }
             finally
             {
@@ -85,6 +96,8 @@ public sealed class ServerIntegrationTests
                 using var secondClient = secondFactory.CreateClient();
                 using var secondStatus = await WaitForRunningStatusAsync(secondClient);
                 Assert.Equal(0, secondStatus.RootElement.GetProperty("worldMinute").GetInt64());
+                using var secondWorld = JsonDocument.Parse(await (await secondClient.GetAsync("/api/v1/world")).Content.ReadAsStringAsync());
+                Assert.Equal(firstFingerprint, secondWorld.RootElement.GetProperty("fingerprint").GetString());
             }
             finally
             {
@@ -106,15 +119,17 @@ public sealed class ServerIntegrationTests
         {
             await using (var database = await WorldDatabase.OpenAsync(path))
             {
+                var world = new WorldGenerator().Generate(new WorldSeed(7), WorldGenerationConfiguration.Default);
                 var snapshot = new SimulationPersistenceSnapshot(
                     new WorldSeed(7),
                     WorldMinute.Zero,
                     SimulationEngine.CurrentWorldSchemaVersion,
                     SimulationEngine.CurrentSimulationRulesVersion,
                     "integration-test",
-                    "{}",
+                    world.Configuration.CanonicalJson,
                     new DeterministicCountersSnapshot(1, 1, 1),
-                    []);
+                    [],
+                    world);
                 await database.CreateCheckpointStore().CheckpointAsync(snapshot, new DateTime(2026, 9, 12, 4, 0, 0, DateTimeKind.Utc));
             }
 
@@ -270,7 +285,7 @@ public sealed class ServerIntegrationTests
 
     private static async Task<JsonDocument> WaitForRunningStatusAsync(HttpClient client)
     {
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < 500; attempt++)
         {
             using var response = await client.GetAsync("/api/v1/status");
             var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());

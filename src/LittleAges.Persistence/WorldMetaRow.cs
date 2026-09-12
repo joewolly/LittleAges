@@ -13,6 +13,11 @@ public sealed class WorldMetaRow
     public string SimulationRulesVersion { get; set; } = string.Empty;
     public string ApplicationVersion { get; set; } = string.Empty;
     public string WorldConfigurationJson { get; set; } = string.Empty;
+    public int GenerationVersion { get; set; }
+    public int GenerationAttempt { get; set; }
+    public int StartingX { get; set; }
+    public int StartingY { get; set; }
+    public string WorldFingerprint { get; set; } = string.Empty;
     public long NextEntityId { get; set; }
     public long NextHistoricalEventId { get; set; }
     public long NextScheduledEventSequence { get; set; }
