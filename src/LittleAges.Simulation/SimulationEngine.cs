@@ -127,6 +127,9 @@ public sealed record SimulationPersistenceSnapshot
 /// </summary>
 public sealed class SimulationEngine
 {
+    public const string CurrentWorldSchemaVersion = "0.1";
+    public const string CurrentSimulationRulesVersion = "m0-rng1";
+
     private sealed record PendingEvent(
         ScheduledEventId Id,
         ScheduledEventOrder Order,
@@ -140,8 +143,8 @@ public sealed class SimulationEngine
     public SimulationEngine(
         WorldSeed seed,
         WorldMinute initialMinute = default,
-        string worldSchemaVersion = "0.1",
-        string simulationRulesVersion = "m0-rng1",
+        string worldSchemaVersion = CurrentWorldSchemaVersion,
+        string simulationRulesVersion = CurrentSimulationRulesVersion,
         string applicationVersion = "0.1.0",
         string worldConfiguration = "{}")
     {
@@ -162,6 +165,7 @@ public sealed class SimulationEngine
     public SimulationEngine(SimulationPersistenceSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        ValidatePersistenceSnapshotCompatibility(snapshot);
         Seed = snapshot.Seed;
         CurrentMinute = snapshot.WorldMinute;
         WorldSchemaVersion = snapshot.WorldSchemaVersion;
@@ -287,6 +291,20 @@ public sealed class SimulationEngine
     }
 
     public static SimulationEngine FromPersistenceSnapshot(SimulationPersistenceSnapshot snapshot) => new(snapshot);
+
+    public static void ValidatePersistenceSnapshotCompatibility(SimulationPersistenceSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!string.Equals(snapshot.WorldSchemaVersion, CurrentWorldSchemaVersion, StringComparison.Ordinal))
+        {
+            throw new NotSupportedException($"World schema version '{snapshot.WorldSchemaVersion}' is not supported; expected '{CurrentWorldSchemaVersion}'.");
+        }
+
+        if (!string.Equals(snapshot.SimulationRulesVersion, CurrentSimulationRulesVersion, StringComparison.Ordinal))
+        {
+            throw new NotSupportedException($"Simulation rules version '{snapshot.SimulationRulesVersion}' is not supported; expected '{CurrentSimulationRulesVersion}'.");
+        }
+    }
 
     private void AddPending(ScheduledEventId id, ScheduledEventOrder order, string name)
     {
