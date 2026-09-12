@@ -2,6 +2,8 @@ using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace LittleAges.Persistence.Tests;
@@ -276,6 +278,168 @@ public sealed class PersistenceTests
     }
 
     [Fact]
+    public async Task ProductionOpenUpgradesActualM0AndRetainsCanonicalWorldOnReopen()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var createdUtc = new DateTime(2026, 9, 1, 2, 3, 4, DateTimeKind.Utc);
+            await CreateActualM0DatabaseAsync(path, ulong.MaxValue, 1234, createdUtc);
+            var upgradeUtc = new DateTime(2026, 9, 2, 2, 3, 4, DateTimeKind.Utc);
+            SimulationPersistenceSnapshot? firstSnapshot = null;
+
+            await using (var database = await WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(upgradeUtc)))
+            {
+                var migrations = await database.Context.Database.GetAppliedMigrationsAsync();
+                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World"], migrations.ToArray());
+                var snapshot = await database.CreateCheckpointStore().LoadAsync();
+                Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
+                Assert.Equal(1234, snapshot.WorldMinute.Value);
+                Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, snapshot.WorldSchemaVersion);
+                Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
+                Assert.Equal("m0-test", snapshot.ApplicationVersion);
+                Assert.Equal(new DeterministicCountersSnapshot(256, 512, 9), snapshot.Counters);
+                Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.World!.Configuration.CanonicalJson);
+                Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
+                Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World.GenerationVersion);
+                Assert.Equal(25_600, snapshot.World.Tiles.Count);
+                Assert.Equal(new WorldGenerator().Generate(new WorldSeed(ulong.MaxValue)).Fingerprint, snapshot.World.Fingerprint);
+                Assert.Equal(
+                    [
+                        new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"),
+                        new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later")
+                    ],
+                    snapshot.ScheduledEvents);
+                var metadata = await database.Context.WorldMeta.SingleAsync();
+                Assert.Equal(createdUtc, metadata.CreatedUtc);
+                Assert.Equal(upgradeUtc, metadata.LastCheckpointUtc);
+                Assert.Equal(256, metadata.NextEntityId);
+                Assert.Equal(512, metadata.NextHistoricalEventId);
+                Assert.Equal(9, metadata.NextScheduledEventSequence);
+                firstSnapshot = snapshot;
+            }
+
+            await using var reopened = await WorldDatabase.OpenAsync(path);
+            var reopenedSnapshot = await reopened.CreateCheckpointStore().LoadAsync();
+            Assert.NotNull(firstSnapshot);
+            Assert.Equal(firstSnapshot!.Seed, reopenedSnapshot.Seed);
+            Assert.Equal(firstSnapshot.WorldMinute, reopenedSnapshot.WorldMinute);
+            Assert.Equal(firstSnapshot.WorldSchemaVersion, reopenedSnapshot.WorldSchemaVersion);
+            Assert.Equal(firstSnapshot.SimulationRulesVersion, reopenedSnapshot.SimulationRulesVersion);
+            Assert.Equal(firstSnapshot.ApplicationVersion, reopenedSnapshot.ApplicationVersion);
+            Assert.Equal(firstSnapshot.WorldConfiguration, reopenedSnapshot.WorldConfiguration);
+            Assert.Equal(firstSnapshot.Counters, reopenedSnapshot.Counters);
+            Assert.Equal(firstSnapshot.ScheduledEvents, reopenedSnapshot.ScheduledEvents);
+            AssertWorldEqual(firstSnapshot.World!, reopenedSnapshot.World!);
+            Assert.Equal(reopenedSnapshot.World!.Tiles, reopenedSnapshot.World.EnumerateTilesRowMajor());
+            Assert.Equal(upgradeUtc, (await reopened.Context.WorldMeta.SingleAsync()).LastCheckpointUtc);
+        });
+    }
+
+    [Fact]
+    public async Task OpenRejectsM1ConfigurationInLegacySentinelWithoutWritingRows()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var createdUtc = new DateTime(2026, 9, 3, 2, 3, 4, DateTimeKind.Utc);
+            await CreateActualM0DatabaseAsync(path, ulong.MaxValue, 321, createdUtc);
+            await ApplyM1MigrationOnlyAsync(path);
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE world_meta SET world_configuration_json = $configuration;";
+                command.Parameters.Add(new SqliteParameter("$configuration", WorldGenerationConfiguration.Default.CanonicalJson));
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+
+            await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+            await verify.OpenAsync();
+            await using (var command = verify.CreateCommand())
+            {
+                command.CommandText = "SELECT generation_version, generation_attempt, starting_x, starting_y, world_fingerprint, world_configuration_json, created_utc, last_checkpoint_utc FROM world_meta;";
+                await using var reader = await command.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(0, reader.GetInt32(0));
+                Assert.Equal(0, reader.GetInt32(1));
+                Assert.Equal(0, reader.GetInt32(2));
+                Assert.Equal(0, reader.GetInt32(3));
+                Assert.Equal(string.Empty, reader.GetString(4));
+                Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, reader.GetString(5));
+                Assert.Equal(createdUtc, DateTime.Parse(reader.GetString(6), null, System.Globalization.DateTimeStyles.RoundtripKind));
+                Assert.Equal(createdUtc, DateTime.Parse(reader.GetString(7), null, System.Globalization.DateTimeStyles.RoundtripKind));
+            }
+
+            await using (var command = verify.CreateCommand())
+            {
+                command.CommandText = "SELECT (SELECT COUNT(*) FROM world_tiles), (SELECT COUNT(*) FROM resource_nodes), (SELECT COUNT(*) FROM scheduled_events);";
+                await using var reader = await command.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(0L, reader.GetInt64(0));
+                Assert.Equal(0L, reader.GetInt64(1));
+                Assert.Equal(2L, reader.GetInt64(2));
+            }
+        });
+    }
+
+    [Fact]
+    public async Task ActualM0UpgradeFailureRollsBackToSentinelAndRetrySucceeds()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var createdUtc = new DateTime(2026, 9, 1, 2, 3, 4, DateTimeKind.Utc);
+            await CreateActualM0DatabaseAsync(path, ulong.MaxValue, 77, createdUtc);
+            var failureUtc = new DateTime(2026, 9, 2, 2, 3, 4, DateTimeKind.Utc);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => WorldDatabase.OpenAsync(
+                path,
+                new WorldDatabaseOpenOptions(failureUtc, LegacyUpgradeFailurePoint.AfterRowsWritten)));
+
+            await AssertLegacySentinelAsync(path, 77, createdUtc);
+            await using var retried = await WorldDatabase.OpenAsync(path);
+            var upgraded = await retried.CreateCheckpointStore().LoadAsync();
+            Assert.Equal(1, upgraded.World!.GenerationVersion);
+            Assert.Equal(25_600, upgraded.World.Tiles.Count);
+            Assert.Equal(new WorldGenerator().Generate(new WorldSeed(ulong.MaxValue)).Fingerprint, upgraded.World.Fingerprint);
+        });
+    }
+
+    [Fact]
+    public async Task OpenRejectsPartialLegacySentinelAndPartialM1WithoutRepair()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            await CreateActualM0DatabaseAsync(path, 3, 0, DateTime.UtcNow);
+            await ApplyM1MigrationOnlyAsync(path);
+            await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+            await connection.OpenAsync();
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = "UPDATE world_meta SET starting_x = 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+        });
+
+        await WithDatabaseAsync(async path =>
+        {
+            await CreateActualM0DatabaseAsync(path, 4, 0, DateTime.UtcNow);
+            await ApplyM1MigrationOnlyAsync(path);
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString()))
+            {
+                await connection.OpenAsync();
+                await using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE world_meta SET generation_version = 1;";
+                await command.ExecuteNonQueryAsync();
+            }
+
+            await using var database = await WorldDatabase.OpenAsync(path);
+            await Assert.ThrowsAsync<InvalidDataException>(() => database.CreateCheckpointStore().LoadAsync());
+        });
+    }
+
+    [Fact]
     public async Task LoadRejectsWorldFingerprintAndConfigurationMismatch()
     {
         await WithDatabaseAsync(async path =>
@@ -341,6 +505,90 @@ public sealed class PersistenceTests
         Assert.Equal(expected.Tiles, actual.Tiles);
         Assert.Equal(expected.Resources, actual.Resources);
         Assert.Equal(expected.Fingerprint, actual.Fingerprint);
+    }
+
+    private static async Task CreateActualM0DatabaseAsync(string path, ulong seed, long minute, DateTime createdUtc)
+    {
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString();
+        var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+        await using var context = new LittleAgesDbContext(options);
+        await context.Database.OpenConnectionAsync();
+        await context.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync("20260912000000_InitialM0");
+        await using var command = context.Database.GetDbConnection().CreateCommand();
+        command.CommandText = """
+            INSERT INTO world_meta (id, world_seed, world_minute, world_schema_version, simulation_rules_version, application_version, world_configuration_json, next_entity_id, next_historical_event_id, next_scheduled_event_sequence, created_utc, last_checkpoint_utc)
+            VALUES (1, $seed, $minute, $schema, $rules, $app, $config, 256, 512, 9, $created, $created);
+            INSERT INTO scheduled_events (id, due_world_minute, priority, entity_sort_key, sequence, event_name, event_payload_json)
+            VALUES (8, 1300, 2, 3, 8, 'later', '{}'), (7, 1250, 1, 2, 7, 'sooner', '{}');
+            """;
+        command.Parameters.Add(new SqliteParameter("$seed", seed.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        command.Parameters.Add(new SqliteParameter("$minute", minute));
+        command.Parameters.Add(new SqliteParameter("$schema", SimulationEngine.CurrentWorldSchemaVersion));
+        command.Parameters.Add(new SqliteParameter("$rules", SimulationEngine.CurrentSimulationRulesVersion));
+        command.Parameters.Add(new SqliteParameter("$app", "m0-test"));
+        command.Parameters.Add(new SqliteParameter("$config", "{\"calendar\":\"m0\"}"));
+        command.Parameters.Add(new SqliteParameter("$created", createdUtc));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task AssertLegacySentinelAsync(string path, long expectedMinute, DateTime expectedCreatedUtc)
+    {
+        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT generation_version, generation_attempt, starting_x, starting_y, world_fingerprint, world_seed, world_minute, world_schema_version, simulation_rules_version, application_version, world_configuration_json, next_entity_id, next_historical_event_id, next_scheduled_event_sequence, created_utc, last_checkpoint_utc FROM world_meta;";
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(0, reader.GetInt32(0));
+            Assert.Equal(0, reader.GetInt32(1));
+            Assert.Equal(0, reader.GetInt32(2));
+            Assert.Equal(0, reader.GetInt32(3));
+            Assert.Equal(string.Empty, reader.GetString(4));
+            Assert.Equal(ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture), reader.GetString(5));
+            Assert.Equal(expectedMinute, reader.GetInt64(6));
+            Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, reader.GetString(7));
+            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, reader.GetString(8));
+            Assert.Equal("m0-test", reader.GetString(9));
+            Assert.Equal("{\"calendar\":\"m0\"}", reader.GetString(10));
+            Assert.Equal(256, reader.GetInt64(11));
+            Assert.Equal(512, reader.GetInt64(12));
+            Assert.Equal(9, reader.GetInt64(13));
+            Assert.Equal(expectedCreatedUtc, DateTime.Parse(reader.GetString(14), null, System.Globalization.DateTimeStyles.RoundtripKind));
+            Assert.Equal(expectedCreatedUtc, DateTime.Parse(reader.GetString(15), null, System.Globalization.DateTimeStyles.RoundtripKind));
+        }
+        command.CommandText = "SELECT COUNT(*) FROM world_tiles;";
+        Assert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture));
+        command.CommandText = "SELECT COUNT(*) FROM resource_nodes;";
+        Assert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture));
+        command.CommandText = "SELECT id, due_world_minute, priority, entity_sort_key, sequence, event_name, event_payload_json FROM scheduled_events ORDER BY sequence;";
+        await using var events = await command.ExecuteReaderAsync();
+        Assert.True(await events.ReadAsync());
+        Assert.Equal(7L, events.GetInt64(0));
+        Assert.Equal(1250L, events.GetInt64(1));
+        Assert.Equal(1, events.GetInt32(2));
+        Assert.Equal(2L, events.GetInt64(3));
+        Assert.Equal(7L, events.GetInt64(4));
+        Assert.Equal("sooner", events.GetString(5));
+        Assert.Equal("{}", events.GetString(6));
+        Assert.True(await events.ReadAsync());
+        Assert.Equal(8L, events.GetInt64(0));
+        Assert.Equal(1300L, events.GetInt64(1));
+        Assert.Equal(2, events.GetInt32(2));
+        Assert.Equal(3L, events.GetInt64(3));
+        Assert.Equal(8L, events.GetInt64(4));
+        Assert.Equal("later", events.GetString(5));
+        Assert.Equal("{}", events.GetString(6));
+        Assert.False(await events.ReadAsync());
+    }
+
+    private static async Task ApplyM1MigrationOnlyAsync(string path)
+    {
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false }.ToString();
+        var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+        await using var context = new LittleAgesDbContext(options);
+        await context.Database.OpenConnectionAsync();
+        await context.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync();
     }
 
     private static async Task WithDatabaseAsync(Func<string, Task> test)

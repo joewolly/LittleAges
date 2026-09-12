@@ -11,6 +11,11 @@ internal enum CheckpointFailurePoint
     AfterRowsWritten
 }
 
+internal enum LegacyUpgradeFailurePoint
+{
+    AfterRowsWritten
+}
+
 /// <summary>Persists and restores the complete M1 canonical snapshot in one explicit transaction.</summary>
 public sealed class WorldCheckpointStore
 {
@@ -31,6 +36,80 @@ public sealed class WorldCheckpointStore
     internal Task CheckpointAsync(SimulationPersistenceSnapshot snapshot, DateTime checkpointUtc, CheckpointFailurePoint? failurePoint, CancellationToken cancellationToken = default) =>
         CheckpointCoreAsync(snapshot, checkpointUtc, failurePoint, cancellationToken);
 
+    internal async Task<bool> UpgradeLegacyM0IfNeededAsync(
+        DateTime? checkpointUtc = null,
+        LegacyUpgradeFailurePoint? failurePoint = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var metadataRows = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
+            var tileCount = await _context.WorldTiles.AsNoTracking().CountAsync(cancellationToken);
+            var resourceCount = await _context.ResourceNodes.AsNoTracking().CountAsync(cancellationToken);
+            var eventCount = await _context.ScheduledEvents.AsNoTracking().CountAsync(cancellationToken);
+
+            if (metadataRows.Count == 0)
+            {
+                if (tileCount != 0 || resourceCount != 0 || eventCount != 0)
+                {
+                    throw new InvalidDataException("Canonical rows exist without a world_meta row.");
+                }
+
+                await transaction.CommitAsync(cancellationToken);
+                return false;
+            }
+
+            if (metadataRows.Count != 1 || metadataRows[0].Id != SingletonWorldId)
+            {
+                throw new InvalidDataException("Expected exactly one legacy world_meta row with id 1.");
+            }
+
+            var metadata = metadataRows[0];
+            if (metadata.GenerationVersion != 0)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return false;
+            }
+
+            if (metadata.GenerationAttempt != 0 || metadata.StartingX != 0 || metadata.StartingY != 0 || metadata.WorldFingerprint.Length != 0 || tileCount != 0 || resourceCount != 0)
+            {
+                throw new InvalidDataException("The M0-to-M1 upgrade sentinel is partial or contains canonical world rows.");
+            }
+
+            var legacySnapshot = await ReadLegacyM0SnapshotAsync(metadata, cancellationToken);
+            RejectVersionedM1ConfigurationFromLegacy(legacySnapshot.WorldConfiguration);
+            var world = new WorldGenerator().Generate(legacySnapshot.Seed, WorldGenerationConfiguration.Default);
+            var snapshot = new SimulationPersistenceSnapshot(
+                legacySnapshot.Seed,
+                legacySnapshot.WorldMinute,
+                legacySnapshot.WorldSchemaVersion,
+                legacySnapshot.SimulationRulesVersion,
+                legacySnapshot.ApplicationVersion,
+                world.Configuration.CanonicalJson,
+                legacySnapshot.Counters,
+                legacySnapshot.ScheduledEvents,
+                world);
+            var upgradeUtc = checkpointUtc ?? DateTime.UtcNow;
+            if (upgradeUtc.Kind != DateTimeKind.Utc) throw new ArgumentException("Legacy upgrade metadata must be UTC.", nameof(checkpointUtc));
+            await WriteSnapshotRowsAsync(snapshot, world, metadata.CreatedUtc, upgradeUtc, cancellationToken);
+
+            if (failurePoint == LegacyUpgradeFailurePoint.AfterRowsWritten)
+            {
+                throw new InvalidOperationException("Controlled legacy upgrade failure requested by the test hook.");
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            return true;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(CancellationToken.None);
+            _context.ChangeTracker.Clear();
+            throw;
+        }
+    }
+
     private async Task CheckpointCoreAsync(SimulationPersistenceSnapshot snapshot, DateTime checkpointUtc, CheckpointFailurePoint? failurePoint, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -45,26 +124,7 @@ public sealed class WorldCheckpointStore
             if (existingMetadata.Count > 1) throw new InvalidDataException("A checkpoint cannot replace a database with multiple world_meta rows.");
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
 
-            _context.ResourceNodes.RemoveRange(await _context.ResourceNodes.ToListAsync(cancellationToken));
-            _context.WorldTiles.RemoveRange(await _context.WorldTiles.ToListAsync(cancellationToken));
-            _context.ScheduledEvents.RemoveRange(await _context.ScheduledEvents.ToListAsync(cancellationToken));
-            _context.WorldMeta.RemoveRange(await _context.WorldMeta.ToListAsync(cancellationToken));
-            await _context.SaveChangesAsync(cancellationToken);
-
-            var detectChanges = _context.ChangeTracker.AutoDetectChangesEnabled;
-            _context.ChangeTracker.AutoDetectChangesEnabled = false;
-            try
-            {
-                _context.WorldMeta.Add(ToWorldMetaRow(snapshot, world, createdUtc, checkpointUtc));
-                _context.ScheduledEvents.AddRange(snapshot.ScheduledEvents.Select(ToScheduledEventRow));
-                _context.WorldTiles.AddRange(world.Tiles.Select(tile => ToWorldTileRow(tile, world.Width)).ToArray());
-                _context.ResourceNodes.AddRange(world.Resources.Select(node => ToResourceNodeRow(node, world.Width)).ToArray());
-                await _context.SaveChangesAsync(cancellationToken);
-            }
-            finally
-            {
-                _context.ChangeTracker.AutoDetectChangesEnabled = detectChanges;
-            }
+            await WriteSnapshotRowsAsync(snapshot, world, createdUtc, checkpointUtc, cancellationToken);
 
             if (failurePoint == CheckpointFailurePoint.AfterRowsWritten) throw new InvalidOperationException("Controlled checkpoint failure requested by the test hook.");
             await transaction.CommitAsync(cancellationToken);
@@ -74,6 +134,36 @@ public sealed class WorldCheckpointStore
             await transaction.RollbackAsync(CancellationToken.None);
             _context.ChangeTracker.Clear();
             throw;
+        }
+    }
+
+    private async Task WriteSnapshotRowsAsync(
+        SimulationPersistenceSnapshot snapshot,
+        WorldMap world,
+        DateTime createdUtc,
+        DateTime checkpointUtc,
+        CancellationToken cancellationToken)
+    {
+        _context.ChangeTracker.Clear();
+        _context.ResourceNodes.RemoveRange(await _context.ResourceNodes.ToListAsync(cancellationToken));
+        _context.WorldTiles.RemoveRange(await _context.WorldTiles.ToListAsync(cancellationToken));
+        _context.ScheduledEvents.RemoveRange(await _context.ScheduledEvents.ToListAsync(cancellationToken));
+        _context.WorldMeta.RemoveRange(await _context.WorldMeta.ToListAsync(cancellationToken));
+        await _context.SaveChangesAsync(cancellationToken);
+
+        var detectChanges = _context.ChangeTracker.AutoDetectChangesEnabled;
+        _context.ChangeTracker.AutoDetectChangesEnabled = false;
+        try
+        {
+            _context.WorldMeta.Add(ToWorldMetaRow(snapshot, world, createdUtc, checkpointUtc));
+            _context.ScheduledEvents.AddRange(snapshot.ScheduledEvents.Select(ToScheduledEventRow));
+            _context.WorldTiles.AddRange(world.Tiles.Select(tile => ToWorldTileRow(tile, world.Width)).ToArray());
+            _context.ResourceNodes.AddRange(world.Resources.Select(node => ToResourceNodeRow(node, world.Width)).ToArray());
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        finally
+        {
+            _context.ChangeTracker.AutoDetectChangesEnabled = detectChanges;
         }
     }
 
@@ -165,6 +255,104 @@ public sealed class WorldCheckpointStore
         catch (Exception exception) when (exception is JsonException or FormatException or ArgumentException or NotSupportedException) { throw new InvalidDataException("The persisted world configuration is not a valid canonical M1 configuration.", exception); }
     }
 
+    private static void RejectVersionedM1ConfigurationFromLegacy(string configuration)
+    {
+        var looksVersioned = false;
+        try
+        {
+            using var document = JsonDocument.Parse(configuration);
+            if (document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("version", out var version))
+            {
+                looksVersioned = version.ValueKind == JsonValueKind.Number;
+            }
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        try
+        {
+            _ = WorldGenerationConfiguration.FromCanonicalJson(configuration);
+        }
+        catch (Exception exception) when (exception is JsonException or FormatException or ArgumentException or NotSupportedException)
+        {
+            if (looksVersioned)
+            {
+                throw new InvalidDataException("The legacy M0 checkpoint contains a versioned M1 world configuration but no persisted world rows.", exception);
+            }
+
+            return;
+        }
+
+        throw new InvalidDataException("The legacy M0 checkpoint contains a valid M1 world configuration but no persisted world rows.");
+    }
+
+    private async Task<SimulationPersistenceSnapshot> ReadLegacyM0SnapshotAsync(WorldMetaRow metadata, CancellationToken cancellationToken)
+    {
+        var seed = WorldSeedCodec.Decode(metadata.WorldSeedValue);
+        WorldMinute worldMinute;
+        try
+        {
+            worldMinute = new WorldMinute(metadata.WorldMinute);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            throw new InvalidDataException("The legacy world minute must be non-negative.", exception);
+        }
+
+        if (string.IsNullOrWhiteSpace(metadata.WorldSchemaVersion) || string.IsNullOrWhiteSpace(metadata.SimulationRulesVersion) || string.IsNullOrWhiteSpace(metadata.ApplicationVersion))
+        {
+            throw new InvalidDataException("Legacy checkpoint metadata versions and application version must be non-empty.");
+        }
+
+        try
+        {
+            using var configuration = JsonDocument.Parse(metadata.WorldConfigurationJson);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("The legacy world configuration is not valid JSON.", exception);
+        }
+
+        var events = await _context.ScheduledEvents.AsNoTracking()
+            .OrderBy(row => row.DueWorldMinute)
+            .ThenBy(row => row.Priority)
+            .ThenBy(row => row.EntitySortKey)
+            .ThenBy(row => row.Sequence)
+            .ToListAsync(cancellationToken);
+        var scheduledEvents = events.Select(ToScheduledEventSnapshot).ToArray();
+        if (scheduledEvents.Any(item => item.Order.DueWorldMinute < worldMinute))
+        {
+            throw new InvalidDataException("A legacy scheduled event cannot be due before the persisted world minute.");
+        }
+
+        SimulationPersistenceSnapshot snapshot;
+        try
+        {
+            snapshot = new SimulationPersistenceSnapshot(
+                seed,
+                worldMinute,
+                metadata.WorldSchemaVersion,
+                metadata.SimulationRulesVersion,
+                metadata.ApplicationVersion,
+                metadata.WorldConfigurationJson,
+                new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence),
+                scheduledEvents);
+            SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidDataException("The legacy M0 checkpoint is not a valid persistence snapshot.", exception);
+        }
+        catch (NotSupportedException exception)
+        {
+            throw new InvalidDataException("The legacy M0 checkpoint has unsupported compatibility metadata.", exception);
+        }
+
+        return snapshot;
+    }
+
     private static WorldMetaRow ToWorldMetaRow(SimulationPersistenceSnapshot snapshot, WorldMap world, DateTime createdUtc, DateTime checkpointUtc) => new()
     {
         Id = SingletonWorldId, WorldSeedValue = WorldSeedCodec.Encode(snapshot.Seed), WorldMinute = snapshot.WorldMinute.Value,
@@ -197,6 +385,8 @@ public sealed class WorldCheckpointStore
     {
         if (row.Id <= 0 || row.Sequence <= 0 || row.Id != row.Sequence) throw new InvalidDataException("A scheduled event must have one positive identity equal to its sequence.");
         if (string.IsNullOrWhiteSpace(row.EventName) || string.IsNullOrWhiteSpace(row.EventPayloadJson)) throw new InvalidDataException("A scheduled event must contain pure data name and payload values.");
+        try { using var payload = JsonDocument.Parse(row.EventPayloadJson); }
+        catch (JsonException exception) { throw new InvalidDataException("A scheduled event payload must be valid JSON.", exception); }
         return new ScheduledEventSnapshot(new ScheduledEventId(row.Id), new ScheduledEventOrder(new WorldMinute(row.DueWorldMinute), row.Priority, row.EntitySortKey, row.Sequence), row.EventName);
     }
 }

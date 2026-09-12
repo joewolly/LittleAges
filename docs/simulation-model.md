@@ -152,6 +152,8 @@ IDs and sequences are unique in a persistence snapshot; the SQLite primary key, 
 
 Read snapshots freeze their event lists for observers. Persistence snapshots freeze the pending event list and counters, and `SimulationEngine.FromPersistenceSnapshot` reconstructs the queue without changing order or consuming new IDs.
 
+An M0 database upgraded to M1 is normalized exactly once at persistence-open time. The upgrade accepts arbitrary valid M0 configuration JSON, preserves the M0 seed, minute, compatibility metadata, counters, and pending event ordering, and replaces that configuration with canonical `WorldGenerationConfiguration.Default` JSON after generating the immutable M1 map. It is atomic with the metadata, event, tile, and resource rows: an interrupted upgrade leaves the M0 sentinel and no partial world rows, allowing a later open to retry. M1 rows are never regenerated during load; incomplete version-1 state is rejected.
+
 RNG state is not serialized because there is no mutable RNG stream. After save/reload, the same seed, domain, and keys produce the same derived value without guessing how many draws occurred. Persisted event order and the next scheduled sequence are restored explicitly, so save/reload preserves subsequent event order and allocation. Operational timestamps do not affect either result.
 
 ## Deterministic prohibitions

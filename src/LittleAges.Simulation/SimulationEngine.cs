@@ -195,6 +195,9 @@ public sealed class SimulationEngine
         ApplicationVersion = snapshot.ApplicationVersion;
         WorldConfiguration = snapshot.WorldConfiguration;
         _counters = new DeterministicCounters(snapshot.Counters);
+        // Programmatic M0 snapshots may omit a WorldMap for compatibility with callers that
+        // never used the database. WorldDatabase upgrades real M0 rows before LoadAsync and
+        // therefore never relies on this fallback for persisted state.
         World = snapshot.World ?? CreateWorld(snapshot.Seed, snapshot.WorldConfiguration);
 
         foreach (var scheduledEvent in snapshot.ScheduledEvents)
