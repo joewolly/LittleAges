@@ -6,6 +6,10 @@ namespace LittleAges.Persistence;
 
 public sealed record SqlitePragmas(string JournalMode, int ForeignKeys, int BusyTimeoutMilliseconds);
 
+internal sealed record WorldDatabaseOpenOptions(
+    DateTime? LegacyUpgradeCheckpointUtc = null,
+    LegacyUpgradeFailurePoint? LegacyUpgradeFailurePoint = null);
+
 /// <summary>Opens one world database, applies migrations, and configures connection-level SQLite safety.</summary>
 public sealed class WorldDatabase : IAsyncDisposable
 {
@@ -21,7 +25,13 @@ public sealed class WorldDatabase : IAsyncDisposable
     public string DatabasePath { get; }
     internal LittleAgesDbContext Context => _context;
 
-    public static async Task<WorldDatabase> OpenAsync(string databasePath, CancellationToken cancellationToken = default)
+    public static Task<WorldDatabase> OpenAsync(string databasePath, CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(databasePath, openOptions: null, cancellationToken);
+
+    internal static Task<WorldDatabase> OpenAsync(string databasePath, WorldDatabaseOpenOptions? openOptions, CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(databasePath, openOptions, cancellationToken);
+
+    private static async Task<WorldDatabase> OpenCoreAsync(string databasePath, WorldDatabaseOpenOptions? openOptions, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
         {
@@ -43,12 +53,12 @@ public sealed class WorldDatabase : IAsyncDisposable
             DefaultTimeout = 5,
             ForeignKeys = true
         }.ToString();
-        var options = new DbContextOptionsBuilder<LittleAgesDbContext>()
+        var dbOptions = new DbContextOptionsBuilder<LittleAgesDbContext>()
             .UseSqlite(
                 connectionString,
                 sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name))
             .Options;
-        var context = new LittleAgesDbContext(options);
+        var context = new LittleAgesDbContext(dbOptions);
         var database = new WorldDatabase(fullPath, context);
 
         try
@@ -57,6 +67,10 @@ public sealed class WorldDatabase : IAsyncDisposable
             await ConfigureConnectionAsync(context.Database.GetDbConnection(), cancellationToken);
             await context.Database.MigrateAsync(cancellationToken);
             await database.VerifyConnectionPragmasAsync(cancellationToken);
+            await database.CreateCheckpointStore().UpgradeLegacyM0IfNeededAsync(
+                openOptions?.LegacyUpgradeCheckpointUtc,
+                openOptions?.LegacyUpgradeFailurePoint,
+                cancellationToken);
             return database;
         }
         catch

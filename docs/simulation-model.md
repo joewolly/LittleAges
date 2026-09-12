@@ -1,6 +1,6 @@
-# Little Ages M0 Simulation Model
+# Little Ages M0/M1 Simulation Model
 
-This is the exact deterministic model implemented by M0. It is a simulation shell with synthetic data events, not the future civilization gameplay model.
+This is the exact deterministic model implemented by M0 plus the bounded M1 world-generation model. M0 remains a simulation shell with synthetic data events; M1 adds immutable deterministic geography and resource nodes, not civilization gameplay.
 
 ## World minute and calendar
 
@@ -152,6 +152,8 @@ IDs and sequences are unique in a persistence snapshot; the SQLite primary key, 
 
 Read snapshots freeze their event lists for observers. Persistence snapshots freeze the pending event list and counters, and `SimulationEngine.FromPersistenceSnapshot` reconstructs the queue without changing order or consuming new IDs.
 
+An M0 database upgraded to M1 is normalized exactly once at persistence-open time. The upgrade accepts arbitrary valid M0 configuration JSON, preserves the M0 seed, minute, compatibility metadata, counters, and pending event ordering, and replaces that configuration with canonical `WorldGenerationConfiguration.Default` JSON after generating the immutable M1 map. It is atomic with the metadata, event, tile, and resource rows: an interrupted upgrade leaves the M0 sentinel and no partial world rows, allowing a later open to retry. M1 rows are never regenerated during load; incomplete version-1 state is rejected.
+
 RNG state is not serialized because there is no mutable RNG stream. After save/reload, the same seed, domain, and keys produce the same derived value without guessing how many draws occurred. Persisted event order and the next scheduled sequence are restored explicitly, so save/reload preserves subsequent event order and allocation. Operational timestamps do not affect either result.
 
 ## Deterministic prohibitions
@@ -167,3 +169,159 @@ Canonical Domain/Simulation behavior must not depend on:
 Wall-clock UTC is used only for operational checkpoint metadata and server lifecycle logging. The browser's refresh rate, connection state, and Vite proxy do not participate in canonical simulation state.
 
 Gameplay systems and long-run behavior are future work: world generation is M1; citizens and movement M2; survival M3; settlement M4; social/family systems M5; historical gameplay facts and queries M6; server hardening/deployment M7; and headless/MAX, scale, fingerprint, and 100-year validation M8.
+
+## M1 immutable world model
+
+`WorldMap` is the immutable, validated geography/resource value held by the simulation engine. Its map dimensions come from the persisted `WorldGenerationConfiguration`; the default is `160 x 160` (25,600 tiles). There is no mutable map revision in M1.
+
+`TileCoordinate` is zero-based. A coordinate `(x, y)` has the row-major linear index:
+
+```text
+index = y * width + x
+x = index % width
+y = index / width
+```
+
+Coordinates compare by `Y` and then `X`, and the map enumerates tiles in that same row-major order. `WorldMap` requires exactly `width * height` unique, in-range coordinates and a complete index range. `TileCoordinate` itself validates non-negative components; map-height/range completeness is enforced by `WorldMap`.
+
+Persisted terrain values are explicit and must not be renumbered:
+
+| Terrain | Value |
+|---|---:|
+| `Freshwater` | 1 |
+| `Grassland` | 2 |
+| `Forest` | 3 |
+| `RockyGround` | 4 |
+| `DenseWilderness` | 5 |
+
+Persisted resource values are:
+
+| Resource | Value |
+|---|---:|
+| `Food` | 1 |
+| `Wood` | 2 |
+| `Stone` | 3 |
+
+Each `WorldTile` stores its coordinate, terrain, normalized `Elevation`, `Fertility`, and `WaterAccess` values, `Walkable`, and `MovementCost`. Normalized integer fields are inclusive `[0, 10000]`. A walkable tile has a positive movement cost; a non-walkable tile uses movement-cost sentinel `0`. The current generator assigns Freshwater and RockyGround as non-walkable, Grassland as cost 1, Forest as cost 2, and DenseWilderness as cost 3. `Buildable` is walkable and not Freshwater.
+
+Each `ResourceNode` stores a positive initial and maximum quantity (the generator sets them equal) plus normalized `RegenerationPotential`. Generator IDs are deterministic and positive:
+
+```text
+resourceId = (tileIndex * 4) + typeCode
+typeCode: Food = 1, Wood = 2, Stone = 3
+```
+
+The `WorldMap` constructor freezes tile/resource enumeration, validates map completeness and resource coordinate containment, enforces terrain walkability/movement semantics and deterministic resource IDs/ecology, orders resources by ID, validates the starting site, and computes the fingerprint.
+
+## M1 generation configuration and canonical JSON
+
+`WorldGenerationConfiguration.CurrentVersion` and `WorldGenerator.GenerationVersion` are both `1`. The configuration is persisted, not reconstructed from process defaults. The default values are:
+
+| Field | Default |
+|---|---:|
+| `version` | 1 |
+| `width` | 160 |
+| `height` | 160 |
+| `terrainWaterThreshold` | 2500 |
+| `terrainRockThreshold` | 8200 |
+| `terrainForestFertilityThreshold` | 5600 |
+| `terrainDenseFertilityThreshold` | 7600 |
+| `foodPlacementThreshold` | 4200 |
+| `woodPlacementThreshold` | 4800 |
+| `stonePlacementThreshold` | 7000 |
+| `startSiteRadius` | 8 |
+| `minimumNearbyFood` | 1 |
+| `minimumNearbyWood` | 1 |
+| `minimumNearbyStone` | 1 |
+| `minimumNearbyFreshwater` | 1 |
+| `minimumWalkableCount` | 24 |
+| `maximumAttempts` | 8 |
+
+`ToCanonicalJson()` emits one fixed-order compact JSON object with exactly these lower-camel-case properties, in the table order above, using invariant decimal integers and no extra properties. `FromCanonicalJson()` requires an object with exactly this key set and integer values, rejects missing/unknown/non-integer properties, then validates the ranges and threshold ordering. The parser currently accepts the properties in any input order; canonical output is fixed order. Width and height must each be 8..1024; normalized thresholds are 0..10000; water must be below rock, forest below dense, radius is 1..64, minimum counts are non-negative, minimum walkable count is at least 1, and maximum attempts is 1..64.
+
+## M1 deterministic generation
+
+`WorldGenerator.Generate(seed, configuration)` validates the configuration and evaluates attempts `0` through `maximumAttempts - 1`. For attempt `a`, it derives an attempt seed with the repository-owned stateless `DeterministicRandom` (algorithm version 1):
+
+```text
+attemptSeed = DR(seed).NextUInt64(WorldGeneration, generationVersion, a)
+random = DR(WorldSeed(attemptSeed))
+```
+
+All world values use `RandomDomain.WorldGeneration` and stable keys; there is no mutable random stream, iteration-order-dependent draw count, clock, or process state. Elevation and base fertility use an 8-tile coarse grid and integer bilinear interpolation. For coordinate `(x, y)` and field layer `L` (elevation `1`, base fertility `2`):
+
+```text
+coarseX = x / 8; coarseY = y / 8
+fx = x % 8; fy = y % 8
+sample(cx, cy) = DR(random).NextUInt64(WorldGeneration, L, (uint)cx, (uint)cy) % 10001
+a = sample(coarseX, coarseY)
+b = sample(coarseX + 1, coarseY)
+c = sample(coarseX, coarseY + 1)
+d = sample(coarseX + 1, coarseY + 1)
+top = a + ((b - a) * fx / 8)
+bottom = c + ((d - c) * fx / 8)
+value = clamp(top + ((bottom - top) * fy / 8), 0, 10000)
+```
+
+The implementation uses unchecked `uint` representations for the coarse sample keys, including negative coarse coordinates if such a key is ever requested; generated map coordinates themselves are non-negative. Terrain is derived from elevation and base fertility in this order:
+
+```text
+elevation < terrainWaterThreshold       -> Freshwater
+otherwise elevation >= terrainRockThreshold -> RockyGround
+otherwise fertility >= terrainDenseFertilityThreshold -> DenseWilderness
+otherwise fertility >= terrainForestFertilityThreshold -> Forest
+otherwise                                -> Grassland
+```
+
+After terrain classification, the generator computes `WaterAccess` from the generated Freshwater geography with a deterministic multi-source 8-neighbor breadth-first search. Freshwater tiles have distance 0 and access 10000; a tile at finite Chebyshev distance `d` has access `10000 / (d + 1)` using integer division; worlds without freshwater would use 0. This is an O(width*height) stable pass with row-major seed/neighbor traversal. Fertility then combines base fertility, water access, and a terrain factor using integer weights 5/3/2 respectively; terrain factors are Freshwater 4000, Grassland 6000, Forest 8000, RockyGround 1500, and DenseWilderness 8500. Freshwater behavior is coherent: low elevation creates Freshwater, Freshwater is non-walkable with movement cost 0, it is not buildable, and no resource node is placed on it.
+
+Resource placement is deterministic per tile/type. On non-Freshwater tiles, Food is suitable when fertility is at least `foodPlacementThreshold`, water access is at least `2600`, and an 8-neighbor Freshwater tile exists; Wood is suitable only on Forest or DenseWilderness with fertility at least `woodPlacementThreshold`; Stone is suitable on RockyGround or when elevation is at least `stonePlacementThreshold`. A suitable node is emitted when the WorldGeneration draw with keys `(100, tileIndex, typeCode)` modulo 100 is below `24`. Its quantity is `40 + (draw(101, tileIndex, typeCode) % 161)`, therefore 40..200 inclusive, and its regeneration potential is the clamped ecology input (fertility for Food/Wood, elevation for Stone). RockyGround remains non-walkable but can carry Stone.
+
+## M1 starting-site viability and retries
+
+Candidates must be buildable. The nearby region is a square using Chebyshev radius `startSiteRadius`: `abs(dx) <= radius` and `abs(dy) <= radius`. The generator clamps that square to map bounds while scoring. It sums resource `MaximumQuantity` by type, counts Freshwater tiles, and counts walkable tiles. A candidate is viable only when all configured thresholds pass:
+
+```text
+foodQuantity       >= minimumNearbyFood
+woodQuantity       >= minimumNearbyWood
+stoneQuantity      >= minimumNearbyStone
+freshwaterTileCount >= minimumNearbyFreshwater
+walkableTileCount  >= minimumWalkableCount
+```
+
+For each viable candidate the exact score is:
+
+```text
+food * 100000 + wood * 10000 + stone * 1000 + freshwater * 100
+  + walkable + candidateFertility
+```
+
+The highest score wins; ties use the lower row-major tile index. If no candidate survives, the current selector returns `(0, 0)`, after which `WorldMap.Validate()` rejects the map as non-viable. `WorldMap.Validate()` repeats the starting-tile and square viability checks (without the selector's boundary-clamping step, which is equivalent for in-range coordinates).
+
+Failed attempts are retried deterministically with the next attempt number. Every `ArgumentException` from attempt generation or validation is retained as the last failure; after `maximumAttempts` failures, generation throws `WorldGenerationException` with that failure as its inner exception.
+
+## M1 fingerprint and compatibility
+
+`WorldMap.ComputeFingerprint()` is SHA-256 over an ordered sequence of length-prefixed UTF-8 fields. For each field, the implementation encodes the field as UTF-8 bytes, prefixes those bytes with the invariant decimal byte length and `:`, and appends both to the hash. Field order is exact:
+
+1. Original seed as invariant decimal text.
+2. Generation version as invariant decimal text.
+3. Generation attempt as invariant decimal text.
+4. Canonical configuration JSON.
+5. Every tile in row-major order as `x,y,terrain,elevation,fertility,waterAccess,walkable,movementCost`, with terrain as its integer enum value and walkable as `1`/`0`.
+6. Every resource in ascending ID order as `id,x,y,type,initialQuantity,maximumQuantity,regenerationPotential`, with type as its integer enum value.
+7. Starting-site `x,y`.
+
+The resulting lowercase hexadecimal SHA-256 string is exactly 64 characters. Locked golden values include:
+
+```text
+seed 0, default configuration -> 97eeea22c01791cef8957c6f461c7428cb59f1bb38a66d8b27c65ce8c93923bc
+seed 42, default configuration -> a0568524bd2257a3126b91dadd57825b06b15d20d1f09376c62180d48b54dd81
+seed UInt64.MaxValue, default configuration -> b9cbba5088e6b0968928f91ddedaf4eedb7a270840888e350d42fa0f31c1bd64
+```
+
+Generation version `1`, terrain/resource integer values, configuration canonicalization, field keys, retry derivation, interpolation arithmetic, resource formulas, viability score, ordering, and fingerprint encoding are compatibility data. The RNG algorithm itself is version `1`; changing any of these without a compatibility/version decision changes canonical worlds. The existing M0 `WorldSchemaVersion` (`0.1`) and `SimulationRulesVersion` (`m0-rng1`) remain the current engine metadata; they do not replace the M1 generation version.
+
+## M1 persistence and read boundary
+
+M1 persistence adds `world_tiles` and `resource_nodes` tables and extends `world_meta` with `generation_version`, `generation_attempt`, `starting_x`, `starting_y`, and stored `world_fingerprint`. Checkpointing writes map rows and all existing canonical state transactionally. Loading reconstructs and validates the map from rows without regeneration, then requires the stored fingerprint to equal the recomputed canonical fingerprint. Absent/duplicate/out-of-range rows, inconsistent coordinates/IDs/counts, malformed values, unsupported generation versions, invalid ecology or movement semantics, and fingerprint mismatches are explicit corruption/compatibility failures. The immutable `GET /api/v1/world` summary contains decimal-string seed, dimensions, tile count, generation version/attempt, starting coordinate, terrain/resource counts, and fingerprint. M1 has no rendered map, PixiJS frontend, or frontend gameplay surface. The existing Ubuntu/Windows backend matrix is the cross-platform gate for shared golden fingerprints.

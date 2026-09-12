@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using System.Globalization;
+using System.Collections.ObjectModel;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
@@ -20,7 +21,22 @@ public sealed record ServerStatusSnapshot(
     long WorldMinute,
     int PendingEventCount,
     string WorldSeed,
-    string? Error);
+    string? Error,
+    WorldSummarySnapshot? World = null);
+
+public sealed record WorldStartingSiteSnapshot(int X, int Y);
+
+public sealed record WorldSummarySnapshot(
+    string WorldSeed,
+    int Width,
+    int Height,
+    int TileCount,
+    int GenerationVersion,
+    int GenerationAttempt,
+    WorldStartingSiteSnapshot StartingSite,
+    IReadOnlyDictionary<string, int> TerrainCounts,
+    IReadOnlyDictionary<string, int> ResourceCounts,
+    string Fingerprint);
 
 public sealed record CheckpointCommandResult(bool Succeeded, long WorldMinute);
 
@@ -153,7 +169,7 @@ public sealed partial class SimulationHost : BackgroundService
             return;
         }
 
-        _engine = new SimulationEngine(_options.WorldSeed);
+        _engine = new SimulationEngine(_options.WorldSeed, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
         await _checkpointStore.CheckpointAsync(_engine.CreatePersistenceSnapshot(), DateTime.UtcNow, cancellationToken: cancellationToken);
         LogWorldCreated(_options.ActiveWorld, _options.DatabasePath);
     }
@@ -254,8 +270,26 @@ public sealed partial class SimulationHost : BackgroundService
             engine?.CurrentMinute.Value ?? 0,
             engine?.PendingEventCount ?? 0,
             FormatWorldSeed(engine?.Seed.Value ?? _options.WorldSeed.Value),
-            error);
+            error,
+            engine is null ? null : CreateWorldSummary(engine.World));
         Interlocked.Exchange(ref _status, status);
+    }
+
+    private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)
+    {
+        var terrainCounts = Enum.GetValues<TerrainType>().ToDictionary(type => type.ToString(), type => world.Tiles.Count(tile => tile.Terrain == type), StringComparer.Ordinal);
+        var resourceCounts = Enum.GetValues<ResourceType>().ToDictionary(type => type.ToString(), type => world.Resources.Count(resource => resource.Type == type), StringComparer.Ordinal);
+        return new WorldSummarySnapshot(
+            FormatWorldSeed(world.OriginalSeed.Value),
+            world.Width,
+            world.Height,
+            world.Tiles.Count,
+            world.GenerationVersion,
+            world.GenerationAttempt,
+            new WorldStartingSiteSnapshot(world.StartingSite.X, world.StartingSite.Y),
+            new ReadOnlyDictionary<string, int>(terrainCounts),
+            new ReadOnlyDictionary<string, int>(resourceCounts),
+            world.Fingerprint);
     }
 
     private static string FormatWorldSeed(ulong seed) => seed.ToString(CultureInfo.InvariantCulture);
