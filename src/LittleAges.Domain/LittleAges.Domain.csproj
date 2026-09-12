@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LittleAges.Domain</AssemblyName>
+    <RootNamespace>LittleAges.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

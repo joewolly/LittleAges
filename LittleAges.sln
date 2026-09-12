@@ -1,0 +1,64 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Domain", "src\LittleAges.Domain\LittleAges.Domain.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Simulation", "src\LittleAges.Simulation\LittleAges.Simulation.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Persistence", "src\LittleAges.Persistence\LittleAges.Persistence.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000003}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Server", "src\LittleAges.Server\LittleAges.Server.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000004}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Domain.Tests", "tests\LittleAges.Domain.Tests\LittleAges.Domain.Tests.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000005}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Simulation.Tests", "tests\LittleAges.Simulation.Tests\LittleAges.Simulation.Tests.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000006}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Persistence.Tests", "tests\LittleAges.Persistence.Tests\LittleAges.Persistence.Tests.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000007}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LittleAges.Integration.Tests", "tests\LittleAges.Integration.Tests\LittleAges.Integration.Tests.csproj", "{A1D0E7B0-51F9-4B7D-9D3A-100000000008}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000002}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000002}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000002}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000002}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000003}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000003}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000003}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000003}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000004}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000004}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000004}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000004}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000005}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000005}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000005}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000005}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000006}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000006}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000006}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000006}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000007}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000007}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000007}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000007}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000008}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000008}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000008}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1D0E7B0-51F9-4B7D-9D3A-100000000008}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

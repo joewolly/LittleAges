@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>LittleAges.Persistence</AssemblyName>
+    <RootNamespace>LittleAges.Persistence</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+    <ProjectReference Include="..\LittleAges.Domain\LittleAges.Domain.csproj" />
+    <ProjectReference Include="..\LittleAges.Simulation\LittleAges.Simulation.csproj" />
+  </ItemGroup>
+</Project>
