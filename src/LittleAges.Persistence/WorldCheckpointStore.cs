@@ -78,7 +78,7 @@ public sealed class WorldCheckpointStore
             }
 
             var legacySnapshot = await ReadLegacyM0SnapshotAsync(metadata, cancellationToken);
-            RejectVersionedM1ConfigurationFromLegacy(legacySnapshot.WorldConfiguration);
+            RejectCompleteM1ConfigurationFromLegacy(legacySnapshot.WorldConfiguration);
             var world = new WorldGenerator().Generate(legacySnapshot.Seed, WorldGenerationConfiguration.Default);
             var snapshot = new SimulationPersistenceSnapshot(
                 legacySnapshot.Seed,
@@ -255,37 +255,19 @@ public sealed class WorldCheckpointStore
         catch (Exception exception) when (exception is JsonException or FormatException or ArgumentException or NotSupportedException) { throw new InvalidDataException("The persisted world configuration is not a valid canonical M1 configuration.", exception); }
     }
 
-    private static void RejectVersionedM1ConfigurationFromLegacy(string configuration)
+    private static void RejectCompleteM1ConfigurationFromLegacy(string configuration)
     {
-        var looksVersioned = false;
-        try
-        {
-            using var document = JsonDocument.Parse(configuration);
-            if (document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("version", out var version))
-            {
-                looksVersioned = version.ValueKind == JsonValueKind.Number;
-            }
-        }
-        catch (JsonException)
-        {
-            return;
-        }
-
         try
         {
             _ = WorldGenerationConfiguration.FromCanonicalJson(configuration);
         }
         catch (Exception exception) when (exception is JsonException or FormatException or ArgumentException or NotSupportedException)
         {
-            if (looksVersioned)
-            {
-                throw new InvalidDataException("The legacy M0 checkpoint contains a versioned M1 world configuration but no persisted world rows.", exception);
-            }
-
+            // Valid arbitrary M0 JSON is intentionally accepted and normalized during upgrade.
             return;
         }
 
-        throw new InvalidDataException("The legacy M0 checkpoint contains a valid M1 world configuration but no persisted world rows.");
+        throw new InvalidDataException("The legacy sentinel contains a complete M1 world configuration but no persisted world rows.");
     }
 
     private async Task<SimulationPersistenceSnapshot> ReadLegacyM0SnapshotAsync(WorldMetaRow metadata, CancellationToken cancellationToken)

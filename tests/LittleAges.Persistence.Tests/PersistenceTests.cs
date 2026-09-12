@@ -335,6 +335,59 @@ public sealed class PersistenceTests
         });
     }
 
+    [Theory]
+    [InlineData("{\"version\":1,\"calendar\":\"m0\"}")]
+    [InlineData("{\"version\":999,\"legacySetting\":true}")]
+    public async Task ProductionOpenTreatsValidArbitraryM0JsonAsLegacyAndNormalizesIt(string legacyConfiguration)
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var createdUtc = new DateTime(2026, 9, 4, 2, 3, 4, DateTimeKind.Utc);
+            await CreateActualM0DatabaseAsync(path, ulong.MaxValue, 1234, createdUtc, legacyConfiguration);
+            var upgradeUtc = new DateTime(2026, 9, 5, 2, 3, 4, DateTimeKind.Utc);
+
+            await using var database = await WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(upgradeUtc));
+            var snapshot = await database.CreateCheckpointStore().LoadAsync();
+            Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
+            Assert.Equal(1234, snapshot.WorldMinute.Value);
+            Assert.Equal(new DeterministicCountersSnapshot(256, 512, 9), snapshot.Counters);
+            Assert.Equal("m0-test", snapshot.ApplicationVersion);
+            Assert.Equal(
+                [
+                    new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"),
+                    new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later")
+                ],
+                snapshot.ScheduledEvents);
+            Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
+            Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World!.GenerationVersion);
+            Assert.Equal(25_600, snapshot.World.Tiles.Count);
+            Assert.Equal(new WorldGenerator().Generate(new WorldSeed(ulong.MaxValue)).Fingerprint, snapshot.World.Fingerprint);
+            var metadata = await database.Context.WorldMeta.SingleAsync();
+            Assert.Equal(createdUtc, metadata.CreatedUtc);
+            Assert.Equal(upgradeUtc, metadata.LastCheckpointUtc);
+        });
+    }
+
+    [Fact]
+    public async Task ProductionOpenRejectsMalformedLegacyJson()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var createdUtc = new DateTime(2026, 9, 6, 2, 3, 4, DateTimeKind.Utc);
+            await CreateActualM0DatabaseAsync(path, ulong.MaxValue, 321, createdUtc, "{malformed");
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+
+            await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+            await verify.OpenAsync();
+            await using var command = verify.CreateCommand();
+            command.CommandText = "SELECT COUNT(*) FROM world_tiles;";
+            Assert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture));
+            command.CommandText = "SELECT COUNT(*) FROM resource_nodes;";
+            Assert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture));
+        });
+    }
+
     [Fact]
     public async Task OpenRejectsM1ConfigurationInLegacySentinelWithoutWritingRows()
     {
@@ -507,7 +560,12 @@ public sealed class PersistenceTests
         Assert.Equal(expected.Fingerprint, actual.Fingerprint);
     }
 
-    private static async Task CreateActualM0DatabaseAsync(string path, ulong seed, long minute, DateTime createdUtc)
+    private static async Task CreateActualM0DatabaseAsync(
+        string path,
+        ulong seed,
+        long minute,
+        DateTime createdUtc,
+        string configuration = "{\"calendar\":\"m0\"}")
     {
         var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString();
         var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
@@ -526,7 +584,7 @@ public sealed class PersistenceTests
         command.Parameters.Add(new SqliteParameter("$schema", SimulationEngine.CurrentWorldSchemaVersion));
         command.Parameters.Add(new SqliteParameter("$rules", SimulationEngine.CurrentSimulationRulesVersion));
         command.Parameters.Add(new SqliteParameter("$app", "m0-test"));
-        command.Parameters.Add(new SqliteParameter("$config", "{\"calendar\":\"m0\"}"));
+        command.Parameters.Add(new SqliteParameter("$config", configuration));
         command.Parameters.Add(new SqliteParameter("$created", createdUtc));
         await command.ExecuteNonQueryAsync();
     }
