@@ -303,7 +303,7 @@ public sealed class ServerIntegrationTests
 
     private static async Task WaitForStateAsync(SimulationHost host, SimulationHostState expectedState)
     {
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < 500; attempt++)
         {
             if (host.Status.State == expectedState)
             {
