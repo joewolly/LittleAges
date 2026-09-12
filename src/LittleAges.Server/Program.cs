@@ -26,6 +26,13 @@ app.MapGet("/api/v1/world", (SimulationHost simulationHost) =>
     var world = simulationHost.Status.World;
     return world is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(world);
 });
+app.MapGet("/api/v1/citizens", (SimulationHost simulationHost) => Results.Ok(simulationHost.GetCitizenSnapshot()));
+app.MapGet("/api/v1/citizens/{id}", (string id, SimulationHost simulationHost) =>
+{
+    if (!long.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0 || value.ToString(System.Globalization.CultureInfo.InvariantCulture) != id) return Results.BadRequest();
+    var citizen = simulationHost.GetCitizenSnapshot().FirstOrDefault(x => x.CitizenId == id);
+    return citizen is null ? Results.NotFound() : Results.Ok(citizen);
+});
 
 app.Run();
 

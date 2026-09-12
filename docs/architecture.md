@@ -131,9 +131,33 @@ The M1 determinism gate uses that existing Ubuntu/Windows backend matrix to run 
 M0 intentionally stops at infrastructure foundations. M1 generation, persistence, and world-summary endpoint are implemented. The following remain later work:
 
 - **M2:** citizens, movement, and gameplay scheduling.
+
+M2 adds a canonical `Citizen` collection owned by `SimulationEngine`. Twenty founders are
+generated from `WorldSeed`, `CitizenGenerationVersion = 1`, and founder ordinal, then placed
+on nearest walkable tiles around the starting site. HTTP and the observer UI consume immutable
+ID-sorted snapshots. Citizen events use `citizen.decision.v1`, `citizen.move-step.v1`, and
+`citizen.action-complete.v1`; payload IDs are invariant decimal strings. The M2 compatibility
+rules value is `m2-rng1-citizen1`; `m0-rng1` snapshots are upgraded once without regenerating
+their map.
 - **M3:** needs, gathering, survival, health, and mortality consequences.
 - **M4:** structures, construction, settlement demand, and derived occupations.
 - **M5:** relationships, households, reproduction, aging, and family systems.
 - **M6:** historical gameplay events, biographies, statistics, and historical queries.
 - **M7:** persistent-server hardening, service installation, LAN/firewall/deployment guidance, reconnect behavior, and production publishing.
 - **M8:** headless/MAX operation, canonical fingerprints, long-run determinism evidence, profiling, tuning, and the 100-year acceptance run.
+
+## M2 compatibility boundary
+
+M2 adds a canonical `Citizen` aggregate with exactly 20 founder rows. Each row persists a positive shared-counter ID, ordinal 0..19, catalog-derived given/family names, signed birth minute, four fixed-point needs, six fixed-point traits, six immutable non-negative skills, health 10000, action/sequence/timing/target state, nullable future lifecycle IDs/causes, and lifetime movement counters. Future death, relationships, households, structures, survival, resource consumption, skill advancement, and health effects remain explicitly out of scope.
+
+Founder generation is version `1` and is keyed by seed, ordinal, field, and the fixed repository name catalogs. Collision handling is deterministic. Founders are assigned to the nearest walkable tiles by squared distance then row-major order. Ages are 18..45 using signed checked `birth_minute = current_minute - (age * 518400 + deterministic_year_offset)`. Traits are 0..10000; skills are six fixed values that never change in M2. M2 rules are `m2-rng1-citizen1`; `m0-rng1` is accepted only as a one-time upgrade input.
+
+Needs projection is pure, integer, and saturating: Hunger +2, Rest +3, Shelter +1, Social +1 per minute, with all values clamped to 0..10000. Rest is the only active need behavior. Utilities are Rest weight 2, Explore 1000, Wander 700, Idle 500; action tie order is Rest, Explore, Wander, Idle. Idle lasts 30..90 minutes, Rest 120, Wander targets radius 4, Explore radius 12. Citizen-local action sequence and explicit purpose keys feed stateless decision/target variation.
+
+Movement uses non-persisted deterministic weighted A*: N, NE, E, SE, S, SW, W, NW; no diagonal corner cutting; orthogonal cost 10 and diagonal cost 14 multiplied by destination movement cost. Queue ties are F, H, row-major tile index, and local insertion sequence. The locked path golden is seed 42 `(131,130)` to `(127,126)`: `(131,130),(130,130),(129,130),(128,130),(127,129),(127,128),(127,127),(127,126)`.
+
+Citizen event names are `citizen.decision.v1`, `citizen.move-step.v1`, and `citizen.action-complete.v1`, with priorities 20, 10, and 15 respectively. Payloads are exactly `{"citizenId":"<positive invariant decimal>","actionSequence":<non-negative integer>}`; legacy synthetic events retain `{}`. Dispatch validates payload structure, identity, entity key, action sequence, state, timing, reachability, and one-next-event-per-citizen invariants. Processed events retain a monotonic count and bounded 32-entry diagnostics.
+
+The M2 EF migration adds `citizen_generation_version` to `world_meta` and a constrained `citizens` table with explicit snake_case columns and a unique ordinal index. Rows are ID ordered on load. Metadata, world, resources, events, and citizens are checkpointed transactionally. M1→M2 requires the complete M1 world, cver `0`, zero citizen rows/events, and exact `m0-rng1`; it preserves seed/minute/map fingerprint/counters/events/CreatedUtc, allocates 20 IDs, and queues current-minute decisions. M0→M2 chains M0→M1 then M1→M2. Partial/corrupt/unknown state rejects; failed upgrades roll back and retry once without regeneration.
+
+The host remains the only writer. `SimulationMinutesPerSecond` is finite and non-negative, defaults to 10, and accepts 0 to disable automatic progression. Fractional advancement accumulates and floors whole minutes; driver commands pass through the host loop, and shutdown checkpoints. Status exposes population only. Immutable ID-sorted citizens are read through `GET /api/v1/citizens` and `/api/v1/citizens/{id}` (canonical decimal IDs, 400 malformed, 404 missing). The frontend polls these read models and provides accessible loading/error/list observation only; it has no map, PixiJS, SignalR, mutation controls, or canonical simulation state.

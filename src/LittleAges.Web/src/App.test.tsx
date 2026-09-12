@@ -1,24 +1,33 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
-beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn((path: string) => Promise.resolve({ ok: true, text: () => Promise.resolve(path.endsWith('health') ? 'Healthy' : JSON.stringify({ state: 'Running', worldMinute: 19452830, worldSeed: '18446744073709551615' })) })))
-})
+const citizen = { citizenId: '9223372036854775807', name: 'Elara Venn', age: 18, lifeStage: 'Adult', location: { x: 1, y: 2 }, health: 10000, currentAction: 'Idle', actionSequence: 0 }
 
-describe('status page', () => {
-  it('shows the observer foundation after loading', async () => {
+afterEach(() => vi.restoreAllMocks())
+
+describe('citizen observer', () => {
+  it('shows an accessible loading state while requests are pending', () => {
+    vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise<Response>(() => {}))
     render(<App />)
-    await waitFor(() => expect(screen.getByText('19,452,830')).toBeInTheDocument())
-    expect(screen.getByText('Running')).toBeInTheDocument()
-    expect(screen.getByText('No controls. No interruptions.')).toBeInTheDocument()
-    expect(screen.queryByText('18446744073709551615')).not.toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
+    expect(screen.getByText('Loading citizens…')).toBeInTheDocument()
   })
 
-  it('shows a useful connection error', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('Network down'))))
+  it('renders the citizen list after successful polling', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.endsWith('/health')) return new Response('Healthy')
+      if (path.endsWith('/status')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 10, pendingEventCount: 1, worldSeed: '42' }))
+      return new Response(JSON.stringify([citizen]))
+    })
     render(<App />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Network down')
+    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    expect(screen.getByText('At (1, 2)')).toBeInTheDocument()
+  })
+
+  it('shows an accessible API error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+    render(<App />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('offline')
   })
 })

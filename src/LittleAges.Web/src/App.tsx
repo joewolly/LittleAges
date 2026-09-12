@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchHealth, fetchStatus, type Health, type Status } from './api'
+import { fetchCitizens, fetchHealth, fetchStatus, type Citizen, type Health, type Status } from './api'
 
 const initialStatus: Status = { state: 'Unknown', worldMinute: null, pendingEventCount: null, worldSeed: null, error: null }
 
@@ -11,16 +11,19 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null)
   const [status, setStatus] = useState(initialStatus)
   const [error, setError] = useState<string | null>(null)
+  const [citizens, setCitizens] = useState<Citizen[] | null>(null)
 
   useEffect(() => {
     let active = true
-    Promise.all([fetchHealth(), fetchStatus()]).then(([nextHealth, nextStatus]) => {
+    const load = () => Promise.all([fetchHealth(), fetchStatus(), fetchCitizens()]).then(([nextHealth, nextStatus, nextCitizens]) => {
       if (!active) return
-      setHealth(nextHealth); setStatus(nextStatus); setError(null)
+      setHealth(nextHealth); setStatus(nextStatus); setCitizens(nextCitizens); setError(null)
     }).catch((reason: unknown) => {
       if (active) setError(reason instanceof Error ? reason.message : 'The server could not be reached.')
     })
-    return () => { active = false }
+    void load()
+    const timer = window.setInterval(load, 2000)
+    return () => { active = false; window.clearInterval(timer) }
   }, [])
 
   const connected = health?.ok === true && error === null
@@ -51,6 +54,13 @@ export function App() {
       </div>
     </section>
 
-    <footer><span>Little Ages · Milestone 0</span><span>No controls. No interruptions.</span></footer>
+    <section className="citizens" aria-labelledby="citizens-heading">
+      <div className="section-heading"><span className="section-kicker">Citizens</span><h2 id="citizens-heading">Twenty lives in motion</h2></div>
+      {citizens === null && !error && <p role="status" aria-live="polite">Loading citizens…</p>}
+      {citizens !== null && citizens.length === 0 && <p>No citizens are available.</p>}
+      {citizens && citizens.length > 0 && <div className="citizen-grid">{citizens.map(citizen => <article className="citizen-card" key={citizen.citizenId}><h3>{citizen.name}</h3><p>{citizen.age} years · {citizen.currentAction}</p><p>At ({citizen.location.x}, {citizen.location.y})</p></article>)}</div>}
+    </section>
+
+    <footer><span>Little Ages · Milestone 2</span><span>No controls. No interruptions.</span></footer>
   </main>
 }

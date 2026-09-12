@@ -41,6 +41,7 @@ sealed partial class LittleAgesDbContextModelSnapshot : ModelSnapshot
             b.Property<int>("StartingX").HasColumnType("INTEGER").HasColumnName("starting_x");
             b.Property<int>("StartingY").HasColumnType("INTEGER").HasColumnName("starting_y");
             b.Property<string>("WorldFingerprint").IsRequired().HasColumnType("TEXT").HasColumnName("world_fingerprint");
+            b.Property<int>("CitizenGenerationVersion").HasColumnType("INTEGER").HasColumnName("citizen_generation_version");
             b.Property<long>("NextEntityId").HasColumnType("INTEGER").HasColumnName("next_entity_id");
             b.Property<long>("NextHistoricalEventId").HasColumnType("INTEGER").HasColumnName("next_historical_event_id");
             b.Property<long>("NextScheduledEventSequence").HasColumnType("INTEGER").HasColumnName("next_scheduled_event_sequence");
@@ -96,6 +97,22 @@ sealed partial class LittleAgesDbContextModelSnapshot : ModelSnapshot
                 .HasForeignKey("TileIndex")
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired();
+        });
+
+        modelBuilder.Entity("LittleAges.Persistence.CitizenRow", b =>
+        {
+            b.Property<long>("Id").ValueGeneratedNever().HasColumnType("INTEGER").HasColumnName("id");
+            b.Property<int>("FounderOrdinal").HasColumnType("INTEGER").HasColumnName("founder_ordinal");
+            b.Property<string>("GivenName").IsRequired().HasColumnType("TEXT").HasColumnName("given_name");
+            b.Property<string>("FamilyName").IsRequired().HasColumnType("TEXT").HasColumnName("family_name");
+            b.Property<long>("BirthMinute").HasColumnType("INTEGER").HasColumnName("birth_minute"); b.Property<long?>("DeathMinute").HasColumnType("INTEGER").HasColumnName("death_minute"); b.Property<string>("DeathCause").HasColumnType("TEXT").HasColumnName("death_cause");
+            b.Property<long?>("ParentAId").HasColumnType("INTEGER").HasColumnName("parent_a_id"); b.Property<long?>("ParentBId").HasColumnType("INTEGER").HasColumnName("parent_b_id"); b.Property<long?>("PartnerId").HasColumnType("INTEGER").HasColumnName("partner_id"); b.Property<long?>("HouseholdId").HasColumnType("INTEGER").HasColumnName("household_id"); b.Property<long?>("HomeStructureId").HasColumnType("INTEGER").HasColumnName("home_structure_id");
+            b.Property<int>("LocationX").HasColumnType("INTEGER").HasColumnName("location_x"); b.Property<int>("LocationY").HasColumnType("INTEGER").HasColumnName("location_y"); b.Property<int>("Health").HasColumnType("INTEGER").HasColumnName("health");
+            b.Property<int>("Hunger").HasColumnType("INTEGER").HasColumnName("hunger"); b.Property<int>("Rest").HasColumnType("INTEGER").HasColumnName("rest"); b.Property<int>("Shelter").HasColumnType("INTEGER").HasColumnName("shelter"); b.Property<int>("Social").HasColumnType("INTEGER").HasColumnName("social");
+            b.Property<int>("Industriousness").HasColumnType("INTEGER").HasColumnName("industriousness"); b.Property<int>("Sociability").HasColumnType("INTEGER").HasColumnName("sociability"); b.Property<int>("Curiosity").HasColumnType("INTEGER").HasColumnName("curiosity"); b.Property<int>("Cooperativeness").HasColumnType("INTEGER").HasColumnName("cooperativeness"); b.Property<int>("RiskTolerance").HasColumnType("INTEGER").HasColumnName("risk_tolerance"); b.Property<int>("Resilience").HasColumnType("INTEGER").HasColumnName("resilience");
+            b.Property<int>("Foraging").HasColumnType("INTEGER").HasColumnName("foraging"); b.Property<int>("Woodcutting").HasColumnType("INTEGER").HasColumnName("woodcutting"); b.Property<int>("Stoneworking").HasColumnType("INTEGER").HasColumnName("stoneworking"); b.Property<int>("Construction").HasColumnType("INTEGER").HasColumnName("construction"); b.Property<int>("Hauling").HasColumnType("INTEGER").HasColumnName("hauling"); b.Property<int>("Domestic").HasColumnType("INTEGER").HasColumnName("domestic");
+            b.Property<int>("CurrentAction").HasColumnType("INTEGER").HasColumnName("current_action"); b.Property<long>("ActionSequence").HasColumnType("INTEGER").HasColumnName("action_sequence"); b.Property<long?>("ActionStartedMinute").HasColumnType("INTEGER").HasColumnName("action_started_minute"); b.Property<long?>("ActionCompletesMinute").HasColumnType("INTEGER").HasColumnName("action_completes_minute"); b.Property<int?>("ActionTargetX").HasColumnType("INTEGER").HasColumnName("action_target_x"); b.Property<int?>("ActionTargetY").HasColumnType("INTEGER").HasColumnName("action_target_y"); b.Property<long>("NeedsUpdatedMinute").HasColumnType("INTEGER").HasColumnName("needs_updated_minute"); b.Property<long>("LifetimeMovementSteps").HasColumnType("INTEGER").HasColumnName("lifetime_movement_steps"); b.Property<long>("LifetimeMovementCost").HasColumnType("INTEGER").HasColumnName("lifetime_movement_cost");
+            b.HasKey("Id"); b.HasIndex("FounderOrdinal").IsUnique(); b.ToTable("citizens", t => { t.HasCheckConstraint("CK_citizens_id", "id > 0"); t.HasCheckConstraint("CK_citizens_founder", "founder_ordinal BETWEEN 0 AND 19"); t.HasCheckConstraint("CK_citizens_health", "health BETWEEN 0 AND 10000"); t.HasCheckConstraint("CK_citizens_needs", "hunger BETWEEN 0 AND 10000 AND rest BETWEEN 0 AND 10000 AND shelter BETWEEN 0 AND 10000 AND social BETWEEN 0 AND 10000"); t.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4)"); });
         });
 
         modelBuilder.Entity("LittleAges.Persistence.ResourceNodeRow", b =>

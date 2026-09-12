@@ -11,6 +11,133 @@ namespace LittleAges.Persistence.Tests;
 public sealed class PersistenceTests
 {
     [Fact]
+    public async Task M2CheckpointRoundTripsRosterAndRejectsCorruptCitizen()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var source = new SimulationEngine(new WorldSeed(42));
+            source.AdvanceUntil(new WorldMinute(35));
+            await using var database = await WorldDatabase.OpenAsync(path);
+            var store = database.CreateCheckpointStore();
+            await store.CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
+            var loaded = await store.LoadAsync();
+            Assert.Equal(1, loaded.CitizenGenerationVersion);
+            Assert.Equal(source.CreatePersistenceSnapshot().ScheduledEvents, loaded.ScheduledEvents);
+            Assert.Equal(source.CreateReadSnapshot().Citizens, new SimulationEngine(loaded).CreateReadSnapshot().Citizens);
+            Assert.Equal(20, await database.Context.Citizens.CountAsync());
+
+            await using var command = database.Context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "PRAGMA ignore_check_constraints = ON; UPDATE citizens SET health = 1 WHERE id = 1;";
+            await command.ExecuteNonQueryAsync();
+            await Assert.ThrowsAsync<InvalidDataException>(() => store.LoadAsync());
+        });
+    }
+
+    [Fact]
+    public async Task M1ToM2UpgradeFailureRollsBackRowsAndRetryGeneratesOnce()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            await CreateActualM0DatabaseAsync(path, 42, 17, DateTime.UtcNow);
+            await ApplyM1MigrationOnlyAsync(path);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(null, null, M2UpgradeFailurePoint.AfterRowsWritten)));
+            await using (var verify = new SqliteConnection($"Data Source={path};Pooling=False"))
+            {
+                await verify.OpenAsync();
+                await using var command = verify.CreateCommand();
+                command.CommandText = "SELECT citizen_generation_version, (SELECT COUNT(*) FROM citizens) FROM world_meta;";
+                await using var reader = await command.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(0, reader.GetInt32(0));
+                Assert.Equal(0L, reader.GetInt64(1));
+            }
+            await using var retried = await WorldDatabase.OpenAsync(path);
+            var loaded = await retried.CreateCheckpointStore().LoadAsync();
+            Assert.Equal(1, loaded.CitizenGenerationVersion);
+            Assert.Equal(20, loaded.Citizens.Count);
+            Assert.Equal(276, loaded.Counters.NextEntityId);
+        });
+    }
+
+    [Fact]
+    public async Task CheckpointReloadContinuesMidIdleToExactCompletion()
+    {
+        await AssertMidActionReloadAsync(CitizenAction.Idle, requireSteps: 0);
+    }
+
+    [Fact]
+    public async Task CheckpointReloadContinuesMidRestWithIdenticalNeedsTrajectory()
+    {
+        await AssertMidActionReloadAsync(CitizenAction.Rest, requireSteps: 0);
+    }
+
+    [Fact]
+    public async Task CheckpointReloadContinuesMidMovementAfterSeveralSteps()
+    {
+        await AssertMidActionReloadAsync(CitizenAction.Wander, requireSteps: 2);
+    }
+
+    private static async Task AssertMidActionReloadAsync(CitizenAction action, long requireSteps)
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var source = CreateForcedActionEngine(action);
+            while (source.GetCitizen(new CitizenId(1))!.LifetimeMovementSteps < requireSteps) Assert.True(source.ProcessNextEvent());
+            var active = source.GetCitizen(new CitizenId(1));
+            Assert.NotNull(active);
+            Assert.NotNull(active!.ActionCompletesMinute);
+            var completion = active.ActionCompletesMinute!.Value;
+            if (requireSteps == 0) source.AdvanceUntil(new WorldMinute(Math.Max(1, completion.Value / 2)));
+            active = source.GetCitizen(new CitizenId(1));
+            Assert.Equal(action, active!.CurrentAction);
+            await using (var database = await WorldDatabase.OpenAsync(path))
+            {
+                await database.CreateCheckpointStore().CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
+            }
+            SimulationPersistenceSnapshot loaded;
+            await using (var database = await WorldDatabase.OpenAsync(path)) loaded = await database.CreateCheckpointStore().LoadAsync();
+            var restored = SimulationEngine.FromPersistenceSnapshot(loaded);
+            source.AdvanceUntil(completion);
+            restored.AdvanceUntil(completion);
+            Assert.Equal(source.CurrentMinute, restored.CurrentMinute);
+            Assert.Equal(source.CreateReadSnapshot().Citizens, restored.CreateReadSnapshot().Citizens);
+            Assert.Equal(source.CreatePersistenceSnapshot().ScheduledEvents, restored.CreatePersistenceSnapshot().ScheduledEvents);
+        });
+    }
+
+    private static SimulationEngine CreateForcedActionEngine(CitizenAction action)
+    {
+        var seed = new WorldSeed(42);
+        var baseline = new SimulationEngine(seed).CreatePersistenceSnapshot();
+        var world = baseline.World!;
+        var citizen = baseline.Citizens[0];
+        var oldEvent = baseline.ScheduledEvents.Single(e => e.Order.EntitySortKey == citizen.Id.Value);
+        citizen.CurrentAction = action;
+        citizen.ActionStartedMinute = baseline.WorldMinute;
+        citizen.ActionTarget = null;
+        long duration;
+        if (action is CitizenAction.Wander or CitizenAction.Explore)
+        {
+            var target = world.Tiles.Where(t => t.Walkable && t.Coordinate != citizen.Location).Select(t => (t.Coordinate, Path: DeterministicPathfinder.Find(world, citizen.Location, t.Coordinate))).First(x => x.Path is { Count: >= 6 });
+            citizen.ActionTarget = target.Coordinate;
+            duration = target.Path!.Skip(1).Zip(target.Path!, (next, previous) => (long)((next.X == previous.X || next.Y == previous.Y ? 10 : 14) * world.GetTile(next).MovementCost)).Sum();
+            citizen.ActionCompletesMinute = baseline.WorldMinute.Add(duration);
+            var first = target.Path![1];
+            var firstCost = (first.X == citizen.Location.X || first.Y == citizen.Location.Y ? 10 : 14) * world.GetTile(first).MovementCost;
+            oldEvent = new ScheduledEventSnapshot(oldEvent.Id, new ScheduledEventOrder(baseline.WorldMinute.Add(firstCost), CitizenEventNames.MovementPriority, citizen.Id.Value, oldEvent.Order.Sequence), CitizenEventNames.MoveStep, "{\"citizenId\":\"1\",\"actionSequence\":0}");
+        }
+        else
+        {
+            duration = action == CitizenAction.Rest ? CitizenSimulationRules.RestDurationMinutes : 60;
+            citizen.ActionCompletesMinute = baseline.WorldMinute.Add(duration);
+            oldEvent = new ScheduledEventSnapshot(oldEvent.Id, new ScheduledEventOrder(citizen.ActionCompletesMinute.Value, CitizenEventNames.CompletionPriority, citizen.Id.Value, oldEvent.Order.Sequence), CitizenEventNames.ActionComplete, "{\"citizenId\":\"1\",\"actionSequence\":0}");
+        }
+        var events = baseline.ScheduledEvents.Select(e => e.Order.EntitySortKey == citizen.Id.Value ? oldEvent : e).ToArray();
+        var snapshot = new SimulationPersistenceSnapshot(baseline.Seed, baseline.WorldMinute, baseline.WorldSchemaVersion, baseline.SimulationRulesVersion, baseline.ApplicationVersion, baseline.WorldConfiguration, baseline.Counters, events, baseline.World, baseline.Citizens, baseline.CitizenGenerationVersion);
+        return SimulationEngine.FromPersistenceSnapshot(snapshot);
+    }
+
+    [Fact]
     public async Task OpenAppliesMigrationAndReopenRetainsSchema()
     {
         await WithDatabaseAsync(async path =>
@@ -19,11 +146,11 @@ public sealed class PersistenceTests
             {
                 Assert.True(File.Exists(path));
                 Assert.Equal("wal", (await database.ReadConnectionPragmasAsync()).JournalMode, ignoreCase: true);
-                Assert.Equal(4, await CountTablesAsync(database));
+                Assert.Equal(5, await CountTablesAsync(database));
             }
 
             await using var reopened = await WorldDatabase.OpenAsync(path);
-            Assert.Equal(4, await CountTablesAsync(reopened));
+            Assert.Equal(5, await CountTablesAsync(reopened));
         });
     }
 
@@ -214,7 +341,7 @@ public sealed class PersistenceTests
             new WorldSeed(seed),
             minute,
             SimulationEngine.CurrentWorldSchemaVersion,
-            SimulationEngine.CurrentSimulationRulesVersion,
+            "m0-rng1",
             "application-test",
             world.Configuration.CanonicalJson,
             new DeterministicCountersSnapshot(21, 34, 3),
@@ -290,31 +417,28 @@ public sealed class PersistenceTests
             await using (var database = await WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(upgradeUtc)))
             {
                 var migrations = await database.Context.Database.GetAppliedMigrationsAsync();
-                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World"], migrations.ToArray());
+                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens"], migrations.ToArray());
                 var snapshot = await database.CreateCheckpointStore().LoadAsync();
                 Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
                 Assert.Equal(1234, snapshot.WorldMinute.Value);
                 Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, snapshot.WorldSchemaVersion);
                 Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
                 Assert.Equal("m0-test", snapshot.ApplicationVersion);
-                Assert.Equal(new DeterministicCountersSnapshot(256, 512, 9), snapshot.Counters);
+                Assert.Equal(new DeterministicCountersSnapshot(276, 512, 29), snapshot.Counters);
                 Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.World!.Configuration.CanonicalJson);
                 Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
                 Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World.GenerationVersion);
                 Assert.Equal(25_600, snapshot.World.Tiles.Count);
                 Assert.Equal(new WorldGenerator().Generate(new WorldSeed(ulong.MaxValue)).Fingerprint, snapshot.World.Fingerprint);
-                Assert.Equal(
-                    [
-                        new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"),
-                        new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later")
-                    ],
-                    snapshot.ScheduledEvents);
+                Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"), snapshot.ScheduledEvents);
+                Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later"), snapshot.ScheduledEvents);
+                Assert.Equal(22, snapshot.ScheduledEvents.Count);
                 var metadata = await database.Context.WorldMeta.SingleAsync();
                 Assert.Equal(createdUtc, metadata.CreatedUtc);
                 Assert.Equal(upgradeUtc, metadata.LastCheckpointUtc);
-                Assert.Equal(256, metadata.NextEntityId);
+                Assert.Equal(276, metadata.NextEntityId);
                 Assert.Equal(512, metadata.NextHistoricalEventId);
-                Assert.Equal(9, metadata.NextScheduledEventSequence);
+                Assert.Equal(29, metadata.NextScheduledEventSequence);
                 firstSnapshot = snapshot;
             }
 
@@ -350,14 +474,11 @@ public sealed class PersistenceTests
             var snapshot = await database.CreateCheckpointStore().LoadAsync();
             Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
             Assert.Equal(1234, snapshot.WorldMinute.Value);
-            Assert.Equal(new DeterministicCountersSnapshot(256, 512, 9), snapshot.Counters);
+            Assert.Equal(new DeterministicCountersSnapshot(276, 512, 29), snapshot.Counters);
             Assert.Equal("m0-test", snapshot.ApplicationVersion);
-            Assert.Equal(
-                [
-                    new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"),
-                    new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later")
-                ],
-                snapshot.ScheduledEvents);
+            Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"), snapshot.ScheduledEvents);
+            Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later"), snapshot.ScheduledEvents);
+            Assert.Equal(22, snapshot.ScheduledEvents.Count);
             Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
             Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World!.GenerationVersion);
             Assert.Equal(25_600, snapshot.World.Tiles.Count);
@@ -487,8 +608,7 @@ public sealed class PersistenceTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            await using var database = await WorldDatabase.OpenAsync(path);
-            await Assert.ThrowsAsync<InvalidDataException>(() => database.CreateCheckpointStore().LoadAsync());
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
         });
     }
 
@@ -544,7 +664,7 @@ public sealed class PersistenceTests
     private static async Task<int> CountTablesAsync(WorldDatabase database)
     {
         await using var command = database.Context.Database.GetDbConnection().CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('world_meta', 'scheduled_events', 'world_tiles', 'resource_nodes');";
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('world_meta', 'scheduled_events', 'world_tiles', 'resource_nodes', 'citizens');";
         return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -582,7 +702,7 @@ public sealed class PersistenceTests
         command.Parameters.Add(new SqliteParameter("$seed", seed.ToString(System.Globalization.CultureInfo.InvariantCulture)));
         command.Parameters.Add(new SqliteParameter("$minute", minute));
         command.Parameters.Add(new SqliteParameter("$schema", SimulationEngine.CurrentWorldSchemaVersion));
-        command.Parameters.Add(new SqliteParameter("$rules", SimulationEngine.CurrentSimulationRulesVersion));
+        command.Parameters.Add(new SqliteParameter("$rules", "m0-rng1"));
         command.Parameters.Add(new SqliteParameter("$app", "m0-test"));
         command.Parameters.Add(new SqliteParameter("$config", configuration));
         command.Parameters.Add(new SqliteParameter("$created", createdUtc));
@@ -606,7 +726,7 @@ public sealed class PersistenceTests
             Assert.Equal(ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture), reader.GetString(5));
             Assert.Equal(expectedMinute, reader.GetInt64(6));
             Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, reader.GetString(7));
-            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, reader.GetString(8));
+            Assert.Equal("m0-rng1", reader.GetString(8));
             Assert.Equal("m0-test", reader.GetString(9));
             Assert.Equal("{\"calendar\":\"m0\"}", reader.GetString(10));
             Assert.Equal(256, reader.GetInt64(11));

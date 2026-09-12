@@ -8,6 +8,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
     public DbSet<ScheduledEventRow> ScheduledEvents => Set<ScheduledEventRow>();
     public DbSet<WorldTileRow> WorldTiles => Set<WorldTileRow>();
     public DbSet<ResourceNodeRow> ResourceNodes => Set<ResourceNodeRow>();
+    public DbSet<CitizenRow> Citizens => Set<CitizenRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -27,6 +28,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.StartingX).HasColumnName("starting_x").IsRequired();
             entity.Property(row => row.StartingY).HasColumnName("starting_y").IsRequired();
             entity.Property(row => row.WorldFingerprint).HasColumnName("world_fingerprint").HasColumnType("TEXT").IsRequired();
+            entity.Property(row => row.CitizenGenerationVersion).HasColumnName("citizen_generation_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();
             entity.Property(row => row.NextScheduledEventSequence).HasColumnName("next_scheduled_event_sequence").IsRequired();
@@ -94,6 +96,28 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
                 .HasPrincipalKey(tile => tile.TileIndex)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(row => row.TileIndex);
+        });
+
+        modelBuilder.Entity<CitizenRow>(entity =>
+        {
+            entity.ToTable("citizens", table =>
+            {
+                table.HasCheckConstraint("CK_citizens_id", "id > 0");
+                table.HasCheckConstraint("CK_citizens_founder", "founder_ordinal BETWEEN 0 AND 19");
+                table.HasCheckConstraint("CK_citizens_health", "health BETWEEN 0 AND 10000");
+                table.HasCheckConstraint("CK_citizens_needs", "hunger BETWEEN 0 AND 10000 AND rest BETWEEN 0 AND 10000 AND shelter BETWEEN 0 AND 10000 AND social BETWEEN 0 AND 10000");
+                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4)");
+            });
+            entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(row => row.FounderOrdinal).HasColumnName("founder_ordinal").IsRequired();
+            entity.Property(row => row.GivenName).HasColumnName("given_name").HasColumnType("TEXT").IsRequired(); entity.Property(row => row.FamilyName).HasColumnName("family_name").HasColumnType("TEXT").IsRequired();
+            entity.Property(row => row.BirthMinute).HasColumnName("birth_minute").IsRequired(); entity.Property(row => row.LocationX).HasColumnName("location_x").IsRequired(); entity.Property(row => row.LocationY).HasColumnName("location_y").IsRequired();
+            entity.Property(row => row.DeathMinute).HasColumnName("death_minute"); entity.Property(row => row.DeathCause).HasColumnName("death_cause").HasColumnType("TEXT"); entity.Property(row => row.ParentAId).HasColumnName("parent_a_id"); entity.Property(row => row.ParentBId).HasColumnName("parent_b_id"); entity.Property(row => row.PartnerId).HasColumnName("partner_id"); entity.Property(row => row.HouseholdId).HasColumnName("household_id"); entity.Property(row => row.HomeStructureId).HasColumnName("home_structure_id");
+            entity.Property(row => row.Health).HasColumnName("health"); entity.Property(row => row.Hunger).HasColumnName("hunger"); entity.Property(row => row.Rest).HasColumnName("rest"); entity.Property(row => row.Shelter).HasColumnName("shelter"); entity.Property(row => row.Social).HasColumnName("social");
+            entity.Property(row => row.Industriousness).HasColumnName("industriousness"); entity.Property(row => row.Sociability).HasColumnName("sociability"); entity.Property(row => row.Curiosity).HasColumnName("curiosity"); entity.Property(row => row.Cooperativeness).HasColumnName("cooperativeness"); entity.Property(row => row.RiskTolerance).HasColumnName("risk_tolerance"); entity.Property(row => row.Resilience).HasColumnName("resilience");
+            entity.Property(row => row.Foraging).HasColumnName("foraging"); entity.Property(row => row.Woodcutting).HasColumnName("woodcutting"); entity.Property(row => row.Stoneworking).HasColumnName("stoneworking"); entity.Property(row => row.Construction).HasColumnName("construction"); entity.Property(row => row.Hauling).HasColumnName("hauling"); entity.Property(row => row.Domestic).HasColumnName("domestic");
+            entity.Property(row => row.CurrentAction).HasColumnName("current_action"); entity.Property(row => row.ActionSequence).HasColumnName("action_sequence"); entity.Property(row => row.ActionStartedMinute).HasColumnName("action_started_minute"); entity.Property(row => row.ActionCompletesMinute).HasColumnName("action_completes_minute"); entity.Property(row => row.ActionTargetX).HasColumnName("action_target_x"); entity.Property(row => row.ActionTargetY).HasColumnName("action_target_y"); entity.Property(row => row.NeedsUpdatedMinute).HasColumnName("needs_updated_minute"); entity.Property(row => row.LifetimeMovementSteps).HasColumnName("lifetime_movement_steps"); entity.Property(row => row.LifetimeMovementCost).HasColumnName("lifetime_movement_cost");
+            entity.HasIndex(row => row.FounderOrdinal).IsUnique();
         });
     }
 }

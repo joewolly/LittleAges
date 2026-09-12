@@ -12,6 +12,7 @@ public sealed record ServerOptions
     public required string ActiveWorld { get; init; }
     public required WorldSeed WorldSeed { get; init; }
     public required string ListenUrls { get; init; }
+    public double SimulationMinutesPerSecond { get; init; } = 10;
 
     public string DatabasePath => Path.Combine(DataRoot, ActiveWorld + ".db");
 
@@ -35,12 +36,16 @@ public sealed record ServerOptions
             throw new ArgumentException("WorldSeed must be an invariant UInt64 value.", nameof(configuration));
         }
 
+        var configuredRate = configuration["SimulationMinutesPerSecond"];
+        var rate = 10d;
+        if (configuredRate is not null && (!double.TryParse(configuredRate, NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || !double.IsFinite(rate) || rate < 0)) throw new ArgumentException("SimulationMinutesPerSecond must be a finite non-negative number.", nameof(configuration));
         return new ServerOptions
         {
             DataRoot = Path.GetFullPath(dataRoot),
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(seed),
-            ListenUrls = configuration["ListenUrls"] ?? DefaultListenUrls
+            ListenUrls = configuration["ListenUrls"] ?? DefaultListenUrls,
+            SimulationMinutesPerSecond = rate
         };
     }
 }
