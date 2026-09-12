@@ -25,6 +25,18 @@ public sealed record ServerStatusSnapshot(
     WorldSummarySnapshot? World = null,
     int Population = 0);
 
+public sealed record ServerObservationSnapshot
+{
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IReadOnlyList<CitizenReadSnapshot>? citizens = null)
+    {
+        Status = status;
+        Citizens = Array.AsReadOnly((citizens ?? Array.Empty<CitizenReadSnapshot>()).ToArray());
+    }
+
+    public ServerStatusSnapshot Status { get; }
+    public IReadOnlyList<CitizenReadSnapshot> Citizens { get; }
+}
+
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
 
 public sealed record WorldSummarySnapshot(
@@ -75,7 +87,7 @@ public sealed partial class SimulationHost : BackgroundService
             SingleReader = true,
             SingleWriter = false
         });
-    private ServerStatusSnapshot _status;
+    private ServerObservationSnapshot _observation;
     private SimulationEngine? _engine;
     private WorldDatabase? _database;
     private WorldCheckpointStore? _checkpointStore;
@@ -87,11 +99,12 @@ public sealed partial class SimulationHost : BackgroundService
         if (!double.IsFinite(options.SimulationMinutesPerSecond) || options.SimulationMinutesPerSecond < 0) throw new ArgumentOutOfRangeException(nameof(options), "Simulation advancement must be finite and non-negative.");
         _options = options;
         _logger = logger;
-        _status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
+        var status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
+        _observation = new ServerObservationSnapshot(status);
     }
 
-    public ServerStatusSnapshot Status => Volatile.Read(ref _status);
-    public IReadOnlyList<CitizenReadSnapshot> GetCitizenSnapshot() => _engine?.CreateReadSnapshot().Citizens ?? Array.Empty<CitizenReadSnapshot>();
+    public ServerObservationSnapshot Observation => Volatile.Read(ref _observation);
+    public ServerStatusSnapshot Status => Observation.Status;
     public int CommandCapacity => 32;
 
     public async Task<CheckpointCommandResult> RequestCheckpointAsync(CancellationToken cancellationToken = default)
@@ -291,15 +304,16 @@ public sealed partial class SimulationHost : BackgroundService
     private void Publish(SimulationHostState state, string? error = null)
     {
         var engine = _engine;
+        var readSnapshot = engine?.CreateReadSnapshot();
         var status = new ServerStatusSnapshot(
             state,
-            engine?.CurrentMinute.Value ?? 0,
-            engine?.PendingEventCount ?? 0,
-            FormatWorldSeed(engine?.Seed.Value ?? _options.WorldSeed.Value),
+            readSnapshot?.WorldMinute.Value ?? 0,
+            readSnapshot?.PendingEventCount ?? 0,
+            FormatWorldSeed(readSnapshot?.Seed.Value ?? _options.WorldSeed.Value),
             error,
-            engine is null ? null : CreateWorldSummary(engine.World),
-            engine?.Population ?? 0);
-        Interlocked.Exchange(ref _status, status);
+            readSnapshot?.World is null ? null : CreateWorldSummary(readSnapshot.World),
+            readSnapshot?.Citizens.Count ?? 0);
+        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, readSnapshot?.Citizens));
     }
 
     private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)

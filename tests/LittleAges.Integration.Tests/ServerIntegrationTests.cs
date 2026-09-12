@@ -10,6 +10,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace LittleAges.Integration.Tests;
@@ -38,6 +39,52 @@ public sealed class ServerIntegrationTests
             using var missing = await client.GetAsync("/api/v1/citizens/999");
             Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         });
+    }
+
+    [Fact]
+    public async Task ConcurrentCitizenReadsRemainCoherentDuringAutomaticAdvancement()
+    {
+        var dataRoot = CreateDataRoot();
+        var factory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 1_000, suppressLogs: true);
+        try
+        {
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            var host = factory.Services.GetRequiredService<SimulationHost>();
+            var initialMinute = host.Status.WorldMinute;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            var readers = Enumerable.Range(0, 8).Select(async _ =>
+            {
+                var reads = 0;
+                do
+                {
+                    using var rosterResponse = await client.GetAsync("/api/v1/citizens", timeout.Token);
+                    rosterResponse.EnsureSuccessStatusCode();
+                    using var roster = JsonDocument.Parse(await rosterResponse.Content.ReadAsStringAsync(timeout.Token));
+                    var ids = roster.RootElement.EnumerateArray().Select(item => item.GetProperty("citizenId").GetString()).ToArray();
+                    Assert.Equal(20, ids.Length);
+                    Assert.Equal(20, ids.Distinct(StringComparer.Ordinal).Count());
+                    Assert.Equal(ids.OrderBy(id => long.Parse(id!, System.Globalization.CultureInfo.InvariantCulture)), ids);
+
+                    using var detailResponse = await client.GetAsync("/api/v1/citizens/1", timeout.Token);
+                    detailResponse.EnsureSuccessStatusCode();
+                    using var detail = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync(timeout.Token));
+                    Assert.Equal("1", detail.RootElement.GetProperty("citizenId").GetString());
+                    reads++;
+                }
+                while (reads < 25 || host.Status.WorldMinute == initialMinute);
+            });
+
+            await Task.WhenAll(readers);
+            Assert.True(host.Status.WorldMinute > initialMinute);
+            Assert.Equal(20, host.Status.Population);
+        }
+        finally
+        {
+            factory.Dispose();
+            CleanupDataRoot(dataRoot);
+        }
     }
 
     [Fact]
@@ -423,7 +470,7 @@ public sealed class ServerIntegrationTests
         }
     }
 
-    private sealed class ServerFactory(string dataRoot) : WebApplicationFactory<Program>
+    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, bool suppressLogs = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -431,6 +478,8 @@ public sealed class ServerIntegrationTests
             builder.UseSetting("ActiveWorld", "integration-world");
             builder.UseSetting("WorldSeed", ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
+            builder.UseSetting("SimulationMinutesPerSecond", simulationMinutesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (suppressLogs) builder.ConfigureLogging(logging => logging.ClearProviders());
         }
     }
 }
