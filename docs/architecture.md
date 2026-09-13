@@ -130,8 +130,6 @@ The M1 determinism gate uses that existing Ubuntu/Windows backend matrix to run 
 
 M0 intentionally stops at infrastructure foundations. M1 generation, persistence, and world-summary endpoint are implemented. The following remain later work:
 
-- **M2:** citizens, movement, and gameplay scheduling.
-
 M2 adds a canonical `Citizen` collection owned by `SimulationEngine`. Twenty founders are
 generated from `WorldSeed`, `CitizenGenerationVersion = 1`, and founder ordinal, then placed
 on nearest walkable tiles around the starting site. HTTP and the observer UI consume immutable

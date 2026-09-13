@@ -416,6 +416,12 @@ public sealed class CitizenSimulationTests
                 citizen.ActionCompletesMinute = new WorldMinute(expectedArrivalMinute);
                 citizen.ActionTarget = target;
             }
+            else
+            {
+                citizen.CurrentAction = CitizenAction.Idle;
+                citizen.ActionStartedMinute = WorldMinute.Zero;
+                citizen.ActionCompletesMinute = new WorldMinute(1_000);
+            }
             return citizen;
         }).ToArray();
         var firstStep = routeTiles[0].Coordinate;
@@ -426,8 +432,8 @@ public sealed class CitizenSimulationTests
             var moving = citizen.Id.Value == 1;
             return new ScheduledEventSnapshot(
                 new ScheduledEventId(sequence),
-                new ScheduledEventOrder(moving ? new WorldMinute(firstStepCost) : new WorldMinute(1_000), moving ? CitizenEventNames.MovementPriority : CitizenEventNames.DecisionPriority, citizen.Id.Value, sequence),
-                moving ? CitizenEventNames.MoveStep : CitizenEventNames.Decision,
+                new ScheduledEventOrder(moving ? new WorldMinute(firstStepCost) : new WorldMinute(1_000), moving ? CitizenEventNames.MovementPriority : CitizenEventNames.CompletionPriority, citizen.Id.Value, sequence),
+                moving ? CitizenEventNames.MoveStep : CitizenEventNames.ActionComplete,
                 $"{{\"citizenId\":\"{citizen.Id.Value}\",\"actionSequence\":{citizen.ActionSequence}}}");
         }).ToArray();
         var snapshot = new SimulationPersistenceSnapshot(

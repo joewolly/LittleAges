@@ -15,15 +15,31 @@ export function App() {
 
   useEffect(() => {
     let active = true
-    const load = () => Promise.all([fetchHealth(), fetchStatus(), fetchCitizens()]).then(([nextHealth, nextStatus, nextCitizens]) => {
-      if (!active) return
-      setHealth(nextHealth); setStatus(nextStatus); setCitizens(nextCitizens); setError(null)
-    }).catch((reason: unknown) => {
-      if (active) setError(reason instanceof Error ? reason.message : 'The server could not be reached.')
-    })
+    let timer: number | null = null
+    const load = async () => {
+      try {
+        const [healthResult, statusResult, citizensResult] = await Promise.allSettled([fetchHealth(), fetchStatus(), fetchCitizens()])
+        if (healthResult.status === 'rejected') throw healthResult.reason
+        if (statusResult.status === 'rejected') throw statusResult.reason
+        if (citizensResult.status === 'rejected') throw citizensResult.reason
+        if (!active) return
+        setHealth(healthResult.value); setStatus(statusResult.value); setCitizens(citizensResult.value); setError(null)
+      } catch (reason: unknown) {
+        if (active) setError(reason instanceof Error ? reason.message : 'The server could not be reached.')
+      } finally {
+        if (active) {
+          timer = window.setTimeout(() => {
+            timer = null
+            void load()
+          }, 2000)
+        }
+      }
+    }
     void load()
-    const timer = window.setInterval(load, 2000)
-    return () => { active = false; window.clearInterval(timer) }
+    return () => {
+      active = false
+      if (timer !== null) window.clearTimeout(timer)
+    }
   }, [])
 
   const connected = health?.ok === true && error === null

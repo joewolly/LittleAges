@@ -252,28 +252,25 @@ public sealed class WorldCheckpointStore
         catch (ArgumentException exception) { throw new InvalidDataException("Persisted world data is not a valid world map.", exception); }
         if (string.IsNullOrWhiteSpace(metadata.WorldFingerprint) || !string.Equals(metadata.WorldFingerprint, world.Fingerprint, StringComparison.Ordinal)) throw new InvalidDataException("Persisted world fingerprint does not match the canonical world rows.");
 
-        var minute = new WorldMinute(metadata.WorldMinute);
+        WorldMinute minute;
+        try { minute = new WorldMinute(metadata.WorldMinute); }
+        catch (ArgumentOutOfRangeException exception) { throw new InvalidDataException("The persisted world minute must be non-negative.", exception); }
         var events = await _context.ScheduledEvents.AsNoTracking().OrderBy(row => row.DueWorldMinute).ThenBy(row => row.Priority).ThenBy(row => row.EntitySortKey).ThenBy(row => row.Sequence).ToListAsync(cancellationToken);
         var citizensRows = await _context.Citizens.AsNoTracking().OrderBy(row => row.Id).ToListAsync(cancellationToken);
         if (metadata.CitizenGenerationVersion == SimulationEngine.CitizenGenerationVersion && citizensRows.Count != CitizenGenerator.FounderCount) throw new InvalidDataException("An M2 checkpoint must contain exactly 20 citizens.");
+        if (metadata.CitizenGenerationVersion == 0 && citizensRows.Count != 0) throw new InvalidDataException("A pre-M2 checkpoint must not contain citizen rows.");
         if (metadata.CitizenGenerationVersion is not (0 or SimulationEngine.CitizenGenerationVersion)) throw new NotSupportedException($"Citizen generation version '{metadata.CitizenGenerationVersion}' is not supported.");
-        var citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute)).ToArray();
-        if (metadata.CitizenGenerationVersion == SimulationEngine.CitizenGenerationVersion)
+        Citizen[] citizens;
+        try { citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute)).ToArray(); }
+        catch (InvalidDataException) { throw; }
+        catch (ArgumentException exception) { throw new InvalidDataException("A persisted citizen row is not valid.", exception); }
+        SimulationPersistenceSnapshot snapshot;
+        try
         {
-            if (citizens.Any(c => c.BirthMinute >= 0)) throw new InvalidDataException("M2 founders must have negative birth minutes.");
-            if (!citizens.Select(c => c.FounderOrdinal).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, CitizenGenerator.FounderCount))) throw new InvalidDataException("M2 founder ordinals must be exactly 0 through 19.");
-            var citizenIds = citizens.Select(c => c.Id.Value).ToHashSet();
-            foreach (var citizen in citizens)
-            {
-                var expectedName = citizen.CurrentAction switch { CitizenAction.None => CitizenEventNames.Decision, CitizenAction.Idle or CitizenAction.Rest => CitizenEventNames.ActionComplete, CitizenAction.Wander or CitizenAction.Explore => CitizenEventNames.MoveStep, _ => throw new InvalidDataException("Citizen action is invalid.") };
-                var matching = events.Where(e => e.EventName == expectedName && e.EntitySortKey == citizen.Id.Value).Where(e => TryReadCitizenPayload(e.EventPayloadJson, out var payload) && payload.Id == citizen.Id.Value && payload.Sequence == citizen.ActionSequence).ToArray();
-                if (matching.Length != 1) throw new InvalidDataException("M2 citizen event coverage is incomplete or inconsistent.");
-            }
-            foreach (var scheduled in events.Where(e => e.EventName is CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete)) if (!TryReadCitizenPayload(scheduled.EventPayloadJson, out var payload) || !citizenIds.Contains(payload.Id) || scheduled.EntitySortKey != payload.Id) throw new InvalidDataException("M2 citizen event references an unknown citizen.");
-            if (events.Where(e => e.EventName is CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete).Select(e => e.EntitySortKey).Where(citizenIds.Contains).GroupBy(id => id).Any(group => group.Count() != 1)) throw new InvalidDataException("M2 citizen events are duplicated.");
+            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion);
+            SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
         }
-        var snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion);
-        SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
+        catch (ArgumentException exception) { throw new InvalidDataException("The persisted checkpoint is not a valid persistence snapshot.", exception); }
         return snapshot;
     }
 
@@ -427,7 +424,8 @@ public sealed class WorldCheckpointStore
         if (string.IsNullOrWhiteSpace(row.EventName) || string.IsNullOrWhiteSpace(row.EventPayloadJson)) throw new InvalidDataException("A scheduled event must contain pure data name and payload values.");
         try { using var payload = JsonDocument.Parse(row.EventPayloadJson); }
         catch (JsonException exception) { throw new InvalidDataException("A scheduled event payload must be valid JSON.", exception); }
-        return new ScheduledEventSnapshot(new ScheduledEventId(row.Id), new ScheduledEventOrder(new WorldMinute(row.DueWorldMinute), row.Priority, row.EntitySortKey, row.Sequence), row.EventName, row.EventPayloadJson);
+        try { return new ScheduledEventSnapshot(new ScheduledEventId(row.Id), new ScheduledEventOrder(new WorldMinute(row.DueWorldMinute), row.Priority, row.EntitySortKey, row.Sequence), row.EventName, row.EventPayloadJson); }
+        catch (ArgumentOutOfRangeException exception) { throw new InvalidDataException("A scheduled event due minute must be non-negative.", exception); }
     }
 
     private async Task<SimulationPersistenceSnapshot> LoadM1SnapshotAsync(CancellationToken cancellationToken)
@@ -446,23 +444,13 @@ public sealed class WorldCheckpointStore
     private static Citizen FromCitizenRow(CitizenRow row, WorldMap world, WorldMinute minute)
     {
         if (!Enum.IsDefined((CitizenAction)row.CurrentAction) || row.Id <= 0 || row.FounderOrdinal is < 0 or > 19 || row.Health != 10000 || row.BirthMinute >= 0 || row.LocationX < 0 || row.LocationY < 0 || row.LocationX >= world.Width || row.LocationY >= world.Height || !world.GetTile(row.LocationX, row.LocationY).Walkable) throw new InvalidDataException("Citizen row contains invalid canonical state.");
+        if (row.ActionTargetX.HasValue != row.ActionTargetY.HasValue) throw new InvalidDataException("Citizen action target coordinates must be both present or both absent.");
         var citizen = new Citizen(new CitizenId(row.Id), row.FounderOrdinal, row.GivenName, row.FamilyName, row.BirthMinute, new TileCoordinate(row.LocationX, row.LocationY), new CitizenTraits(row.Industriousness, row.Sociability, row.Curiosity, row.Cooperativeness, row.RiskTolerance, row.Resilience), new CitizenSkills(row.Foraging, row.Woodcutting, row.Stoneworking, row.Construction, row.Hauling, row.Domestic), new CitizenNeeds(row.Hunger, row.Rest, row.Shelter, row.Social)) { DeathMinute = row.DeathMinute, DeathCause = row.DeathCause, ParentAId = row.ParentAId is null ? null : new CitizenId(row.ParentAId.Value), ParentBId = row.ParentBId is null ? null : new CitizenId(row.ParentBId.Value), PartnerId = row.PartnerId is null ? null : new CitizenId(row.PartnerId.Value), HouseholdId = row.HouseholdId is null ? null : new HouseholdId(row.HouseholdId.Value), HomeStructureId = row.HomeStructureId is null ? null : new StructureId(row.HomeStructureId.Value), CurrentAction = (CitizenAction)row.CurrentAction, ActionSequence = row.ActionSequence, ActionStartedMinute = row.ActionStartedMinute is null ? null : new WorldMinute(row.ActionStartedMinute.Value), ActionCompletesMinute = row.ActionCompletesMinute is null ? null : new WorldMinute(row.ActionCompletesMinute.Value), ActionTarget = row.ActionTargetX is null || row.ActionTargetY is null ? null : new TileCoordinate(row.ActionTargetX.Value, row.ActionTargetY.Value), NeedsUpdatedMinute = row.NeedsUpdatedMinute, LifetimeMovementSteps = row.LifetimeMovementSteps, LifetimeMovementCost = row.LifetimeMovementCost };
         if ((citizen.CurrentAction is CitizenAction.Wander or CitizenAction.Explore) && citizen.ActionTarget is null) throw new InvalidDataException("Moving citizen must have a target.");
         if (citizen.CurrentAction != CitizenAction.None && (citizen.ActionStartedMinute is null || citizen.ActionCompletesMinute is null || citizen.ActionCompletesMinute!.Value < minute || citizen.ActionStartedMinute!.Value > minute)) throw new InvalidDataException("Citizen action timing is incoherent.");
         if (citizen.CurrentAction == CitizenAction.None && (citizen.ActionStartedMinute is not null || citizen.ActionCompletesMinute is not null || citizen.ActionTarget is not null)) throw new InvalidDataException("Decision-boundary citizen has stale action timing.");
         try { citizen.Validate(world); } catch (ArgumentException exception) { throw new InvalidDataException("Citizen row contains invalid canonical state.", exception); }
         return citizen;
-    }
-    private static bool TryReadCitizenPayload(string json, out (long Id, long Sequence) payload)
-    {
-        payload = default;
-        try
-        {
-            using var document = JsonDocument.Parse(json); var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 2 || !root.TryGetProperty("citizenId", out var id) || !root.TryGetProperty("actionSequence", out var sequence) || id.ValueKind != JsonValueKind.String || !long.TryParse(id.GetString(), System.Globalization.NumberStyles.None, CultureInfo.InvariantCulture, out var parsedId) || parsedId <= 0 || parsedId.ToString(CultureInfo.InvariantCulture) != id.GetString() || !sequence.TryGetInt64(out var parsedSequence) || parsedSequence < 0) return false;
-            payload = (parsedId, parsedSequence); return true;
-        }
-        catch (JsonException) { return false; }
     }
 }
 

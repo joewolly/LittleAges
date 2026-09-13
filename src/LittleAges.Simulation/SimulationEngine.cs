@@ -66,7 +66,67 @@ public sealed record SimulationPersistenceSnapshot
     {
         if (citizens.Count != CitizenGenerator.FounderCount || !citizens.Select(c => c.FounderOrdinal).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, CitizenGenerator.FounderCount))) throw new ArgumentException("M2 requires exactly 20 founders with ordinals 0..19.", nameof(citizens));
         if (citizens.Select(c => c.Id.Value).Distinct().Count() != citizens.Count || citizens.Select(c => c.Name).Distinct(StringComparer.Ordinal).Count() != citizens.Count) throw new ArgumentException("M2 founder IDs and names must be unique.", nameof(citizens));
-        foreach (var citizen in citizens) { citizen.Validate(world); if (citizen.BirthMinute >= 0 || citizen.DeathMinute is not null || citizen.ParentAId is not null || citizen.ParentBId is not null || citizen.PartnerId is not null || citizen.HouseholdId is not null || citizen.HomeStructureId is not null) throw new ArgumentException("M2 founders contain unsupported lifecycle state.", nameof(citizens)); if (citizen.CurrentAction != CitizenAction.None && (citizen.ActionStartedMinute is null || citizen.ActionCompletesMinute is null || citizen.ActionStartedMinute.Value > minute || citizen.ActionCompletesMinute.Value < minute)) throw new ArgumentException("Citizen action timing is incoherent.", nameof(citizens)); var expected = citizen.CurrentAction switch { CitizenAction.None => CitizenEventNames.Decision, CitizenAction.Idle or CitizenAction.Rest => CitizenEventNames.ActionComplete, CitizenAction.Wander or CitizenAction.Explore => CitizenEventNames.MoveStep, _ => throw new ArgumentException("Invalid citizen action.", nameof(citizens)) }; if (events.Count(e => e.Name == expected && e.Order.EntitySortKey == citizen.Id.Value) != 1) throw new ArgumentException("M2 requires one next event per citizen.", nameof(events)); }
+        if (world is null) throw new ArgumentException("M2 snapshots require a persisted world map.", nameof(world));
+
+        var reservedEvents = events.Where(static e => e.Name is CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete).ToArray();
+        if (reservedEvents.Length != citizens.Count) throw new ArgumentException("M2 requires exactly one reserved event per citizen.", nameof(events));
+        var citizenIds = citizens.Select(c => c.Id.Value).ToHashSet();
+        foreach (var citizen in citizens)
+        {
+            citizen.Validate(world);
+            if (citizen.BirthMinute >= 0 || citizen.DeathMinute is not null || citizen.ParentAId is not null || citizen.ParentBId is not null || citizen.PartnerId is not null || citizen.HouseholdId is not null || citizen.HomeStructureId is not null) throw new ArgumentException("M2 founders contain unsupported lifecycle state.", nameof(citizens));
+            if (citizen.CurrentAction != CitizenAction.None && (citizen.ActionStartedMinute is null || citizen.ActionCompletesMinute is null || citizen.ActionStartedMinute.Value > minute || citizen.ActionCompletesMinute.Value < minute)) throw new ArgumentException("Citizen action timing is incoherent.", nameof(citizens));
+
+            var (expectedName, expectedPriority, expectedDue) = citizen.CurrentAction switch
+            {
+                CitizenAction.None => (CitizenEventNames.Decision, CitizenEventNames.DecisionPriority, minute),
+                CitizenAction.Idle or CitizenAction.Rest => (CitizenEventNames.ActionComplete, CitizenEventNames.CompletionPriority, citizen.ActionCompletesMinute!.Value),
+                CitizenAction.Wander or CitizenAction.Explore => ValidateMovingCitizen(citizen, world, minute),
+                _ => throw new ArgumentException("Invalid citizen action.", nameof(citizens))
+            };
+
+            var matching = reservedEvents.Where(e => e.Order.EntitySortKey == citizen.Id.Value).ToArray();
+            if (matching.Length != 1) throw new ArgumentException("M2 requires one next event per citizen.", nameof(events));
+            var scheduled = matching[0];
+            var payloadValid = TryReadCitizenPayload(scheduled.PayloadJson, out var payload);
+            if (scheduled.Name != expectedName || scheduled.Order.Priority != expectedPriority || scheduled.Order.DueWorldMinute != expectedDue || !payloadValid || payload.Id != citizen.Id.Value || payload.Sequence != citizen.ActionSequence) throw new ArgumentException($"M2 citizen event does not match citizen state: id={citizen.Id.Value}, action={citizen.CurrentAction}, due={scheduled.Order.DueWorldMinute.Value}/{expectedDue.Value}, priority={scheduled.Order.Priority}/{expectedPriority}, sequence={payload.Sequence}/{citizen.ActionSequence}, name={scheduled.Name}/{expectedName}.", nameof(events));
+        }
+
+        if (reservedEvents.Any(e => !TryReadCitizenPayload(e.PayloadJson, out var payload) || !citizenIds.Contains(payload.Id) || e.Order.EntitySortKey != payload.Id)) throw new ArgumentException("M2 citizen event references an unknown citizen.", nameof(events));
+    }
+
+    private static (string Name, int Priority, WorldMinute Due) ValidateMovingCitizen(Citizen citizen, WorldMap world, WorldMinute minute)
+    {
+        if (citizen.ActionTarget is not { } target) throw new ArgumentException("Moving citizen must have a target.", nameof(citizen));
+        var path = DeterministicPathfinder.Find(world, citizen.Location, target);
+        if (path is null || path.Count < 2) throw new ArgumentException("Moving citizen must have a reachable next step.", nameof(citizen));
+        var nextStepCost = SimulationEngine.StepCost(path[0], path[1], world);
+        var remainingPathCost = SimulationEngine.RemainingPathCost(path, world);
+        var completion = citizen.ActionCompletesMinute!.Value;
+        if (completion.Value < remainingPathCost) throw new ArgumentException("Moving citizen completion timing does not match the remaining deterministic path.", nameof(citizen));
+        var anchor = new WorldMinute(completion.Value - remainingPathCost);
+        if (anchor < citizen.ActionStartedMinute!.Value) throw new ArgumentException("Moving citizen completion timing implies movement before the action started.", nameof(citizen));
+        if (anchor > minute) throw new ArgumentException("Moving citizen completion timing is in the future of the snapshot.", nameof(citizen));
+        var expectedDue = anchor.Add(nextStepCost);
+        if (expectedDue < minute) throw new ArgumentException("Moving citizen next-step event is due before the snapshot minute.", nameof(citizen));
+        return (CitizenEventNames.MoveStep, CitizenEventNames.MovementPriority, expectedDue);
+    }
+
+    private static bool TryReadCitizenPayload(string json, out (long Id, long Sequence) payload)
+    {
+        payload = default;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 2 || !root.TryGetProperty("citizenId", out var id) || !root.TryGetProperty("actionSequence", out var sequence) || id.ValueKind != JsonValueKind.String || !long.TryParse(id.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsedId) || parsedId <= 0 || parsedId.ToString(System.Globalization.CultureInfo.InvariantCulture) != id.GetString() || !sequence.TryGetInt64(out var parsedSequence) || parsedSequence < 0) return false;
+            payload = (parsedId, parsedSequence);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
     private static string RequireMetadata(string value, string parameterName) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException("Metadata must not be empty.", parameterName) : value;
 }
@@ -107,7 +167,7 @@ public sealed class SimulationEngine
     }
     public ScheduledEventId ScheduleSyntheticEvent(WorldMinute dueWorldMinute, int priority, long entitySortKey, string name) => ScheduleSyntheticEvent(dueWorldMinute, priority, entitySortKey, name, "{}");
     public ScheduledEventId ScheduleSyntheticEvent(WorldMinute dueWorldMinute, int priority, long entitySortKey, string name, string payloadJson)
-    { ArgumentOutOfRangeException.ThrowIfLessThan(dueWorldMinute, CurrentMinute); var sequence = _counters.AllocateScheduledEventSequence(); var id = new ScheduledEventId(sequence); AddPending(id, new ScheduledEventOrder(dueWorldMinute, priority, entitySortKey, sequence), name, payloadJson); return id; }
+    { if (name is CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete) throw new ArgumentException("Reserved citizen event names may only be scheduled by the citizen runtime.", nameof(name)); ArgumentOutOfRangeException.ThrowIfLessThan(dueWorldMinute, CurrentMinute); var sequence = _counters.AllocateScheduledEventSequence(); var id = new ScheduledEventId(sequence); AddPending(id, new ScheduledEventOrder(dueWorldMinute, priority, entitySortKey, sequence), name, payloadJson); return id; }
     public ScheduledEventId Schedule(WorldMinute dueWorldMinute, int priority, long entitySortKey, string name) => ScheduleSyntheticEvent(dueWorldMinute, priority, entitySortKey, name);
     public bool ProcessNextEvent()
     { if (_scheduledEvents.Count == 0) return false; var next = _scheduledEvents.Min!; _scheduledEvents.Remove(next); CurrentMinute = CurrentMinute.AdvanceTo(next.Order.DueWorldMinute); _processedEventCount++; if (next.Name is CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete) DispatchCitizenEvent(next); else { if (_processedEvents.Count == DiagnosticCapacity) _processedEvents.Dequeue(); _processedEvents.Enqueue(new SyntheticEventExecution(next.Id, next.Order, next.Name, next.PayloadJson)); } return true; }
@@ -130,8 +190,8 @@ public sealed class SimulationEngine
     private void AddPending(ScheduledEventId id, ScheduledEventOrder order, string name, string payload) { if (!_scheduledEvents.Add(new PendingEvent(id, order, name, payload))) throw new ArgumentException("Duplicate scheduled event ordering tuple."); }
     private static int Variation(DeterministicRandom random, Citizen citizen, ulong purpose) => (int)(random.NextUInt64(RandomDomain.DecisionVariation, (ulong)citizen.Id.Value, (ulong)citizen.ActionSequence, purpose) % 101) - 50;
     private static int ActionTieRank(CitizenAction action) => action switch { CitizenAction.Rest => 0, CitizenAction.Explore => 1, CitizenAction.Wander => 2, CitizenAction.Idle => 3, _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Only decision actions have a tie rank.") };
-    private static int StepCost(TileCoordinate from, TileCoordinate to, WorldMap world) => ((from.X == to.X || from.Y == to.Y) ? 10 : 14) * world.GetTile(to).MovementCost;
-    private static long RemainingPathCost(IReadOnlyList<TileCoordinate> path, WorldMap world)
+    internal static long StepCost(TileCoordinate from, TileCoordinate to, WorldMap world) => checked((long)((from.X == to.X || from.Y == to.Y) ? 10 : 14) * world.GetTile(to).MovementCost);
+    internal static long RemainingPathCost(IReadOnlyList<TileCoordinate> path, WorldMap world)
     { var cost = 0L; for (var index = 1; index < path.Count; index++) cost = checked(cost + StepCost(path[index - 1], path[index], world)); return cost; }
     private CitizenReadSnapshot[] CreateCitizenSnapshots() => _citizens.Values.OrderBy(x => x.Id.Value).Select(c => new CitizenReadSnapshot(c.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), c.FounderOrdinal, c.GivenName, c.FamilyName, c.Name, c.AgeYears(CurrentMinute), c.LifeStage(CurrentMinute), c.Location, c.Health, c.GetProjectedNeeds(CurrentMinute), c.Traits, c.Skills, c.CurrentAction, c.ActionStartedMinute, c.ActionCompletesMinute, c.ActionTarget, c.ActionSequence)).ToArray();
     private static Citizen CloneCitizen(Citizen c) { return new Citizen(c.Id, c.FounderOrdinal, c.GivenName, c.FamilyName, c.BirthMinute, c.Location, c.Traits, c.Skills, c.Needs) { CurrentAction = c.CurrentAction, ActionSequence = c.ActionSequence, ActionStartedMinute = c.ActionStartedMinute, ActionCompletesMinute = c.ActionCompletesMinute, ActionTarget = c.ActionTarget, NeedsUpdatedMinute = c.NeedsUpdatedMinute, LifetimeMovementSteps = c.LifetimeMovementSteps, LifetimeMovementCost = c.LifetimeMovementCost, DeathMinute = c.DeathMinute, DeathCause = c.DeathCause, ParentAId = c.ParentAId, ParentBId = c.ParentBId, PartnerId = c.PartnerId, HouseholdId = c.HouseholdId, HomeStructureId = c.HomeStructureId }; }

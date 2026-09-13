@@ -198,7 +198,7 @@ public sealed class ServerIntegrationTests
         try
         {
             string? firstFingerprint = null;
-            var firstFactory = new ServerFactory(dataRoot);
+            var firstFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0);
             try
             {
                 using var firstClient = firstFactory.CreateClient();
@@ -211,7 +211,7 @@ public sealed class ServerIntegrationTests
                 firstFactory.Dispose();
             }
 
-            var secondFactory = new ServerFactory(dataRoot);
+            var secondFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0);
             try
             {
                 using var secondClient = secondFactory.CreateClient();
@@ -351,7 +351,7 @@ public sealed class ServerIntegrationTests
         var databasePath = Path.Combine(dataRoot, "host-world.db");
         try
         {
-            using var host = CreateSimulationHost(dataRoot, "host-world");
+            using var host = CreateSimulationHost(dataRoot, "host-world", simulationMinutesPerSecond: 0);
             await host.StartAsync();
             var simulationHost = host.Services.GetRequiredService<SimulationHost>();
             await WaitForStateAsync(simulationHost, SimulationHostState.Running);
@@ -437,7 +437,7 @@ public sealed class ServerIntegrationTests
         throw new InvalidOperationException($"The simulation host did not reach {expectedState} state.");
     }
 
-    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world")
+    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world", double simulationMinutesPerSecond = 10)
     {
         var builder = Host.CreateApplicationBuilder();
         var options = new ServerOptions
@@ -445,7 +445,8 @@ public sealed class ServerIntegrationTests
             DataRoot = dataRoot,
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(17),
-            ListenUrls = ServerOptions.DefaultListenUrls
+            ListenUrls = ServerOptions.DefaultListenUrls,
+            SimulationMinutesPerSecond = simulationMinutesPerSecond
         };
         builder.Services.Configure<HostOptions>(hostOptions => hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost);
         builder.Services.AddSingleton(options);

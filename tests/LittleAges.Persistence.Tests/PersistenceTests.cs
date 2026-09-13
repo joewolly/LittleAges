@@ -34,6 +34,67 @@ public sealed class PersistenceTests
     }
 
     [Fact]
+    public async Task M2LoadRejectsStaleActionSequence() => await AssertCorruptM2Async(null, "UPDATE citizens SET action_sequence = 5 WHERE id = 1; UPDATE scheduled_events SET event_payload_json = '{\"citizenId\":\"1\",\"actionSequence\":4}' WHERE entity_sort_key = 1;");
+
+    [Theory]
+    [InlineData(CitizenAction.Idle)]
+    [InlineData(CitizenAction.Rest)]
+    public async Task M2LoadRejectsWrongIdleOrRestDue(CitizenAction action) => await AssertCorruptM2Async(action, "UPDATE scheduled_events SET due_world_minute = due_world_minute + 1 WHERE entity_sort_key = 1;");
+
+    [Fact]
+    public async Task M2LoadRejectsWrongMovingDue() => await AssertCorruptM2Async(CitizenAction.Wander, "UPDATE scheduled_events SET due_world_minute = due_world_minute + 1 WHERE entity_sort_key = 1;");
+
+    [Fact]
+    public async Task M2LoadRejectsWrongMovingActionCompletion() => await AssertCorruptM2Async(CitizenAction.Wander, "UPDATE citizens SET action_completes_minute = action_completes_minute + 1 WHERE id = 1;");
+
+    [Fact]
+    public async Task M2LoadRejectsMovingAnchorBeforeActionStart() => await AssertCorruptM2Async(CitizenAction.Wander, "UPDATE citizens SET action_started_minute = 31 WHERE id = 1;", new WorldMinute(35));
+
+    [Fact]
+    public async Task M2LoadRejectsSecondReservedCitizenEvent() => await AssertCorruptM2Async(CitizenAction.Idle, "UPDATE world_meta SET next_scheduled_event_sequence = 101; INSERT INTO scheduled_events (id, due_world_minute, priority, entity_sort_key, sequence, event_name, event_payload_json) VALUES (100, 0, 20, 1, 100, 'citizen.decision.v1', '{\"citizenId\":\"1\",\"actionSequence\":0}');");
+
+    [Fact]
+    public async Task M2LoadRejectsWrongCitizenEventType() => await AssertCorruptM2Async(CitizenAction.Idle, "UPDATE scheduled_events SET event_name = 'citizen.decision.v1' WHERE entity_sort_key = 1;");
+
+    [Fact]
+    public async Task PreM2CheckpointWithCitizenRowsIsRejectedWithoutRepair()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString();
+            var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+            var m1 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: "m0-rng1");
+            var citizen = new SimulationEngine(new WorldSeed(42)).Citizens[0];
+            await using (var context = new LittleAgesDbContext(options))
+            {
+                await context.Database.OpenConnectionAsync();
+                await context.Database.MigrateAsync();
+                await new WorldCheckpointStore(context).CheckpointAsync(m1.CreatePersistenceSnapshot(), DateTime.UtcNow);
+                context.Citizens.Add(new CitizenRow
+                {
+                    Id = citizen.Id.Value, FounderOrdinal = citizen.FounderOrdinal, GivenName = citizen.GivenName, FamilyName = citizen.FamilyName, BirthMinute = citizen.BirthMinute,
+                    LocationX = citizen.Location.X, LocationY = citizen.Location.Y, Health = citizen.Health, Hunger = citizen.Needs.Hunger, Rest = citizen.Needs.Rest, Shelter = citizen.Needs.Shelter, Social = citizen.Needs.Social,
+                    Industriousness = citizen.Traits.Industriousness, Sociability = citizen.Traits.Sociability, Curiosity = citizen.Traits.Curiosity, Cooperativeness = citizen.Traits.Cooperativeness, RiskTolerance = citizen.Traits.RiskTolerance, Resilience = citizen.Traits.Resilience,
+                    Foraging = citizen.Skills.Foraging, Woodcutting = citizen.Skills.Woodcutting, Stoneworking = citizen.Skills.Stoneworking, Construction = citizen.Skills.Construction, Hauling = citizen.Skills.Hauling, Domestic = citizen.Skills.Domestic,
+                    CurrentAction = (int)citizen.CurrentAction, ActionSequence = citizen.ActionSequence, NeedsUpdatedMinute = citizen.NeedsUpdatedMinute, LifetimeMovementSteps = citizen.LifetimeMovementSteps, LifetimeMovementCost = citizen.LifetimeMovementCost
+                });
+                await context.SaveChangesAsync();
+                await Assert.ThrowsAsync<InvalidDataException>(() => new WorldCheckpointStore(context).LoadAsync());
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+            await using var verify = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+            await verify.OpenAsync();
+            await using var command = verify.CreateCommand();
+            command.CommandText = "SELECT citizen_generation_version, (SELECT COUNT(*) FROM citizens) FROM world_meta;";
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(0, reader.GetInt32(0));
+            Assert.Equal(1L, reader.GetInt64(1));
+        });
+    }
+
+    [Fact]
     public async Task M1ToM2UpgradeFailureRollsBackRowsAndRetryGeneratesOnce()
     {
         await WithDatabaseAsync(async path =>
@@ -105,6 +166,21 @@ public sealed class PersistenceTests
         });
     }
 
+    private static async Task AssertCorruptM2Async(CitizenAction? action, string mutation, WorldMinute? advanceTo = null)
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var source = action is null ? new SimulationEngine(new WorldSeed(42)) : CreateForcedActionEngine(action.Value);
+            if (advanceTo is { } targetMinute) source.AdvanceUntil(targetMinute);
+            await using var database = await WorldDatabase.OpenAsync(path);
+            await database.CreateCheckpointStore().CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
+            await using var command = database.Context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = "PRAGMA ignore_check_constraints = ON; " + mutation;
+            await command.ExecuteNonQueryAsync();
+            await Assert.ThrowsAsync<InvalidDataException>(() => database.CreateCheckpointStore().LoadAsync());
+        });
+    }
+
     private static SimulationEngine CreateForcedActionEngine(CitizenAction action)
     {
         var seed = new WorldSeed(42);
@@ -133,6 +209,16 @@ public sealed class PersistenceTests
             oldEvent = new ScheduledEventSnapshot(oldEvent.Id, new ScheduledEventOrder(citizen.ActionCompletesMinute.Value, CitizenEventNames.CompletionPriority, citizen.Id.Value, oldEvent.Order.Sequence), CitizenEventNames.ActionComplete, "{\"citizenId\":\"1\",\"actionSequence\":0}");
         }
         var events = baseline.ScheduledEvents.Select(e => e.Order.EntitySortKey == citizen.Id.Value ? oldEvent : e).ToArray();
+        foreach (var other in baseline.Citizens.Where(c => c.Id.Value != citizen.Id.Value))
+        {
+            other.CurrentAction = CitizenAction.Idle;
+            other.ActionStartedMinute = baseline.WorldMinute;
+            other.ActionCompletesMinute = baseline.WorldMinute.Add(1_000);
+            var scheduled = events.Single(e => e.Order.EntitySortKey == other.Id.Value);
+            events = events.Select(e => e.Order.EntitySortKey == other.Id.Value
+                ? new ScheduledEventSnapshot(scheduled.Id, new ScheduledEventOrder(baseline.WorldMinute.Add(1_000), CitizenEventNames.CompletionPriority, other.Id.Value, scheduled.Order.Sequence), CitizenEventNames.ActionComplete, $"{{\"citizenId\":\"{other.Id.Value}\",\"actionSequence\":{other.ActionSequence}}}")
+                : e).ToArray();
+        }
         var snapshot = new SimulationPersistenceSnapshot(baseline.Seed, baseline.WorldMinute, baseline.WorldSchemaVersion, baseline.SimulationRulesVersion, baseline.ApplicationVersion, baseline.WorldConfiguration, baseline.Counters, events, baseline.World, baseline.Citizens, baseline.CitizenGenerationVersion);
         return SimulationEngine.FromPersistenceSnapshot(snapshot);
     }
