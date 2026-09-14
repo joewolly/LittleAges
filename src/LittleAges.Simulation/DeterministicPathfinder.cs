@@ -21,12 +21,12 @@ public sealed class DeterministicPathfinder
         var startIndex = start.ToIndex(width);
         var g = new Dictionary<long, long> { [startIndex] = 0 };
         var parent = new Dictionary<long, long>();
-        var queue = new List<Node> { new(startIndex, 0, Heuristic(start, destination), 0) };
+        var startNode = new Node(startIndex, 0, Heuristic(start, destination), 0);
+        var queue = new PriorityQueue<Node, NodePriority>();
+        queue.Enqueue(startNode, NodePriority.From(startNode));
         long localSequence = 0;
-        while (queue.Count > 0)
+        while (queue.TryDequeue(out var current, out _))
         {
-            queue.Sort(NodeComparer.Instance);
-            var current = queue[0]; queue.RemoveAt(0);
             if (current.Index == goalIndex) return Reconstruct(parent, current.Index, width);
             var coordinate = TileCoordinate.FromIndex(current.Index, width);
             for (var direction = 0; direction < Directions.Length; direction++)
@@ -42,7 +42,8 @@ public sealed class DeterministicPathfinder
                 var nextG = checked(current.G + step);
                 if (g.TryGetValue(nextIndex, out var oldG) && nextG >= oldG) continue;
                 g[nextIndex] = nextG; parent[nextIndex] = current.Index;
-                queue.Add(new Node(nextIndex, nextG, Heuristic(next.Coordinate, destination), localSequence++));
+                var candidate = new Node(nextIndex, nextG, Heuristic(next.Coordinate, destination), localSequence++);
+                queue.Enqueue(candidate, NodePriority.From(candidate));
             }
         }
         return null;
@@ -87,14 +88,15 @@ public sealed class DeterministicPathfinder
         result.Reverse(); return result.AsReadOnly();
     }
     private readonly record struct Node(long Index, long G, long H, long LocalSequence) { public long F => checked(G + H); }
-    private sealed class NodeComparer : IComparer<Node>
+    private readonly record struct NodePriority(long F, long H, long Index, long LocalSequence) : IComparable<NodePriority>
     {
-        public static readonly NodeComparer Instance = new();
-        public int Compare(Node a, Node b)
+        public static NodePriority From(Node node) => new(node.F, node.H, node.Index, node.LocalSequence);
+
+        public int CompareTo(NodePriority other)
         {
-            var result = a.F.CompareTo(b.F); if (result != 0) return result;
-            result = a.H.CompareTo(b.H); if (result != 0) return result;
-            result = a.Index.CompareTo(b.Index); return result != 0 ? result : a.LocalSequence.CompareTo(b.LocalSequence);
+            var result = F.CompareTo(other.F); if (result != 0) return result;
+            result = H.CompareTo(other.H); if (result != 0) return result;
+            result = Index.CompareTo(other.Index); return result != 0 ? result : LocalSequence.CompareTo(other.LocalSequence);
         }
     }
 }

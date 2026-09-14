@@ -58,7 +58,7 @@ public sealed class M3AcceptanceMatrixTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42));
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             source.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerDay - 1));
             var before = source.CreatePersistenceSnapshot();
             await using var database = await WorldDatabase.OpenAsync(path);
@@ -110,7 +110,7 @@ public sealed class M3AcceptanceMatrixTests
     }
 
     [Fact]
-    public async Task ActualM0CollidingLegacyEventSurvivesM3UpgradeAndCitizenDeath()
+    public async Task ActualM0CollidingLegacyEventSurvivesM4UpgradeAndCitizenDeath()
     {
         await WithDatabaseAsync(async path =>
         {
@@ -138,7 +138,7 @@ public sealed class M3AcceptanceMatrixTests
             var adjusted = new SimulationPersistenceSnapshot(upgraded.Seed, upgraded.WorldMinute, upgraded.WorldSchemaVersion,
                 upgraded.SimulationRulesVersion, upgraded.ApplicationVersion, upgraded.WorldConfiguration, upgraded.Counters,
                 events, upgraded.World, upgraded.Citizens, upgraded.CitizenGenerationVersion, upgraded.ResourceStates,
-                upgraded.Settlement, upgraded.SurvivalVersion);
+                upgraded.Settlement, upgraded.SurvivalVersion, upgraded.SettlementVersion, upgraded.Structures, upgraded.StructureContributions);
             await store.CheckpointAsync(adjusted, DateTime.UtcNow);
             var reloaded = await store.LoadAsync();
 
@@ -153,7 +153,7 @@ public sealed class M3AcceptanceMatrixTests
 
     private static SimulationEngine BuildPhaseSnapshot(string phase)
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         if (phase == "before-survival")
         {
             source.AdvanceUntil(new WorldMinute(CitizenSimulationRules.SurvivalCheckIntervalMinutes - 1));
@@ -211,7 +211,7 @@ public sealed class M3AcceptanceMatrixTests
 
     private static SimulationEngine CreateScarcityEngine()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var citizen = snapshot.Citizens[0];
         citizen.Health = 1000;

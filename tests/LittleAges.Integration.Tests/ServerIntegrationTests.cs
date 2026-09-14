@@ -27,16 +27,27 @@ public sealed class ServerIntegrationTests
             sourceNeeds, new CitizenTraits(1, 2, 3, 4, 5, 6), sourceSkills, CitizenAction.Dead, null, null, null, 0, false,
             "starvation", null, 0, null, CitizenActionPhase.None, new WorldMinute(360));
         var status = new ServerStatusSnapshot(SimulationHostState.Running, 360, 0, "42", null, Population: 0);
-        var observation = new ServerObservationSnapshot(status, new[] { source });
+        var sourceStructure = new Structure(new StructureId(17), StructureType.Shelter, new TileCoordinate(3, 4), 360, 40, 10, 600)
+        {
+            DeliveredWood = 5
+        };
+        var observation = new ServerObservationSnapshot(
+            status,
+            new[] { new ServerCitizenSnapshot(source) },
+            null,
+            new[] { new ServerStructureSnapshot(sourceStructure, Enumerable.Repeat("9007199254740993", 1)) });
 
         sourceSkills.Foraging = 999;
         sourceNeeds = new CitizenNeeds(999, 999, 999, 999);
+        sourceStructure.DeliveredWood = 40;
         Assert.Equal(1, observation.Citizens.Single().Skills.Foraging);
         Assert.Equal(100, observation.Citizens.Single().Hunger);
         Assert.False(observation.Citizens.Single().IsAlive);
         Assert.Equal("9007199254740993", observation.Citizens.Single().CitizenId);
         Assert.Equal("starvation", observation.Citizens.Single().DeathCause);
         Assert.Equal(360, observation.Citizens.Single().DeathMinute);
+        Assert.Equal(5, observation.Structures.Single().DeliveredWood);
+        Assert.Equal("9007199254740993", observation.Structures.Single().CurrentOccupantIds.Single());
     }
 
     [Fact]
@@ -80,6 +91,75 @@ public sealed class ServerIntegrationTests
             using var missing = await client.GetAsync("/api/v1/citizens/999");
             Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         });
+    }
+
+    [Fact]
+    public async Task M4ReadEndpointsPublishCompactImmutableSettlementObservation()
+    {
+        var dataRoot = CreateDataRoot();
+        var factory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+        try
+        {
+            using var client = factory.CreateClient();
+            var host = factory.Services.GetRequiredService<SimulationHost>();
+            await host.WaitForRunningForTestingAsync();
+
+            using var initialMapResponse = await client.GetAsync("/api/v1/map");
+            initialMapResponse.EnsureSuccessStatusCode();
+            using var initialMap = JsonDocument.Parse(await initialMapResponse.Content.ReadAsStringAsync());
+            var width = initialMap.RootElement.GetProperty("width").GetInt32();
+            var height = initialMap.RootElement.GetProperty("height").GetInt32();
+            var terrain = initialMap.RootElement.GetProperty("terrain").EnumerateArray().ToArray();
+            Assert.Equal(width * height, terrain.Length);
+            Assert.All(terrain, value => Assert.Equal(JsonValueKind.Number, value.ValueKind));
+            Assert.Equal(160, width);
+            Assert.Equal(160, height);
+            Assert.Equal(JsonValueKind.Object, initialMap.RootElement.GetProperty("startingSite").ValueKind);
+
+            using var citizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+            var citizen = citizens.RootElement[0];
+            Assert.Equal(JsonValueKind.String, citizen.GetProperty("occupation").ValueKind);
+            Assert.Equal(JsonValueKind.Object, citizen.GetProperty("lifetimeWorkActivity").ValueKind);
+            Assert.True(citizen.TryGetProperty("homeStructureId", out _));
+            Assert.True(citizen.TryGetProperty("targetStructureId", out _));
+
+            await host.AdvanceForTestingAsync(CitizenSimulationRules.SettlementDemandIntervalMinutes);
+            using var structuresResponse = await client.GetAsync("/api/v1/structures");
+            structuresResponse.EnsureSuccessStatusCode();
+            using var structures = JsonDocument.Parse(await structuresResponse.Content.ReadAsStringAsync());
+            var listed = structures.RootElement.EnumerateArray().ToArray();
+            var structure = Assert.Single(listed);
+            Assert.Equal(nameof(StructureType.Shelter), structure.GetProperty("type").GetString());
+            Assert.Equal(nameof(StructureStatus.UnderConstruction), structure.GetProperty("status").GetString());
+            Assert.Equal(JsonValueKind.Array, structure.GetProperty("currentOccupantIds").ValueKind);
+            Assert.Equal(JsonValueKind.Array, structure.GetProperty("contributions").ValueKind);
+            Assert.Equal(4, structure.GetProperty("capacity").GetInt32());
+            Assert.Equal(JsonValueKind.Null, structure.GetProperty("storageBonus").ValueKind);
+            Assert.Equal(JsonValueKind.Null, structure.GetProperty("constructionMultiplierBasisPoints").ValueKind);
+            var id = structure.GetProperty("structureId").GetString()!;
+
+            using var detail = await client.GetAsync("/api/v1/structures/" + id);
+            detail.EnsureSuccessStatusCode();
+            using var malformed = await client.GetAsync("/api/v1/structures/01");
+            Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
+            using var missing = await client.GetAsync("/api/v1/structures/999");
+            Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+
+            using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+            Assert.Equal(800, settlement.RootElement.GetProperty("storageCapacity").GetInt32());
+            Assert.InRange(settlement.RootElement.GetProperty("storageUsed").GetInt32(), 0, 800);
+            Assert.Equal(0, settlement.RootElement.GetProperty("shelterCapacity").GetInt32());
+            Assert.Equal(20, settlement.RootElement.GetProperty("unhousedPopulation").GetInt32());
+            Assert.Equal(id, settlement.RootElement.GetProperty("activeConstructionProject").GetProperty("structureId").GetString());
+
+            using var laterMap = JsonDocument.Parse(await (await client.GetAsync("/api/v1/map")).Content.ReadAsStringAsync());
+            Assert.Equal(initialMap.RootElement.GetRawText(), laterMap.RootElement.GetRawText());
+        }
+        finally
+        {
+            factory.Dispose();
+            CleanupDataRoot(dataRoot);
+        }
     }
 
     [Fact]

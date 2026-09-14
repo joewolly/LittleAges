@@ -14,7 +14,7 @@ public sealed class M3PersistenceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42));
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             await using var database = await WorldDatabase.OpenAsync(path);
             await database.CreateCheckpointStore().CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
             var loaded = await database.CreateCheckpointStore().LoadAsync();
