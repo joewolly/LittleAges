@@ -12,7 +12,7 @@ public sealed class SimulationEngineTests
     [Fact]
     public void EventsUseTheRequiredStableTupleOrder()
     {
-        var engine = new SimulationEngine(new WorldSeed(7));
+        var engine = new SimulationEngine(new WorldSeed(7), simulationRulesVersion: "m0-rng1");
         engine.ScheduleSyntheticEvent(new WorldMinute(10), 2, 10, "sequence-first");
         engine.ScheduleSyntheticEvent(new WorldMinute(10), 1, 99, "priority-first");
         engine.ScheduleSyntheticEvent(new WorldMinute(10), 2, 5, "entity-first");
@@ -26,9 +26,27 @@ public sealed class SimulationEngineTests
     }
 
     [Fact]
+    public void SyntheticSchedulingRejectsReservedCitizenNamesWithoutMutation()
+    {
+        var engine = new SimulationEngine(new WorldSeed(7));
+        var before = engine.CounterSnapshot;
+        var pending = engine.PendingEventCount;
+        foreach (var name in new[] { CitizenEventNames.Decision, CitizenEventNames.MoveStep, CitizenEventNames.ActionComplete })
+        {
+            Assert.Throws<ArgumentException>(() => engine.ScheduleSyntheticEvent(WorldMinute.Zero, 0, 1, name));
+            Assert.Equal(before, engine.CounterSnapshot);
+            Assert.Equal(pending, engine.PendingEventCount);
+        }
+
+        var scheduled = engine.ScheduleSyntheticEvent(WorldMinute.Zero, 0, 0, "ordinary");
+        Assert.Equal(before.NextScheduledEventSequence, scheduled.Value);
+        Assert.Equal(pending + 1, engine.PendingEventCount);
+    }
+
+    [Fact]
     public void ClockAdvancesOnlyThroughEventProcessingOrExplicitTarget()
     {
-        var engine = new SimulationEngine(new WorldSeed(1));
+        var engine = new SimulationEngine(new WorldSeed(1), simulationRulesVersion: "m0-rng1");
         Assert.False(engine.ProcessNextEvent());
         Assert.Equal(new WorldMinute(0), engine.CurrentMinute);
 
@@ -40,7 +58,7 @@ public sealed class SimulationEngineTests
     [Fact]
     public void SyntheticEventsArePureDataAndRestoreBehaviorEquivalently()
     {
-        var engine = new SimulationEngine(new WorldSeed(1));
+        var engine = new SimulationEngine(new WorldSeed(1), simulationRulesVersion: "m0-rng1");
         engine.ScheduleSyntheticEvent(new WorldMinute(2), 0, 0, "first");
         engine.ScheduleSyntheticEvent(new WorldMinute(3), 0, 0, "second");
         var restored = SimulationEngine.FromPersistenceSnapshot(engine.CreatePersistenceSnapshot());
@@ -53,7 +71,7 @@ public sealed class SimulationEngineTests
     [Fact]
     public void PersistenceSnapshotPreservesFutureOrderAndCounters()
     {
-        var engine = new SimulationEngine(new WorldSeed(123), worldConfiguration: "{\"test\":true}");
+        var engine = new SimulationEngine(new WorldSeed(123), simulationRulesVersion: "m0-rng1", worldConfiguration: "{\"test\":true}");
         engine.ScheduleSyntheticEvent(new WorldMinute(20), 2, 1, "later");
         engine.ScheduleSyntheticEvent(new WorldMinute(10), 1, 1, "sooner");
         engine.AdvanceUntil(new WorldMinute(5));

@@ -22,7 +22,20 @@ public sealed record ServerStatusSnapshot(
     int PendingEventCount,
     string WorldSeed,
     string? Error,
-    WorldSummarySnapshot? World = null);
+    WorldSummarySnapshot? World = null,
+    int Population = 0);
+
+public sealed record ServerObservationSnapshot
+{
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IReadOnlyList<CitizenReadSnapshot>? citizens = null)
+    {
+        Status = status;
+        Citizens = Array.AsReadOnly((citizens ?? Array.Empty<CitizenReadSnapshot>()).ToArray());
+    }
+
+    public ServerStatusSnapshot Status { get; }
+    public IReadOnlyList<CitizenReadSnapshot> Citizens { get; }
+}
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
 
@@ -54,6 +67,10 @@ internal sealed record FailSimulationCommand(TaskCompletionSource<bool> Completi
 {
     internal override void SetException(Exception exception) => Completion.TrySetException(exception);
 }
+internal sealed record AdvanceSimulationCommand(long Minutes) : SimulationCommand
+{
+    internal override void SetException(Exception exception) { }
+}
 
 /// <summary>
 /// The sole hosted simulation writer. HTTP code reads only the immutable Status value and
@@ -70,7 +87,7 @@ public sealed partial class SimulationHost : BackgroundService
             SingleReader = true,
             SingleWriter = false
         });
-    private ServerStatusSnapshot _status;
+    private ServerObservationSnapshot _observation;
     private SimulationEngine? _engine;
     private WorldDatabase? _database;
     private WorldCheckpointStore? _checkpointStore;
@@ -79,12 +96,15 @@ public sealed partial class SimulationHost : BackgroundService
 
     public SimulationHost(ServerOptions options, ILogger<SimulationHost> logger)
     {
+        if (!double.IsFinite(options.SimulationMinutesPerSecond) || options.SimulationMinutesPerSecond < 0) throw new ArgumentOutOfRangeException(nameof(options), "Simulation advancement must be finite and non-negative.");
         _options = options;
         _logger = logger;
-        _status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
+        var status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
+        _observation = new ServerObservationSnapshot(status);
     }
 
-    public ServerStatusSnapshot Status => Volatile.Read(ref _status);
+    public ServerObservationSnapshot Observation => Volatile.Read(ref _observation);
+    public ServerStatusSnapshot Status => Observation.Status;
     public int CommandCapacity => 32;
 
     public async Task<CheckpointCommandResult> RequestCheckpointAsync(CancellationToken cancellationToken = default)
@@ -176,20 +196,39 @@ public sealed partial class SimulationHost : BackgroundService
 
     private async Task ConsumeCommandsAsync(CancellationToken stoppingToken)
     {
-        await foreach (var command in _commands.Reader.ReadAllAsync(stoppingToken))
+        using var driverCancellation = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var driver = RunOperationalDriverAsync(driverCancellation.Token);
+        try
         {
-            switch (command)
+            await foreach (var command in _commands.Reader.ReadAllAsync(stoppingToken))
             {
-                case CheckpointSimulationCommand checkpoint:
-                    await ProcessCheckpointAsync(checkpoint, stoppingToken);
-                    break;
-                case FailSimulationCommand failure:
-                    failure.Completion.TrySetException(failure.Failure);
-                    throw failure.Failure;
-                default:
-                    command.SetException(new InvalidOperationException("Unsupported simulation command."));
-                    break;
+                switch (command)
+                {
+                    case CheckpointSimulationCommand checkpoint: await ProcessCheckpointAsync(checkpoint, stoppingToken); break;
+                    case FailSimulationCommand failure: failure.Completion.TrySetException(failure.Failure); throw failure.Failure;
+                    case AdvanceSimulationCommand advance: if (advance.Minutes > 0) _engine!.AdvanceUntil(_engine.CurrentMinute.Add(advance.Minutes)); Publish(SimulationHostState.Running); break;
+                    default: command.SetException(new InvalidOperationException("Unsupported simulation command.")); break;
+                }
             }
+        }
+        finally
+        {
+            driverCancellation.Cancel();
+            try { await driver; } catch (OperationCanceledException) when (driverCancellation.IsCancellationRequested) { }
+        }
+    }
+
+    private async Task RunOperationalDriverAsync(CancellationToken stoppingToken)
+    {
+        if (_options.SimulationMinutesPerSecond <= 0) return;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        var accumulatedMinutes = 0d;
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            accumulatedMinutes += _options.SimulationMinutesPerSecond;
+            var minutes = (long)Math.Floor(accumulatedMinutes);
+            accumulatedMinutes -= minutes;
+            if (minutes > 0) await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes), stoppingToken);
         }
     }
 
@@ -265,14 +304,16 @@ public sealed partial class SimulationHost : BackgroundService
     private void Publish(SimulationHostState state, string? error = null)
     {
         var engine = _engine;
+        var readSnapshot = engine?.CreateReadSnapshot();
         var status = new ServerStatusSnapshot(
             state,
-            engine?.CurrentMinute.Value ?? 0,
-            engine?.PendingEventCount ?? 0,
-            FormatWorldSeed(engine?.Seed.Value ?? _options.WorldSeed.Value),
+            readSnapshot?.WorldMinute.Value ?? 0,
+            readSnapshot?.PendingEventCount ?? 0,
+            FormatWorldSeed(readSnapshot?.Seed.Value ?? _options.WorldSeed.Value),
             error,
-            engine is null ? null : CreateWorldSummary(engine.World));
-        Interlocked.Exchange(ref _status, status);
+            readSnapshot?.World is null ? null : CreateWorldSummary(readSnapshot.World),
+            readSnapshot?.Citizens.Count ?? 0);
+        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, readSnapshot?.Citizens));
     }
 
     private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)

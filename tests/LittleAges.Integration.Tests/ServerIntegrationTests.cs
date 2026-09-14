@@ -10,12 +10,132 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace LittleAges.Integration.Tests;
 
 public sealed class ServerIntegrationTests
 {
+    [Fact]
+    public async Task CitizensEndpointReturnsSortedRosterAndValidatesDecimalIds()
+    {
+        await WithFactoryAsync(async (factory, _) =>
+        {
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            using var response = await client.GetAsync("/api/v1/citizens");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var citizens = document.RootElement.EnumerateArray().ToArray();
+            Assert.Equal(20, citizens.Length);
+            Assert.Equal(Enumerable.Range(1, 20).Select(x => x.ToString(System.Globalization.CultureInfo.InvariantCulture)), citizens.Select(x => x.GetProperty("citizenId").GetString()));
+            Assert.All(citizens, citizen => Assert.InRange(citizen.GetProperty("health").GetInt32(), 0, 10000));
+
+            using var detail = await client.GetAsync("/api/v1/citizens/1");
+            Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+            using var malformed = await client.GetAsync("/api/v1/citizens/01");
+            Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
+            using var missing = await client.GetAsync("/api/v1/citizens/999");
+            Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        });
+    }
+
+    [Fact]
+    public async Task ConcurrentCitizenReadsRemainCoherentDuringAutomaticAdvancement()
+    {
+        var dataRoot = CreateDataRoot();
+        var factory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 1_000, suppressLogs: true);
+        try
+        {
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            var host = factory.Services.GetRequiredService<SimulationHost>();
+            var initialMinute = host.Status.WorldMinute;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            var readers = Enumerable.Range(0, 8).Select(async _ =>
+            {
+                var reads = 0;
+                do
+                {
+                    using var rosterResponse = await client.GetAsync("/api/v1/citizens", timeout.Token);
+                    rosterResponse.EnsureSuccessStatusCode();
+                    using var roster = JsonDocument.Parse(await rosterResponse.Content.ReadAsStringAsync(timeout.Token));
+                    var ids = roster.RootElement.EnumerateArray().Select(item => item.GetProperty("citizenId").GetString()).ToArray();
+                    Assert.Equal(20, ids.Length);
+                    Assert.Equal(20, ids.Distinct(StringComparer.Ordinal).Count());
+                    Assert.Equal(ids.OrderBy(id => long.Parse(id!, System.Globalization.CultureInfo.InvariantCulture)), ids);
+
+                    using var detailResponse = await client.GetAsync("/api/v1/citizens/1", timeout.Token);
+                    detailResponse.EnsureSuccessStatusCode();
+                    using var detail = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync(timeout.Token));
+                    Assert.Equal("1", detail.RootElement.GetProperty("citizenId").GetString());
+                    reads++;
+                }
+                while (reads < 25 || host.Status.WorldMinute == initialMinute);
+            });
+
+            await Task.WhenAll(readers);
+            Assert.True(host.Status.WorldMinute > initialMinute);
+            Assert.Equal(20, host.Status.Population);
+        }
+        finally
+        {
+            factory.Dispose();
+            CleanupDataRoot(dataRoot);
+        }
+    }
+
+    [Fact]
+    public async Task OperationalDriverAdvancesCitizensAndRestartContinuesCheckpointedState()
+    {
+        var dataRoot = CreateDataRoot();
+        try
+        {
+            long firstMinute;
+            string initialLocation;
+            var firstFactory = new ServerFactory(dataRoot);
+            try
+            {
+                using var client = firstFactory.CreateClient();
+                await WaitForRunningStatusAsync(client);
+                using var initial = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                initialLocation = initial.RootElement.GetProperty("location").GetProperty("x").GetInt32() + "," + initial.RootElement.GetProperty("location").GetProperty("y").GetInt32();
+                JsonDocument? advanced = null;
+                for (var attempt = 0; attempt < 40 && advanced is null; attempt++)
+                {
+                    await Task.Delay(250);
+                    var candidate = JsonDocument.Parse(await (await client.GetAsync("/api/v1/status")).Content.ReadAsStringAsync());
+                    using var currentCitizen = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                    var location = currentCitizen.RootElement.GetProperty("location").GetProperty("x").GetInt32() + "," + currentCitizen.RootElement.GetProperty("location").GetProperty("y").GetInt32();
+                    if (candidate.RootElement.GetProperty("worldMinute").GetInt64() >= 10 && location != initialLocation) advanced = candidate; else candidate.Dispose();
+                }
+                Assert.NotNull(advanced);
+                firstMinute = advanced!.RootElement.GetProperty("worldMinute").GetInt64();
+                advanced.Dispose();
+                using var after = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                var afterLocation = after.RootElement.GetProperty("location").GetProperty("x").GetInt32() + "," + after.RootElement.GetProperty("location").GetProperty("y").GetInt32();
+                Assert.NotEqual(initialLocation, afterLocation);
+                Assert.True(after.RootElement.GetProperty("actionSequence").GetInt64() > 0);
+            }
+            finally { firstFactory.Dispose(); }
+
+            var secondFactory = new ServerFactory(dataRoot);
+            try
+            {
+                using var client = secondFactory.CreateClient();
+                using var status = await WaitForRunningStatusAsync(client);
+                Assert.True(status.RootElement.GetProperty("worldMinute").GetInt64() >= firstMinute);
+                using var citizen = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                Assert.Equal("1", citizen.RootElement.GetProperty("citizenId").GetString());
+                Assert.InRange(citizen.RootElement.GetProperty("actionSequence").GetInt64(), 1, long.MaxValue);
+            }
+            finally { secondFactory.Dispose(); }
+        }
+        finally { CleanupDataRoot(dataRoot); }
+    }
+
     [Fact]
     public async Task HealthAndStatusAreAvailableWithoutBrowserClients()
     {
@@ -27,8 +147,9 @@ public sealed class ServerIntegrationTests
 
             using var statusDocument = await WaitForRunningStatusAsync(client);
             Assert.Equal("Running", statusDocument.RootElement.GetProperty("state").GetString());
-            Assert.Equal(0, statusDocument.RootElement.GetProperty("worldMinute").GetInt64());
-            Assert.Equal(0, statusDocument.RootElement.GetProperty("pendingEventCount").GetInt32());
+            Assert.True(statusDocument.RootElement.GetProperty("worldMinute").GetInt64() >= 0);
+            Assert.True(statusDocument.RootElement.GetProperty("pendingEventCount").GetInt32() >= 0);
+            Assert.False(statusDocument.RootElement.TryGetProperty("citizens", out _));
             Assert.Equal("18446744073709551615", statusDocument.RootElement.GetProperty("worldSeed").GetString());
             using var worldResponse = await client.GetAsync("/api/v1/world");
             Assert.Equal(HttpStatusCode.OK, worldResponse.StatusCode);
@@ -53,7 +174,7 @@ public sealed class ServerIntegrationTests
             var host = factory.Services.GetRequiredService<SimulationHost>();
             var result = await host.RequestCheckpointAsync();
             Assert.True(result.Succeeded);
-            Assert.Equal(0, result.WorldMinute);
+            Assert.True(result.WorldMinute >= 0);
         }
         finally
         {
@@ -64,7 +185,7 @@ public sealed class ServerIntegrationTests
         await using (var database = await WorldDatabase.OpenAsync(path))
         {
             var snapshot = await database.CreateCheckpointStore().LoadAsync();
-            Assert.Equal(0, snapshot.WorldMinute.Value);
+            Assert.True(snapshot.WorldMinute.Value >= 0);
         }
 
         CleanupDataRoot(dataRoot);
@@ -77,7 +198,7 @@ public sealed class ServerIntegrationTests
         try
         {
             string? firstFingerprint = null;
-            var firstFactory = new ServerFactory(dataRoot);
+            var firstFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0);
             try
             {
                 using var firstClient = firstFactory.CreateClient();
@@ -90,7 +211,7 @@ public sealed class ServerIntegrationTests
                 firstFactory.Dispose();
             }
 
-            var secondFactory = new ServerFactory(dataRoot);
+            var secondFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0);
             try
             {
                 using var secondClient = secondFactory.CreateClient();
@@ -124,7 +245,7 @@ public sealed class ServerIntegrationTests
                     new WorldSeed(7),
                     WorldMinute.Zero,
                     SimulationEngine.CurrentWorldSchemaVersion,
-                    SimulationEngine.CurrentSimulationRulesVersion,
+                    "m0-rng1",
                     "integration-test",
                     world.Configuration.CanonicalJson,
                     new DeterministicCountersSnapshot(1, 1, 1),
@@ -230,7 +351,7 @@ public sealed class ServerIntegrationTests
         var databasePath = Path.Combine(dataRoot, "host-world.db");
         try
         {
-            using var host = CreateSimulationHost(dataRoot, "host-world");
+            using var host = CreateSimulationHost(dataRoot, "host-world", simulationMinutesPerSecond: 0);
             await host.StartAsync();
             var simulationHost = host.Services.GetRequiredService<SimulationHost>();
             await WaitForStateAsync(simulationHost, SimulationHostState.Running);
@@ -316,7 +437,7 @@ public sealed class ServerIntegrationTests
         throw new InvalidOperationException($"The simulation host did not reach {expectedState} state.");
     }
 
-    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world")
+    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world", double simulationMinutesPerSecond = 10)
     {
         var builder = Host.CreateApplicationBuilder();
         var options = new ServerOptions
@@ -324,7 +445,8 @@ public sealed class ServerIntegrationTests
             DataRoot = dataRoot,
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(17),
-            ListenUrls = ServerOptions.DefaultListenUrls
+            ListenUrls = ServerOptions.DefaultListenUrls,
+            SimulationMinutesPerSecond = simulationMinutesPerSecond
         };
         builder.Services.Configure<HostOptions>(hostOptions => hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost);
         builder.Services.AddSingleton(options);
@@ -349,7 +471,7 @@ public sealed class ServerIntegrationTests
         }
     }
 
-    private sealed class ServerFactory(string dataRoot) : WebApplicationFactory<Program>
+    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, bool suppressLogs = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -357,6 +479,8 @@ public sealed class ServerIntegrationTests
             builder.UseSetting("ActiveWorld", "integration-world");
             builder.UseSetting("WorldSeed", ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
+            builder.UseSetting("SimulationMinutesPerSecond", simulationMinutesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (suppressLogs) builder.ConfigureLogging(logging => logging.ClearProviders());
         }
     }
 }
