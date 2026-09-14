@@ -15,7 +15,7 @@ public sealed class PersistenceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42));
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
             source.AdvanceUntil(new WorldMinute(35));
             await using var database = await WorldDatabase.OpenAsync(path);
             var store = database.CreateCheckpointStore();
@@ -64,7 +64,7 @@ public sealed class PersistenceTests
             var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate, Pooling = false }.ToString();
             var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
             var m1 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: "m0-rng1");
-            var citizen = new SimulationEngine(new WorldSeed(42)).Citizens[0];
+            var citizen = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion).Citizens[0];
             await using (var context = new LittleAgesDbContext(options))
             {
                 await context.Database.OpenConnectionAsync();
@@ -115,6 +115,7 @@ public sealed class PersistenceTests
             await using var retried = await WorldDatabase.OpenAsync(path);
             var loaded = await retried.CreateCheckpointStore().LoadAsync();
             Assert.Equal(1, loaded.CitizenGenerationVersion);
+            Assert.Equal(SimulationEngine.SurvivalVersion, loaded.SurvivalVersion);
             Assert.Equal(20, loaded.Citizens.Count);
             Assert.Equal(276, loaded.Counters.NextEntityId);
         });
@@ -156,7 +157,13 @@ public sealed class PersistenceTests
                 await database.CreateCheckpointStore().CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
             }
             SimulationPersistenceSnapshot loaded;
-            await using (var database = await WorldDatabase.OpenAsync(path)) loaded = await database.CreateCheckpointStore().LoadAsync();
+            var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
+            var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+            await using (var context = new LittleAgesDbContext(options))
+            {
+                await context.Database.OpenConnectionAsync();
+                loaded = await new WorldCheckpointStore(context).LoadAsync();
+            }
             var restored = SimulationEngine.FromPersistenceSnapshot(loaded);
             source.AdvanceUntil(completion);
             restored.AdvanceUntil(completion);
@@ -170,7 +177,7 @@ public sealed class PersistenceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = action is null ? new SimulationEngine(new WorldSeed(42)) : CreateForcedActionEngine(action.Value);
+            var source = action is null ? new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion) : CreateForcedActionEngine(action.Value);
             if (advanceTo is { } targetMinute) source.AdvanceUntil(targetMinute);
             await using var database = await WorldDatabase.OpenAsync(path);
             await database.CreateCheckpointStore().CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
@@ -184,7 +191,7 @@ public sealed class PersistenceTests
     private static SimulationEngine CreateForcedActionEngine(CitizenAction action)
     {
         var seed = new WorldSeed(42);
-        var baseline = new SimulationEngine(seed).CreatePersistenceSnapshot();
+        var baseline = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var citizen = baseline.Citizens[0];
         var oldEvent = baseline.ScheduledEvents.Single(e => e.Order.EntitySortKey == citizen.Id.Value);
@@ -232,11 +239,11 @@ public sealed class PersistenceTests
             {
                 Assert.True(File.Exists(path));
                 Assert.Equal("wal", (await database.ReadConnectionPragmasAsync()).JournalMode, ignoreCase: true);
-                Assert.Equal(5, await CountTablesAsync(database));
+                Assert.Equal(7, await CountTablesAsync(database));
             }
 
             await using var reopened = await WorldDatabase.OpenAsync(path);
-            Assert.Equal(5, await CountTablesAsync(reopened));
+            Assert.Equal(7, await CountTablesAsync(reopened));
         });
     }
 
@@ -320,8 +327,11 @@ public sealed class PersistenceTests
             Assert.Equal(new DateTime(2026, 9, 12, 1, 0, 0, DateTimeKind.Utc), metadata.LastCheckpointUtc);
 
             await database.DisposeAsync();
-            await using var reopened = await WorldDatabase.OpenAsync(path);
-            var reopenedSnapshot = await reopened.CreateCheckpointStore().LoadAsync();
+            var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
+            var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+            await using var reopenedContext = new LittleAgesDbContext(options);
+            await reopenedContext.Database.OpenConnectionAsync();
+            var reopenedSnapshot = await new WorldCheckpointStore(reopenedContext).LoadAsync();
             Assert.Equal(loaded.Seed, reopenedSnapshot.Seed);
             Assert.Equal(loaded.WorldMinute, reopenedSnapshot.WorldMinute);
             AssertWorldEqual(loaded.World!, reopenedSnapshot.World!);
@@ -340,14 +350,19 @@ public sealed class PersistenceTests
             }
 
             SimulationPersistenceSnapshot firstReload;
-            await using (var database = await WorldDatabase.OpenAsync(path))
+            var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
+            var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+            await using (var context = new LittleAgesDbContext(options))
             {
-                firstReload = await database.CreateCheckpointStore().LoadAsync();
-                await database.CreateCheckpointStore().CheckpointAsync(firstReload, new DateTime(2026, 9, 12, 5, 1, 0, DateTimeKind.Utc));
+                await context.Database.OpenConnectionAsync();
+                var store = new WorldCheckpointStore(context);
+                firstReload = await store.LoadAsync();
+                await store.CheckpointAsync(firstReload, new DateTime(2026, 9, 12, 5, 1, 0, DateTimeKind.Utc));
             }
 
-            await using var reopened = await WorldDatabase.OpenAsync(path);
-            var secondReload = await reopened.CreateCheckpointStore().LoadAsync();
+            await using var reopenedContext = new LittleAgesDbContext(options);
+            await reopenedContext.Database.OpenConnectionAsync();
+            var secondReload = await new WorldCheckpointStore(reopenedContext).LoadAsync();
             Assert.Equal(firstReload.Seed, secondReload.Seed);
             Assert.Equal(firstReload.WorldMinute, secondReload.WorldMinute);
             Assert.Equal(firstReload.WorldConfiguration, secondReload.WorldConfiguration);
@@ -503,14 +518,14 @@ public sealed class PersistenceTests
             await using (var database = await WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(upgradeUtc)))
             {
                 var migrations = await database.Context.Database.GetAppliedMigrationsAsync();
-                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens"], migrations.ToArray());
+                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens", "20260912030000_M3Survival"], migrations.ToArray());
                 var snapshot = await database.CreateCheckpointStore().LoadAsync();
                 Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
                 Assert.Equal(1234, snapshot.WorldMinute.Value);
                 Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, snapshot.WorldSchemaVersion);
                 Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
                 Assert.Equal("m0-test", snapshot.ApplicationVersion);
-                Assert.Equal(new DeterministicCountersSnapshot(276, 512, 29), snapshot.Counters);
+                Assert.Equal(new DeterministicCountersSnapshot(276, 512, 50), snapshot.Counters);
                 Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.World!.Configuration.CanonicalJson);
                 Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
                 Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World.GenerationVersion);
@@ -518,13 +533,13 @@ public sealed class PersistenceTests
                 Assert.Equal(new WorldGenerator().Generate(new WorldSeed(ulong.MaxValue)).Fingerprint, snapshot.World.Fingerprint);
                 Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"), snapshot.ScheduledEvents);
                 Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later"), snapshot.ScheduledEvents);
-                Assert.Equal(22, snapshot.ScheduledEvents.Count);
+                Assert.Equal(43, snapshot.ScheduledEvents.Count);
                 var metadata = await database.Context.WorldMeta.SingleAsync();
                 Assert.Equal(createdUtc, metadata.CreatedUtc);
                 Assert.Equal(upgradeUtc, metadata.LastCheckpointUtc);
                 Assert.Equal(276, metadata.NextEntityId);
                 Assert.Equal(512, metadata.NextHistoricalEventId);
-                Assert.Equal(29, metadata.NextScheduledEventSequence);
+                Assert.Equal(50, metadata.NextScheduledEventSequence);
                 firstSnapshot = snapshot;
             }
 
@@ -560,11 +575,11 @@ public sealed class PersistenceTests
             var snapshot = await database.CreateCheckpointStore().LoadAsync();
             Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
             Assert.Equal(1234, snapshot.WorldMinute.Value);
-            Assert.Equal(new DeterministicCountersSnapshot(276, 512, 29), snapshot.Counters);
+            Assert.Equal(new DeterministicCountersSnapshot(276, 512, 50), snapshot.Counters);
             Assert.Equal("m0-test", snapshot.ApplicationVersion);
             Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"), snapshot.ScheduledEvents);
             Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later"), snapshot.ScheduledEvents);
-            Assert.Equal(22, snapshot.ScheduledEvents.Count);
+            Assert.Equal(43, snapshot.ScheduledEvents.Count);
             Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
             Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World!.GenerationVersion);
             Assert.Equal(25_600, snapshot.World.Tiles.Count);
@@ -750,7 +765,7 @@ public sealed class PersistenceTests
     private static async Task<int> CountTablesAsync(WorldDatabase database)
     {
         await using var command = database.Context.Database.GetDbConnection().CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('world_meta', 'scheduled_events', 'world_tiles', 'resource_nodes', 'citizens');";
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('world_meta', 'scheduled_events', 'world_tiles', 'resource_nodes', 'resource_state', 'settlement_state', 'citizens');";
         return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
     }
 

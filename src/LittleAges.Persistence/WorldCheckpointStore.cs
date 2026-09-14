@@ -19,6 +19,10 @@ internal enum M2UpgradeFailurePoint
 {
     AfterRowsWritten
 }
+internal enum M3UpgradeFailurePoint
+{
+    AfterRowsWritten
+}
 
 /// <summary>Persists and restores the complete M1 canonical snapshot in one explicit transaction.</summary>
 public sealed class WorldCheckpointStore
@@ -33,9 +37,17 @@ public sealed class WorldCheckpointStore
 
     internal async Task<bool> UpgradeM1ToM2IfNeededAsync(M2UpgradeFailurePoint? failurePoint = null, CancellationToken cancellationToken = default)
     {
-        var metadata = await _context.WorldMeta.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
-        if (metadata is null) return false;
+        var metadataRows = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
+        if (metadataRows.Count == 0) return false;
+        if (metadataRows.Count != 1 || metadataRows[0].Id != SingletonWorldId) throw new InvalidDataException("Expected exactly one world_meta row with id 1.");
+        var metadata = metadataRows[0];
+        if (metadata.SurvivalVersion is not (0 or SimulationEngine.SurvivalVersion)) throw new NotSupportedException($"Survival version '{metadata.SurvivalVersion}' is not supported.");
         var citizenCount = await _context.Citizens.CountAsync(cancellationToken);
+        if (metadata.SurvivalVersion == SimulationEngine.SurvivalVersion)
+        {
+            if (metadata.CitizenGenerationVersion != SimulationEngine.CitizenGenerationVersion || citizenCount != CitizenGenerator.FounderCount) throw new InvalidDataException("An M3 checkpoint has an incomplete citizen sentinel.");
+            return false;
+        }
         if (metadata.CitizenGenerationVersion == SimulationEngine.CitizenGenerationVersion && citizenCount == CitizenGenerator.FounderCount) return false;
         if (metadata.CitizenGenerationVersion != 0 || citizenCount != 0) throw new InvalidDataException("The M2 citizen sentinel is partial or corrupt.");
         if (!string.Equals(metadata.SimulationRulesVersion, "m0-rng1", StringComparison.Ordinal))
@@ -54,12 +66,83 @@ public sealed class WorldCheckpointStore
             var sequence = counters.AllocateScheduledEventSequence();
             events.Add(new ScheduledEventSnapshot(new ScheduledEventId(sequence), new ScheduledEventOrder(m1.WorldMinute, CitizenEventNames.DecisionPriority, citizen.Id.Value, sequence), CitizenEventNames.Decision, $"{{\"citizenId\":\"{citizen.Id.Value}\",\"actionSequence\":0}}"));
         }
-        var snapshot = new SimulationPersistenceSnapshot(m1.Seed, m1.WorldMinute, m1.WorldSchemaVersion, SimulationEngine.CurrentSimulationRulesVersion, m1.ApplicationVersion, m1.WorldConfiguration, counters.Snapshot, events, m1.World, citizens, SimulationEngine.CitizenGenerationVersion);
+        var snapshot = new SimulationPersistenceSnapshot(m1.Seed, m1.WorldMinute, m1.WorldSchemaVersion, SimulationEngine.PreviousSimulationRulesVersion, m1.ApplicationVersion, m1.WorldConfiguration, counters.Snapshot, events, m1.World, citizens, SimulationEngine.CitizenGenerationVersion);
         var checkpointUtc = DateTime.SpecifyKind(metadata.LastCheckpointUtc, DateTimeKind.Utc);
         await CheckpointCoreAsync(snapshot, checkpointUtc, failurePoint == M2UpgradeFailurePoint.AfterRowsWritten ? CheckpointFailurePoint.AfterRowsWritten : null, cancellationToken);
         return true;
     }
     internal Task<bool> UpgradeM1ToM2IfNeededAsync(CancellationToken cancellationToken) => UpgradeM1ToM2IfNeededAsync(null, cancellationToken);
+
+    internal async Task<bool> UpgradeM2ToM3IfNeededAsync(M3UpgradeFailurePoint? failurePoint = null, CancellationToken cancellationToken = default)
+    {
+        var metadataRows = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
+        if (metadataRows.Count == 0) return false;
+        if (metadataRows.Count != 1 || metadataRows[0].Id != SingletonWorldId) throw new InvalidDataException("Expected exactly one world_meta row with id 1.");
+        var metadata = metadataRows[0];
+        if (metadata.SurvivalVersion == SimulationEngine.SurvivalVersion)
+        {
+            // Opening an M3 database must validate it, never repair it.
+            _ = await LoadAsync(cancellationToken);
+            return false;
+        }
+        if (metadata.SurvivalVersion != 0) throw new NotSupportedException($"Survival version '{metadata.SurvivalVersion}' is not supported.");
+        if (!string.Equals(metadata.SimulationRulesVersion, SimulationEngine.PreviousSimulationRulesVersion, StringComparison.Ordinal))
+        {
+            if (string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("Current M3 rules require survival version 1.");
+            return false;
+        }
+
+        var resourceCount = await _context.ResourceStates.AsNoTracking().CountAsync(cancellationToken);
+        var settlementCount = await _context.SettlementStates.AsNoTracking().CountAsync(cancellationToken);
+        var events = await _context.ScheduledEvents.AsNoTracking().ToListAsync(cancellationToken);
+        if (resourceCount != 0 || settlementCount != 0 || events.Any(e => e.EventName is CitizenEventNames.SurvivalCheck or CitizenEventNames.ResourceRegenerate))
+            throw new InvalidDataException("The M2-to-M3 sentinel contains partial M3 state.");
+
+        var m2 = await LoadAsync(cancellationToken);
+        if (m2.CitizenGenerationVersion != SimulationEngine.CitizenGenerationVersion || m2.Citizens.Count != CitizenGenerator.FounderCount)
+            throw new InvalidDataException("The M2-to-M3 upgrade requires the complete 20-founder M2 roster.");
+        var citizens = m2.Citizens.ToArray();
+        foreach (var citizen in citizens)
+        {
+            citizen.ActionPhase = citizen.CurrentAction switch
+            {
+                CitizenAction.None => CitizenActionPhase.None,
+                CitizenAction.Idle or CitizenAction.Rest => CitizenActionPhase.Perform,
+                CitizenAction.Wander or CitizenAction.Explore => CitizenActionPhase.TravelToTarget,
+                _ => throw new InvalidDataException("The M2 roster contains an unsupported in-flight action.")
+            };
+            citizen.HealthUpdatedMinute = m2.WorldMinute.Value;
+        }
+
+        var counters = new DeterministicCounters(m2.Counters);
+        var upgradedEvents = m2.ScheduledEvents.ToList();
+        foreach (var citizen in citizens.Where(x => x.IsAlive).OrderBy(x => x.Id.Value))
+        {
+            var sequence = counters.AllocateScheduledEventSequence();
+            upgradedEvents.Add(new ScheduledEventSnapshot(
+                new ScheduledEventId(sequence),
+                new ScheduledEventOrder(m2.WorldMinute.Add(CitizenSimulationRules.SurvivalCheckIntervalMinutes), CitizenEventNames.SurvivalPriority, citizen.Id.Value, sequence),
+                CitizenEventNames.SurvivalCheck,
+                $"{{\"citizenId\":\"{citizen.Id.Value}\"}}"));
+        }
+        var regenerationMinute = new WorldMinute(checked(((m2.WorldMinute.Value / WorldCalendar.MinutesPerDay) + 1) * WorldCalendar.MinutesPerDay));
+        var regenerationSequence = counters.AllocateScheduledEventSequence();
+        upgradedEvents.Add(new ScheduledEventSnapshot(
+            new ScheduledEventId(regenerationSequence),
+            new ScheduledEventOrder(regenerationMinute, CitizenEventNames.RegenerationPriority, 0, regenerationSequence),
+            CitizenEventNames.ResourceRegenerate,
+            "{\"version\":1}"));
+        var resourceStates = m2.World!.Resources.OrderBy(x => x.Id.Value).Select(x => new ResourceState(x.Id, x.InitialQuantity)).ToArray();
+        var snapshot = new SimulationPersistenceSnapshot(
+            m2.Seed, m2.WorldMinute, m2.WorldSchemaVersion, SimulationEngine.CurrentSimulationRulesVersion, m2.ApplicationVersion,
+            m2.WorldConfiguration, counters.Snapshot, upgradedEvents, m2.World, citizens, SimulationEngine.CitizenGenerationVersion,
+            resourceStates, new SettlementState(), SimulationEngine.SurvivalVersion);
+        var checkpointUtc = DateTime.SpecifyKind(metadata.LastCheckpointUtc, DateTimeKind.Utc);
+        await CheckpointCoreAsync(snapshot, checkpointUtc, failurePoint == M3UpgradeFailurePoint.AfterRowsWritten ? CheckpointFailurePoint.AfterRowsWritten : null, cancellationToken);
+        return true;
+    }
+
+    internal Task<bool> UpgradeM2ToM3IfNeededAsync(CancellationToken cancellationToken) => UpgradeM2ToM3IfNeededAsync(null, cancellationToken);
 
     public Task CheckpointAsync(SimulationPersistenceSnapshot snapshot, CancellationToken cancellationToken = default) =>
         CheckpointAsync(snapshot, DateTime.UtcNow, cancellationToken);
@@ -180,6 +263,8 @@ public sealed class WorldCheckpointStore
         CancellationToken cancellationToken)
     {
         _context.ChangeTracker.Clear();
+        _context.ResourceStates.RemoveRange(await _context.ResourceStates.ToListAsync(cancellationToken));
+        _context.SettlementStates.RemoveRange(await _context.SettlementStates.ToListAsync(cancellationToken));
         _context.ResourceNodes.RemoveRange(await _context.ResourceNodes.ToListAsync(cancellationToken));
         _context.WorldTiles.RemoveRange(await _context.WorldTiles.ToListAsync(cancellationToken));
         _context.ScheduledEvents.RemoveRange(await _context.ScheduledEvents.ToListAsync(cancellationToken));
@@ -196,6 +281,12 @@ public sealed class WorldCheckpointStore
             _context.Citizens.AddRange(snapshot.Citizens.Select(ToCitizenRow));
             _context.WorldTiles.AddRange(world.Tiles.Select(tile => ToWorldTileRow(tile, world.Width)).ToArray());
             _context.ResourceNodes.AddRange(world.Resources.Select(node => ToResourceNodeRow(node, world.Width)).ToArray());
+            if (snapshot.SurvivalVersion == SimulationEngine.SurvivalVersion)
+            {
+                if (snapshot.Settlement is null) throw new InvalidDataException("M3 checkpoints require settlement state.");
+                _context.ResourceStates.AddRange(snapshot.ResourceStates.OrderBy(x => x.ResourceNodeId.Value).Select(x => new ResourceStateRow { ResourceNodeId = x.ResourceNodeId.Value, CurrentQuantity = x.CurrentQuantity }));
+                _context.SettlementStates.Add(new SettlementStateRow { Id = SettlementState.SingletonId, FoodStored = snapshot.Settlement.FoodStored, WoodStored = snapshot.Settlement.WoodStored, StoneStored = snapshot.Settlement.StoneStored });
+            }
             await _context.SaveChangesAsync(cancellationToken);
         }
         finally
@@ -209,6 +300,8 @@ public sealed class WorldCheckpointStore
         var metadataRows = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
         if (metadataRows.Count != 1 || metadataRows[0].Id != SingletonWorldId) throw new InvalidDataException($"Expected exactly one world_meta row with id {SingletonWorldId}, found {metadataRows.Count}.");
         var metadata = metadataRows[0];
+        if (metadata.SurvivalVersion is not (0 or SimulationEngine.SurvivalVersion)) throw new NotSupportedException($"Survival version '{metadata.SurvivalVersion}' is not supported.");
+        if (metadata.SurvivalVersion == 0 && string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("Current M3 rules require survival version 1.");
         var configuration = ParseConfiguration(metadata.WorldConfigurationJson);
         if (metadata.GenerationVersion != WorldGenerationConfiguration.CurrentVersion) throw new NotSupportedException($"World generation version '{metadata.GenerationVersion}' is not supported.");
         var seed = WorldSeedCodec.Decode(metadata.WorldSeedValue);
@@ -256,18 +349,27 @@ public sealed class WorldCheckpointStore
         try { minute = new WorldMinute(metadata.WorldMinute); }
         catch (ArgumentOutOfRangeException exception) { throw new InvalidDataException("The persisted world minute must be non-negative.", exception); }
         var events = await _context.ScheduledEvents.AsNoTracking().OrderBy(row => row.DueWorldMinute).ThenBy(row => row.Priority).ThenBy(row => row.EntitySortKey).ThenBy(row => row.Sequence).ToListAsync(cancellationToken);
+        if (metadata.SurvivalVersion == 0 && (await _context.ResourceStates.AsNoTracking().AnyAsync(cancellationToken) || await _context.SettlementStates.AsNoTracking().AnyAsync(cancellationToken) || events.Any(row => row.EventName is CitizenEventNames.SurvivalCheck or CitizenEventNames.ResourceRegenerate)))
+            throw new InvalidDataException("M2/pre-M2 checkpoint contains partial M3 state.");
+        var resourceStateRows = await _context.ResourceStates.AsNoTracking().OrderBy(row => row.ResourceNodeId).ToListAsync(cancellationToken);
+        var settlementRows = await _context.SettlementStates.AsNoTracking().OrderBy(row => row.Id).ToListAsync(cancellationToken);
         var citizensRows = await _context.Citizens.AsNoTracking().OrderBy(row => row.Id).ToListAsync(cancellationToken);
         if (metadata.CitizenGenerationVersion == SimulationEngine.CitizenGenerationVersion && citizensRows.Count != CitizenGenerator.FounderCount) throw new InvalidDataException("An M2 checkpoint must contain exactly 20 citizens.");
         if (metadata.CitizenGenerationVersion == 0 && citizensRows.Count != 0) throw new InvalidDataException("A pre-M2 checkpoint must not contain citizen rows.");
         if (metadata.CitizenGenerationVersion is not (0 or SimulationEngine.CitizenGenerationVersion)) throw new NotSupportedException($"Citizen generation version '{metadata.CitizenGenerationVersion}' is not supported.");
         Citizen[] citizens;
-        try { citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute)).ToArray(); }
+        try { citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute, metadata.SurvivalVersion)).ToArray(); }
         catch (InvalidDataException) { throw; }
         catch (ArgumentException exception) { throw new InvalidDataException("A persisted citizen row is not valid.", exception); }
         SimulationPersistenceSnapshot snapshot;
         try
         {
-            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion);
+            var survival = metadata.SurvivalVersion == SimulationEngine.SurvivalVersion;
+            if (survival && (resourceStateRows.Count != resources.Length || resourceStateRows.Select(x => x.ResourceNodeId).Distinct().Count() != resourceStateRows.Count || settlementRows.Count != 1 || settlementRows[0].Id != SettlementState.SingletonId)) throw new InvalidDataException("M3 checkpoint resource or settlement state is incomplete.");
+            if (!survival && (resourceStateRows.Count != 0 || settlementRows.Count != 0)) throw new InvalidDataException("Pre-M3 checkpoint contains M3 rows.");
+            var states = resourceStateRows.Select(x => new ResourceState(new ResourceNodeId(x.ResourceNodeId), x.CurrentQuantity)).ToArray();
+            var settlement = settlementRows.Count == 1 ? new SettlementState(settlementRows[0].FoodStored, settlementRows[0].WoodStored, settlementRows[0].StoneStored) : null;
+            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion);
             SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
         }
         catch (ArgumentException exception) { throw new InvalidDataException("The persisted checkpoint is not a valid persistence snapshot.", exception); }
@@ -280,8 +382,10 @@ public sealed class WorldCheckpointStore
         var scheduledEventCount = await _context.ScheduledEvents.AsNoTracking().CountAsync(cancellationToken);
         var tileCount = await _context.WorldTiles.AsNoTracking().CountAsync(cancellationToken);
         var resourceCount = await _context.ResourceNodes.AsNoTracking().CountAsync(cancellationToken);
+        var resourceStateCount = await _context.ResourceStates.AsNoTracking().CountAsync(cancellationToken);
+        var settlementCount = await _context.SettlementStates.AsNoTracking().CountAsync(cancellationToken);
         var citizenCount = await _context.Citizens.AsNoTracking().CountAsync(cancellationToken);
-        if (metadataCount == 0 && (scheduledEventCount > 0 || tileCount > 0 || resourceCount > 0 || citizenCount > 0)) throw new InvalidDataException("Checkpoint rows exist without a world_meta checkpoint.");
+        if (metadataCount == 0 && (scheduledEventCount > 0 || tileCount > 0 || resourceCount > 0 || resourceStateCount > 0 || settlementCount > 0 || citizenCount > 0)) throw new InvalidDataException("Checkpoint rows exist without a world_meta checkpoint.");
         if (metadataCount > 1) throw new InvalidDataException("More than one world_meta checkpoint exists.");
         return metadataCount == 1;
     }
@@ -396,7 +500,7 @@ public sealed class WorldCheckpointStore
         WorldSchemaVersion = snapshot.WorldSchemaVersion, SimulationRulesVersion = snapshot.SimulationRulesVersion, ApplicationVersion = snapshot.ApplicationVersion,
         WorldConfigurationJson = world.Configuration.CanonicalJson, GenerationVersion = world.GenerationVersion, GenerationAttempt = world.GenerationAttempt,
         StartingX = world.StartingSite.X, StartingY = world.StartingSite.Y, WorldFingerprint = world.Fingerprint,
-        CitizenGenerationVersion = snapshot.CitizenGenerationVersion, NextEntityId = snapshot.Counters.NextEntityId, NextHistoricalEventId = snapshot.Counters.NextHistoricalEventId, NextScheduledEventSequence = snapshot.Counters.NextScheduledEventSequence,
+        CitizenGenerationVersion = snapshot.CitizenGenerationVersion, SurvivalVersion = snapshot.SurvivalVersion, NextEntityId = snapshot.Counters.NextEntityId, NextHistoricalEventId = snapshot.Counters.NextHistoricalEventId, NextScheduledEventSequence = snapshot.Counters.NextScheduledEventSequence,
         CreatedUtc = createdUtc, LastCheckpointUtc = checkpointUtc
     };
 
@@ -439,15 +543,16 @@ public sealed class WorldCheckpointStore
     {
         Id = citizen.Id.Value, FounderOrdinal = citizen.FounderOrdinal, GivenName = citizen.GivenName, FamilyName = citizen.FamilyName, BirthMinute = citizen.BirthMinute, DeathMinute = citizen.DeathMinute, DeathCause = citizen.DeathCause, ParentAId = citizen.ParentAId?.Value, ParentBId = citizen.ParentBId?.Value, PartnerId = citizen.PartnerId?.Value, HouseholdId = citizen.HouseholdId?.Value, HomeStructureId = citizen.HomeStructureId?.Value, LocationX = citizen.Location.X, LocationY = citizen.Location.Y, Health = citizen.Health,
         Hunger = citizen.Needs.Hunger, Rest = citizen.Needs.Rest, Shelter = citizen.Needs.Shelter, Social = citizen.Needs.Social, Industriousness = citizen.Traits.Industriousness, Sociability = citizen.Traits.Sociability, Curiosity = citizen.Traits.Curiosity, Cooperativeness = citizen.Traits.Cooperativeness, RiskTolerance = citizen.Traits.RiskTolerance, Resilience = citizen.Traits.Resilience,
-        Foraging = citizen.Skills.Foraging, Woodcutting = citizen.Skills.Woodcutting, Stoneworking = citizen.Skills.Stoneworking, Construction = citizen.Skills.Construction, Hauling = citizen.Skills.Hauling, Domestic = citizen.Skills.Domestic, CurrentAction = (int)citizen.CurrentAction, ActionSequence = citizen.ActionSequence, ActionStartedMinute = citizen.ActionStartedMinute?.Value, ActionCompletesMinute = citizen.ActionCompletesMinute?.Value, ActionTargetX = citizen.ActionTarget?.X, ActionTargetY = citizen.ActionTarget?.Y, NeedsUpdatedMinute = citizen.NeedsUpdatedMinute, LifetimeMovementSteps = citizen.LifetimeMovementSteps, LifetimeMovementCost = citizen.LifetimeMovementCost
+        Foraging = citizen.Skills.Foraging, Woodcutting = citizen.Skills.Woodcutting, Stoneworking = citizen.Skills.Stoneworking, Construction = citizen.Skills.Construction, Hauling = citizen.Skills.Hauling, Domestic = citizen.Skills.Domestic, CurrentAction = (int)citizen.CurrentAction, ActionSequence = citizen.ActionSequence, ActionStartedMinute = citizen.ActionStartedMinute?.Value, ActionCompletesMinute = citizen.ActionCompletesMinute?.Value, ActionTargetX = citizen.ActionTarget?.X, ActionTargetY = citizen.ActionTarget?.Y, NeedsUpdatedMinute = citizen.NeedsUpdatedMinute, LifetimeMovementSteps = citizen.LifetimeMovementSteps, LifetimeMovementCost = citizen.LifetimeMovementCost, HealthUpdatedMinute = citizen.HealthUpdatedMinute, ActionPhase = (int)citizen.ActionPhase, TargetResourceNodeId = citizen.TargetResourceNodeId?.Value, CarriedResourceType = citizen.CarriedResourceType is null ? null : (int)citizen.CarriedResourceType.Value, CarriedResourceQuantity = citizen.CarriedResourceQuantity
     };
-    private static Citizen FromCitizenRow(CitizenRow row, WorldMap world, WorldMinute minute)
+    private static Citizen FromCitizenRow(CitizenRow row, WorldMap world, WorldMinute minute, int survivalVersion)
     {
-        if (!Enum.IsDefined((CitizenAction)row.CurrentAction) || row.Id <= 0 || row.FounderOrdinal is < 0 or > 19 || row.Health != 10000 || row.BirthMinute >= 0 || row.LocationX < 0 || row.LocationY < 0 || row.LocationX >= world.Width || row.LocationY >= world.Height || !world.GetTile(row.LocationX, row.LocationY).Walkable) throw new InvalidDataException("Citizen row contains invalid canonical state.");
+        if (!Enum.IsDefined((CitizenAction)row.CurrentAction) || row.Id <= 0 || row.FounderOrdinal is < 0 or > 19 || (survivalVersion == 0 && row.Health != 10000) || row.BirthMinute >= 0 || row.LocationX < 0 || row.LocationY < 0 || row.LocationX >= world.Width || row.LocationY >= world.Height || !world.GetTile(row.LocationX, row.LocationY).Walkable) throw new InvalidDataException("Citizen row contains invalid canonical state.");
         if (row.ActionTargetX.HasValue != row.ActionTargetY.HasValue) throw new InvalidDataException("Citizen action target coordinates must be both present or both absent.");
-        var citizen = new Citizen(new CitizenId(row.Id), row.FounderOrdinal, row.GivenName, row.FamilyName, row.BirthMinute, new TileCoordinate(row.LocationX, row.LocationY), new CitizenTraits(row.Industriousness, row.Sociability, row.Curiosity, row.Cooperativeness, row.RiskTolerance, row.Resilience), new CitizenSkills(row.Foraging, row.Woodcutting, row.Stoneworking, row.Construction, row.Hauling, row.Domestic), new CitizenNeeds(row.Hunger, row.Rest, row.Shelter, row.Social)) { DeathMinute = row.DeathMinute, DeathCause = row.DeathCause, ParentAId = row.ParentAId is null ? null : new CitizenId(row.ParentAId.Value), ParentBId = row.ParentBId is null ? null : new CitizenId(row.ParentBId.Value), PartnerId = row.PartnerId is null ? null : new CitizenId(row.PartnerId.Value), HouseholdId = row.HouseholdId is null ? null : new HouseholdId(row.HouseholdId.Value), HomeStructureId = row.HomeStructureId is null ? null : new StructureId(row.HomeStructureId.Value), CurrentAction = (CitizenAction)row.CurrentAction, ActionSequence = row.ActionSequence, ActionStartedMinute = row.ActionStartedMinute is null ? null : new WorldMinute(row.ActionStartedMinute.Value), ActionCompletesMinute = row.ActionCompletesMinute is null ? null : new WorldMinute(row.ActionCompletesMinute.Value), ActionTarget = row.ActionTargetX is null || row.ActionTargetY is null ? null : new TileCoordinate(row.ActionTargetX.Value, row.ActionTargetY.Value), NeedsUpdatedMinute = row.NeedsUpdatedMinute, LifetimeMovementSteps = row.LifetimeMovementSteps, LifetimeMovementCost = row.LifetimeMovementCost };
+        if (row.ActionPhase < (int)CitizenActionPhase.None || row.ActionPhase > (int)CitizenActionPhase.ReturnToStockpile || row.CarriedResourceType is < 1 or > 3 || row.TargetResourceNodeId is <= 0 || row.CarriedResourceQuantity < 0) throw new InvalidDataException("Citizen M3 state contains an invalid enum or quantity.");
+        var citizen = new Citizen(new CitizenId(row.Id), row.FounderOrdinal, row.GivenName, row.FamilyName, row.BirthMinute, new TileCoordinate(row.LocationX, row.LocationY), new CitizenTraits(row.Industriousness, row.Sociability, row.Curiosity, row.Cooperativeness, row.RiskTolerance, row.Resilience), new CitizenSkills(row.Foraging, row.Woodcutting, row.Stoneworking, row.Construction, row.Hauling, row.Domestic)) { Needs = new CitizenNeeds(row.Hunger, row.Rest, row.Shelter, row.Social), DeathMinute = row.DeathMinute, DeathCause = row.DeathCause, ParentAId = row.ParentAId is null ? null : new CitizenId(row.ParentAId.Value), ParentBId = row.ParentBId is null ? null : new CitizenId(row.ParentBId.Value), PartnerId = row.PartnerId is null ? null : new CitizenId(row.PartnerId.Value), HouseholdId = row.HouseholdId is null ? null : new HouseholdId(row.HouseholdId.Value), HomeStructureId = row.HomeStructureId is null ? null : new StructureId(row.HomeStructureId.Value), Health = row.Health, CurrentAction = (CitizenAction)row.CurrentAction, ActionPhase = (CitizenActionPhase)row.ActionPhase, ActionSequence = row.ActionSequence, ActionStartedMinute = row.ActionStartedMinute is null ? null : new WorldMinute(row.ActionStartedMinute.Value), ActionCompletesMinute = row.ActionCompletesMinute is null ? null : new WorldMinute(row.ActionCompletesMinute.Value), ActionTarget = row.ActionTargetX is null || row.ActionTargetY is null ? null : new TileCoordinate(row.ActionTargetX.Value, row.ActionTargetY.Value), TargetResourceNodeId = row.TargetResourceNodeId is null ? null : new ResourceNodeId(row.TargetResourceNodeId.Value), CarriedResourceType = row.CarriedResourceType is null ? null : (ResourceType)row.CarriedResourceType.Value, CarriedResourceQuantity = row.CarriedResourceQuantity, NeedsUpdatedMinute = row.NeedsUpdatedMinute, HealthUpdatedMinute = row.HealthUpdatedMinute, LifetimeMovementSteps = row.LifetimeMovementSteps, LifetimeMovementCost = row.LifetimeMovementCost };
         if ((citizen.CurrentAction is CitizenAction.Wander or CitizenAction.Explore) && citizen.ActionTarget is null) throw new InvalidDataException("Moving citizen must have a target.");
-        if (citizen.CurrentAction != CitizenAction.None && (citizen.ActionStartedMinute is null || citizen.ActionCompletesMinute is null || citizen.ActionCompletesMinute!.Value < minute || citizen.ActionStartedMinute!.Value > minute)) throw new InvalidDataException("Citizen action timing is incoherent.");
+        if (citizen.CurrentAction is not (CitizenAction.None or CitizenAction.Dead) && (citizen.ActionStartedMinute is null || citizen.ActionCompletesMinute is null || citizen.ActionCompletesMinute!.Value < minute || citizen.ActionStartedMinute!.Value > minute)) throw new InvalidDataException("Citizen action timing is incoherent.");
         if (citizen.CurrentAction == CitizenAction.None && (citizen.ActionStartedMinute is not null || citizen.ActionCompletesMinute is not null || citizen.ActionTarget is not null)) throw new InvalidDataException("Decision-boundary citizen has stale action timing.");
         try { citizen.Validate(world); } catch (ArgumentException exception) { throw new InvalidDataException("Citizen row contains invalid canonical state.", exception); }
         return citizen;

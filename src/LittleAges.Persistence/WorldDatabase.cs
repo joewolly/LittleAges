@@ -9,7 +9,8 @@ public sealed record SqlitePragmas(string JournalMode, int ForeignKeys, int Busy
 internal sealed record WorldDatabaseOpenOptions(
     DateTime? LegacyUpgradeCheckpointUtc = null,
     LegacyUpgradeFailurePoint? LegacyUpgradeFailurePoint = null,
-    M2UpgradeFailurePoint? M2UpgradeFailurePoint = null);
+    M2UpgradeFailurePoint? M2UpgradeFailurePoint = null,
+    M3UpgradeFailurePoint? M3UpgradeFailurePoint = null);
 
 /// <summary>Opens one world database, applies migrations, and configures connection-level SQLite safety.</summary>
 public sealed class WorldDatabase : IAsyncDisposable
@@ -72,7 +73,9 @@ public sealed class WorldDatabase : IAsyncDisposable
                 openOptions?.LegacyUpgradeCheckpointUtc,
                 openOptions?.LegacyUpgradeFailurePoint,
                 cancellationToken);
-            await database.CreateCheckpointStore().UpgradeM1ToM2IfNeededAsync(openOptions?.M2UpgradeFailurePoint, cancellationToken);
+            var upgradedM1ToM2 = await database.CreateCheckpointStore().UpgradeM1ToM2IfNeededAsync(openOptions?.M2UpgradeFailurePoint, cancellationToken);
+            var m3FailurePoint = openOptions?.M3UpgradeFailurePoint ?? (upgradedM1ToM2 ? null : openOptions?.M2UpgradeFailurePoint switch { M2UpgradeFailurePoint.AfterRowsWritten => M3UpgradeFailurePoint.AfterRowsWritten, _ => null });
+            await database.CreateCheckpointStore().UpgradeM2ToM3IfNeededAsync(m3FailurePoint, cancellationToken);
             return database;
         }
         catch

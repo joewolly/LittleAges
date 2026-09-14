@@ -23,18 +23,156 @@ public sealed record ServerStatusSnapshot(
     string WorldSeed,
     string? Error,
     WorldSummarySnapshot? World = null,
-    int Population = 0);
+    int Population = 0,
+    int TotalPopulation = 0,
+    int LivingPopulation = 0,
+    int DeadPopulation = 0);
+
+public sealed record ServerNeedsSnapshot(int Hunger, int Rest, int Shelter, int Social);
+
+public sealed record ServerTraitsSnapshot(
+    int Industriousness,
+    int Sociability,
+    int Curiosity,
+    int Cooperativeness,
+    int RiskTolerance,
+    int Resilience);
+
+public sealed record ServerSkillsSnapshot(
+    int Foraging,
+    int Woodcutting,
+    int Stoneworking,
+    int Construction,
+    int Hauling,
+    int Domestic);
+
+/// <summary>Immutable server-owned citizen read model. It never exposes domain mutable records.</summary>
+public sealed record ServerCitizenSnapshot
+{
+    public ServerCitizenSnapshot(CitizenReadSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        CitizenId = snapshot.CitizenId;
+        FounderOrdinal = snapshot.FounderOrdinal;
+        GivenName = snapshot.GivenName;
+        FamilyName = snapshot.FamilyName;
+        Name = snapshot.Name;
+        Age = snapshot.Age;
+        LifeStage = snapshot.LifeStage;
+        Location = snapshot.Location;
+        Health = snapshot.Health;
+        ProjectedNeeds = new ServerNeedsSnapshot(snapshot.ProjectedNeeds.Hunger, snapshot.ProjectedNeeds.Rest, snapshot.ProjectedNeeds.Shelter, snapshot.ProjectedNeeds.Social);
+        Traits = new ServerTraitsSnapshot(snapshot.Traits.Industriousness, snapshot.Traits.Sociability, snapshot.Traits.Curiosity, snapshot.Traits.Cooperativeness, snapshot.Traits.RiskTolerance, snapshot.Traits.Resilience);
+        Skills = new ServerSkillsSnapshot(snapshot.Skills.Foraging, snapshot.Skills.Woodcutting, snapshot.Skills.Stoneworking, snapshot.Skills.Construction, snapshot.Skills.Hauling, snapshot.Skills.Domestic);
+        CurrentAction = snapshot.CurrentAction;
+        ActionStartedMinute = snapshot.ActionStartedMinute;
+        ActionCompletesMinute = snapshot.ActionCompletesMinute;
+        Target = snapshot.Target;
+        ActionSequence = snapshot.ActionSequence;
+        IsAlive = snapshot.IsAlive;
+        DeathCause = snapshot.DeathCause;
+        CarriedResource = snapshot.CarriedResourceType;
+        CarriedQuantity = snapshot.CarriedResourceQuantity == 0 ? null : snapshot.CarriedResourceQuantity;
+        TargetResourceNodeId = snapshot.TargetResourceNodeId?.Value.ToString(CultureInfo.InvariantCulture);
+        ActionPhase = snapshot.ActionPhase;
+        DeathMinute = snapshot.DeathMinute?.Value;
+    }
+
+    public string CitizenId { get; }
+    public int FounderOrdinal { get; }
+    public string GivenName { get; }
+    public string FamilyName { get; }
+    public string Name { get; }
+    public int Age { get; }
+    public string LifeStage { get; }
+    public TileCoordinate Location { get; }
+    public int Health { get; }
+    public ServerNeedsSnapshot ProjectedNeeds { get; }
+    public int Hunger => ProjectedNeeds.Hunger;
+    public int Rest => ProjectedNeeds.Rest;
+    public int Shelter => ProjectedNeeds.Shelter;
+    public int Social => ProjectedNeeds.Social;
+    public ServerTraitsSnapshot Traits { get; }
+    public ServerSkillsSnapshot Skills { get; }
+    public CitizenAction CurrentAction { get; }
+    public WorldMinute? ActionStartedMinute { get; }
+    public WorldMinute? ActionCompletesMinute { get; }
+    public TileCoordinate? Target { get; }
+    public long ActionSequence { get; }
+    public bool IsAlive { get; }
+    public string? DeathCause { get; }
+    public ResourceType? CarriedResource { get; }
+    public int? CarriedQuantity { get; }
+    public ResourceType? CarriedResourceType => CarriedResource;
+    public int CarriedResourceQuantity => CarriedQuantity ?? 0;
+    public string? TargetResourceNodeId { get; }
+    public CitizenActionPhase ActionPhase { get; }
+    public long? DeathMinute { get; }
+}
+
+public sealed record ServerResourceQuantitySnapshot(ResourceType ResourceType, int Quantity);
+
+public sealed record ServerResourceNodeSnapshot(string ResourceNodeId, ResourceType ResourceType, int CurrentQuantity);
+
+/// <summary>Immutable settlement and resource read model published with the citizen roster.</summary>
+public sealed record ServerSettlementSnapshot
+{
+    public ServerSettlementSnapshot(
+        int foodStored,
+        int woodStored,
+        int stoneStored,
+        int livingPopulation,
+        int deadPopulation,
+        IReadOnlyList<ServerResourceQuantitySnapshot>? remainingResources = null,
+        IReadOnlyList<ServerResourceNodeSnapshot>? resources = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(foodStored);
+        ArgumentOutOfRangeException.ThrowIfNegative(woodStored);
+        ArgumentOutOfRangeException.ThrowIfNegative(stoneStored);
+        ArgumentOutOfRangeException.ThrowIfNegative(livingPopulation);
+        ArgumentOutOfRangeException.ThrowIfNegative(deadPopulation);
+        FoodStored = foodStored;
+        WoodStored = woodStored;
+        StoneStored = stoneStored;
+        LivingPopulation = livingPopulation;
+        DeadPopulation = deadPopulation;
+        RemainingResources = Array.AsReadOnly((remainingResources ?? Array.Empty<ServerResourceQuantitySnapshot>()).ToArray());
+        Resources = Array.AsReadOnly((resources ?? Array.Empty<ServerResourceNodeSnapshot>()).ToArray());
+    }
+
+    public int FoodStored { get; }
+    public int WoodStored { get; }
+    public int StoneStored { get; }
+    public int LivingPopulation { get; }
+    public int DeadPopulation { get; }
+    public IReadOnlyList<ServerResourceQuantitySnapshot> RemainingResources { get; }
+    public IReadOnlyList<ServerResourceNodeSnapshot> Resources { get; }
+    public int TotalPopulation => LivingPopulation + DeadPopulation;
+}
 
 public sealed record ServerObservationSnapshot
 {
     public ServerObservationSnapshot(ServerStatusSnapshot status, IReadOnlyList<CitizenReadSnapshot>? citizens = null)
+        : this(status, citizens?.Select(static citizen => new ServerCitizenSnapshot(citizen)), null)
     {
+    }
+
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IReadOnlyList<CitizenReadSnapshot>? citizens, ServerSettlementSnapshot? settlement)
+        : this(status, citizens?.Select(static citizen => new ServerCitizenSnapshot(citizen)), settlement)
+    {
+    }
+
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement)
+    {
+        ArgumentNullException.ThrowIfNull(status);
         Status = status;
-        Citizens = Array.AsReadOnly((citizens ?? Array.Empty<CitizenReadSnapshot>()).ToArray());
+        Citizens = Array.AsReadOnly((citizens ?? Array.Empty<ServerCitizenSnapshot>()).OrderBy(static citizen => long.Parse(citizen.CitizenId, CultureInfo.InvariantCulture)).ToArray());
+        Settlement = settlement;
     }
 
     public ServerStatusSnapshot Status { get; }
-    public IReadOnlyList<CitizenReadSnapshot> Citizens { get; }
+    public IReadOnlyList<ServerCitizenSnapshot> Citizens { get; }
+    public ServerSettlementSnapshot? Settlement { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -67,9 +205,9 @@ internal sealed record FailSimulationCommand(TaskCompletionSource<bool> Completi
 {
     internal override void SetException(Exception exception) => Completion.TrySetException(exception);
 }
-internal sealed record AdvanceSimulationCommand(long Minutes) : SimulationCommand
+internal sealed record AdvanceSimulationCommand(long Minutes, TaskCompletionSource<bool>? Completion = null) : SimulationCommand
 {
-    internal override void SetException(Exception exception) { }
+    internal override void SetException(Exception exception) => Completion?.TrySetException(exception);
 }
 
 /// <summary>
@@ -93,6 +231,7 @@ public sealed partial class SimulationHost : BackgroundService
     private WorldCheckpointStore? _checkpointStore;
     private int _failNextFinalCheckpointForTesting;
     private Exception? _terminalFailure;
+    private readonly TaskCompletionSource<bool> _runningForTesting = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public SimulationHost(ServerOptions options, ILogger<SimulationHost> logger)
     {
@@ -131,6 +270,16 @@ public sealed partial class SimulationHost : BackgroundService
             new InvalidOperationException("Controlled simulation command failure.")));
         await completion.Task;
     }
+
+    internal async Task AdvanceForTestingAsync(long minutes, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(minutes);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes, completion), cancellationToken);
+        await completion.Task.WaitAsync(cancellationToken);
+    }
+
+    internal Task WaitForRunningForTestingAsync(CancellationToken cancellationToken = default) => _runningForTesting.Task.WaitAsync(cancellationToken);
 
     internal void FailNextFinalCheckpointForTesting() => Interlocked.Exchange(ref _failNextFinalCheckpointForTesting, 1);
 
@@ -206,7 +355,19 @@ public sealed partial class SimulationHost : BackgroundService
                 {
                     case CheckpointSimulationCommand checkpoint: await ProcessCheckpointAsync(checkpoint, stoppingToken); break;
                     case FailSimulationCommand failure: failure.Completion.TrySetException(failure.Failure); throw failure.Failure;
-                    case AdvanceSimulationCommand advance: if (advance.Minutes > 0) _engine!.AdvanceUntil(_engine.CurrentMinute.Add(advance.Minutes)); Publish(SimulationHostState.Running); break;
+                    case AdvanceSimulationCommand advance:
+                        try
+                        {
+                            if (advance.Minutes > 0) _engine!.AdvanceUntil(_engine.CurrentMinute.Add(advance.Minutes));
+                            Publish(SimulationHostState.Running);
+                            advance.Completion?.TrySetResult(true);
+                        }
+                        catch (Exception exception)
+                        {
+                            advance.Completion?.TrySetException(exception);
+                            throw;
+                        }
+                        break;
                     default: command.SetException(new InvalidOperationException("Unsupported simulation command.")); break;
                 }
             }
@@ -305,6 +466,10 @@ public sealed partial class SimulationHost : BackgroundService
     {
         var engine = _engine;
         var readSnapshot = engine?.CreateReadSnapshot();
+        var citizenSnapshots = readSnapshot?.Citizens.Select(static citizen => new ServerCitizenSnapshot(citizen)).ToArray() ?? Array.Empty<ServerCitizenSnapshot>();
+        var livingPopulation = citizenSnapshots.Count(static citizen => citizen.IsAlive);
+        var deadPopulation = citizenSnapshots.Length - livingPopulation;
+        var settlement = readSnapshot is null ? null : CreateSettlementSummary(readSnapshot, citizenSnapshots);
         var status = new ServerStatusSnapshot(
             state,
             readSnapshot?.WorldMinute.Value ?? 0,
@@ -312,8 +477,40 @@ public sealed partial class SimulationHost : BackgroundService
             FormatWorldSeed(readSnapshot?.Seed.Value ?? _options.WorldSeed.Value),
             error,
             readSnapshot?.World is null ? null : CreateWorldSummary(readSnapshot.World),
-            readSnapshot?.Citizens.Count ?? 0);
-        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, readSnapshot?.Citizens));
+            livingPopulation,
+            citizenSnapshots.Length,
+            livingPopulation,
+            deadPopulation);
+        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, citizenSnapshots, settlement));
+        if (state == SimulationHostState.Running)
+        {
+            _runningForTesting.TrySetResult(true);
+        }
+        else if (state == SimulationHostState.Faulted && error is not null)
+        {
+            _runningForTesting.TrySetException(new InvalidOperationException(error));
+        }
+    }
+
+    private static ServerSettlementSnapshot CreateSettlementSummary(SimulationStatusSnapshot readSnapshot, ServerCitizenSnapshot[] citizens)
+    {
+        var settlement = readSnapshot.Settlement ?? new SettlementState(0, 0, 0);
+        var resourceTypes = readSnapshot.World?.Resources.ToDictionary(static node => node.Id.Value, static node => node.Type)
+            ?? new Dictionary<long, ResourceType>();
+        var resources = readSnapshot.ResourceStates
+            .OrderBy(static resource => resource.ResourceNodeId.Value)
+            .Select(resource => new ServerResourceNodeSnapshot(
+                resource.ResourceNodeId.Value.ToString(CultureInfo.InvariantCulture),
+                resourceTypes.TryGetValue(resource.ResourceNodeId.Value, out var type) ? type : throw new InvalidDataException("A resource observation references an unknown node."),
+                resource.CurrentQuantity))
+            .ToArray();
+        var remaining = resources
+            .GroupBy(static resource => resource.ResourceType)
+            .OrderBy(static group => group.Key)
+            .Select(static group => new ServerResourceQuantitySnapshot(group.Key, group.Sum(resource => resource.CurrentQuantity)))
+            .ToArray();
+        var living = citizens.Count(static citizen => citizen.IsAlive);
+        return new ServerSettlementSnapshot(settlement.FoodStored, settlement.WoodStored, settlement.StoneStored, living, citizens.Length - living, remaining, resources);
     }
 
     private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)

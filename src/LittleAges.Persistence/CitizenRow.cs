@@ -42,4 +42,9 @@ public sealed class CitizenRow
     public long NeedsUpdatedMinute { get; set; }
     public long LifetimeMovementSteps { get; set; }
     public long LifetimeMovementCost { get; set; }
+    public long HealthUpdatedMinute { get; set; }
+    public int ActionPhase { get; set; }
+    public long? TargetResourceNodeId { get; set; }
+    public int? CarriedResourceType { get; set; }
+    public int CarriedResourceQuantity { get; set; }
 }
