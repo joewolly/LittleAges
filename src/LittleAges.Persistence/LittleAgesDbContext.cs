@@ -8,13 +8,19 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
     public DbSet<ScheduledEventRow> ScheduledEvents => Set<ScheduledEventRow>();
     public DbSet<WorldTileRow> WorldTiles => Set<WorldTileRow>();
     public DbSet<ResourceNodeRow> ResourceNodes => Set<ResourceNodeRow>();
+    public DbSet<ResourceStateRow> ResourceStates => Set<ResourceStateRow>();
+    public DbSet<SettlementStateRow> SettlementStates => Set<SettlementStateRow>();
     public DbSet<CitizenRow> Citizens => Set<CitizenRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<WorldMetaRow>(entity =>
         {
-            entity.ToTable("world_meta", table => table.HasCheckConstraint("CK_world_meta_singleton", "id = 1"));
+            entity.ToTable("world_meta", table =>
+            {
+                table.HasCheckConstraint("CK_world_meta_singleton", "id = 1");
+                table.HasCheckConstraint("CK_world_meta_survival_version", "survival_version IN (0, 1)");
+            });
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
             entity.Property(row => row.WorldSeedValue).HasColumnName("world_seed").HasColumnType("TEXT").IsRequired();
@@ -29,6 +35,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.StartingY).HasColumnName("starting_y").IsRequired();
             entity.Property(row => row.WorldFingerprint).HasColumnName("world_fingerprint").HasColumnType("TEXT").IsRequired();
             entity.Property(row => row.CitizenGenerationVersion).HasColumnName("citizen_generation_version").IsRequired();
+            entity.Property(row => row.SurvivalVersion).HasColumnName("survival_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();
             entity.Property(row => row.NextScheduledEventSequence).HasColumnName("next_scheduled_event_sequence").IsRequired();
@@ -106,7 +113,8 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
                 table.HasCheckConstraint("CK_citizens_founder", "founder_ordinal BETWEEN 0 AND 19");
                 table.HasCheckConstraint("CK_citizens_health", "health BETWEEN 0 AND 10000");
                 table.HasCheckConstraint("CK_citizens_needs", "hunger BETWEEN 0 AND 10000 AND rest BETWEEN 0 AND 10000 AND shelter BETWEEN 0 AND 10000 AND social BETWEEN 0 AND 10000");
-                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4)");
+                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9)");
+                table.HasCheckConstraint("CK_citizens_m3_state", "health_updated_minute >= 0 AND action_phase IN (0,1,2,3) AND (target_resource_node_id IS NULL OR target_resource_node_id > 0) AND carried_resource_quantity >= 0 AND ((carried_resource_quantity = 0 AND carried_resource_type IS NULL) OR (carried_resource_quantity > 0 AND carried_resource_type IN (1,2,3)))");
             });
             entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
             entity.Property(row => row.FounderOrdinal).HasColumnName("founder_ordinal").IsRequired();
@@ -116,8 +124,31 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.Health).HasColumnName("health"); entity.Property(row => row.Hunger).HasColumnName("hunger"); entity.Property(row => row.Rest).HasColumnName("rest"); entity.Property(row => row.Shelter).HasColumnName("shelter"); entity.Property(row => row.Social).HasColumnName("social");
             entity.Property(row => row.Industriousness).HasColumnName("industriousness"); entity.Property(row => row.Sociability).HasColumnName("sociability"); entity.Property(row => row.Curiosity).HasColumnName("curiosity"); entity.Property(row => row.Cooperativeness).HasColumnName("cooperativeness"); entity.Property(row => row.RiskTolerance).HasColumnName("risk_tolerance"); entity.Property(row => row.Resilience).HasColumnName("resilience");
             entity.Property(row => row.Foraging).HasColumnName("foraging"); entity.Property(row => row.Woodcutting).HasColumnName("woodcutting"); entity.Property(row => row.Stoneworking).HasColumnName("stoneworking"); entity.Property(row => row.Construction).HasColumnName("construction"); entity.Property(row => row.Hauling).HasColumnName("hauling"); entity.Property(row => row.Domestic).HasColumnName("domestic");
-            entity.Property(row => row.CurrentAction).HasColumnName("current_action"); entity.Property(row => row.ActionSequence).HasColumnName("action_sequence"); entity.Property(row => row.ActionStartedMinute).HasColumnName("action_started_minute"); entity.Property(row => row.ActionCompletesMinute).HasColumnName("action_completes_minute"); entity.Property(row => row.ActionTargetX).HasColumnName("action_target_x"); entity.Property(row => row.ActionTargetY).HasColumnName("action_target_y"); entity.Property(row => row.NeedsUpdatedMinute).HasColumnName("needs_updated_minute"); entity.Property(row => row.LifetimeMovementSteps).HasColumnName("lifetime_movement_steps"); entity.Property(row => row.LifetimeMovementCost).HasColumnName("lifetime_movement_cost");
+            entity.Property(row => row.CurrentAction).HasColumnName("current_action"); entity.Property(row => row.ActionSequence).HasColumnName("action_sequence"); entity.Property(row => row.ActionStartedMinute).HasColumnName("action_started_minute"); entity.Property(row => row.ActionCompletesMinute).HasColumnName("action_completes_minute"); entity.Property(row => row.ActionTargetX).HasColumnName("action_target_x"); entity.Property(row => row.ActionTargetY).HasColumnName("action_target_y"); entity.Property(row => row.NeedsUpdatedMinute).HasColumnName("needs_updated_minute"); entity.Property(row => row.LifetimeMovementSteps).HasColumnName("lifetime_movement_steps"); entity.Property(row => row.LifetimeMovementCost).HasColumnName("lifetime_movement_cost"); entity.Property(row => row.HealthUpdatedMinute).HasColumnName("health_updated_minute"); entity.Property(row => row.ActionPhase).HasColumnName("action_phase"); entity.Property(row => row.TargetResourceNodeId).HasColumnName("target_resource_node_id"); entity.Property(row => row.CarriedResourceType).HasColumnName("carried_resource_type"); entity.Property(row => row.CarriedResourceQuantity).HasColumnName("carried_resource_quantity");
             entity.HasIndex(row => row.FounderOrdinal).IsUnique();
+        });
+
+        modelBuilder.Entity<ResourceStateRow>(entity =>
+        {
+            entity.ToTable("resource_state", table => table.HasCheckConstraint("CK_resource_state_quantity", "current_quantity >= 0"));
+            entity.HasKey(row => row.ResourceNodeId);
+            entity.Property(row => row.ResourceNodeId).HasColumnName("resource_node_id").ValueGeneratedNever();
+            entity.Property(row => row.CurrentQuantity).HasColumnName("current_quantity").IsRequired();
+            entity.HasOne(row => row.ResourceNode).WithMany().HasForeignKey(row => row.ResourceNodeId).OnDelete(DeleteBehavior.Cascade).IsRequired();
+        });
+
+        modelBuilder.Entity<SettlementStateRow>(entity =>
+        {
+            entity.ToTable("settlement_state", table =>
+            {
+                table.HasCheckConstraint("CK_settlement_state_singleton", "id = 1");
+                table.HasCheckConstraint("CK_settlement_state_quantities", "food_stored >= 0 AND wood_stored >= 0 AND stone_stored >= 0");
+            });
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(row => row.FoodStored).HasColumnName("food_stored").IsRequired();
+            entity.Property(row => row.WoodStored).HasColumnName("wood_stored").IsRequired();
+            entity.Property(row => row.StoneStored).HasColumnName("stone_stored").IsRequired();
         });
     }
 }

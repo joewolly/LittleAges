@@ -37,7 +37,7 @@ public sealed class WorldGeneratorTests
     [Fact]
     public void EngineRestoresThePersistedWorldWithoutChangingFingerprint()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var restored = SimulationEngine.FromPersistenceSnapshot(snapshot);
 

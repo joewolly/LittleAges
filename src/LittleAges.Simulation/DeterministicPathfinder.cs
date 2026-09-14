@@ -50,6 +50,31 @@ public sealed class DeterministicPathfinder
 
     public static IReadOnlyList<TileCoordinate>? Find(WorldMap world, TileCoordinate start, TileCoordinate destination) => FindPath(world, start, destination);
 
+    /// <summary>Computes exact weighted travel costs from one tile to every reachable tile.</summary>
+    public static IReadOnlyDictionary<TileCoordinate, long> ComputeTravelCosts(WorldMap world, TileCoordinate start)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        if (!world.GetTile(start).Walkable) return new Dictionary<TileCoordinate, long>();
+        var costs = new Dictionary<TileCoordinate, long> { [start] = 0 };
+        var queue = new PriorityQueue<(TileCoordinate Coordinate, long Cost), (long Cost, long Sequence)>();
+        long sequence = 1; queue.Enqueue((start, 0), (0, 0));
+        while (queue.TryDequeue(out var current, out _))
+        {
+            if (!costs.TryGetValue(current.Coordinate, out var known) || known != current.Cost) continue;
+            for (var direction = 0; direction < Directions.Length; direction++)
+            {
+                var (dx, dy) = Directions[direction]; var nx = current.Coordinate.X + dx; var ny = current.Coordinate.Y + dy;
+                if (nx < 0 || nx >= world.Width || ny < 0 || ny >= world.Height) continue;
+                if (dx != 0 && dy != 0 && (!world.GetTile(nx, current.Coordinate.Y).Walkable || !world.GetTile(current.Coordinate.X, ny).Walkable)) continue;
+                var next = world.GetTile(nx, ny); if (!next.Walkable) continue;
+                var nextCost = checked(current.Cost + (checked((dx == 0 || dy == 0 ? 10L : 14L) * next.MovementCost)));
+                if (costs.TryGetValue(next.Coordinate, out var old) && nextCost >= old) continue;
+                costs[next.Coordinate] = nextCost; queue.Enqueue((next.Coordinate, nextCost), (nextCost, sequence++));
+            }
+        }
+        return costs;
+    }
+
     private static long Heuristic(TileCoordinate from, TileCoordinate to)
     {
         var dx = Math.Abs(from.X - to.X); var dy = Math.Abs(from.Y - to.Y);

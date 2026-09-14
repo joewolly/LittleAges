@@ -19,6 +19,7 @@ public sealed class WorldMetaRow
     public int StartingY { get; set; }
     public string WorldFingerprint { get; set; } = string.Empty;
     public int CitizenGenerationVersion { get; set; }
+    public int SurvivalVersion { get; set; }
     public long NextEntityId { get; set; }
     public long NextHistoricalEventId { get; set; }
     public long NextScheduledEventSequence { get; set; }

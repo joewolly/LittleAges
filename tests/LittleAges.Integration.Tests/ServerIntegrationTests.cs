@@ -18,6 +18,28 @@ namespace LittleAges.Integration.Tests;
 public sealed class ServerIntegrationTests
 {
     [Fact]
+    public void ObservationProjectionCopiesMutableDomainReadModels()
+    {
+        var sourceSkills = new CitizenSkills(1, 2, 3, 4, 5, 6);
+        var sourceNeeds = new CitizenNeeds(100, 200, 300, 400);
+        var source = new CitizenReadSnapshot(
+            "9007199254740993", 0, "Dead", "Founder", "Dead Founder", 42, "Adult", new TileCoordinate(1, 2), 0,
+            sourceNeeds, new CitizenTraits(1, 2, 3, 4, 5, 6), sourceSkills, CitizenAction.Dead, null, null, null, 0, false,
+            "starvation", null, 0, null, CitizenActionPhase.None, new WorldMinute(360));
+        var status = new ServerStatusSnapshot(SimulationHostState.Running, 360, 0, "42", null, Population: 0);
+        var observation = new ServerObservationSnapshot(status, new[] { source });
+
+        sourceSkills.Foraging = 999;
+        sourceNeeds = new CitizenNeeds(999, 999, 999, 999);
+        Assert.Equal(1, observation.Citizens.Single().Skills.Foraging);
+        Assert.Equal(100, observation.Citizens.Single().Hunger);
+        Assert.False(observation.Citizens.Single().IsAlive);
+        Assert.Equal("9007199254740993", observation.Citizens.Single().CitizenId);
+        Assert.Equal("starvation", observation.Citizens.Single().DeathCause);
+        Assert.Equal(360, observation.Citizens.Single().DeathMinute);
+    }
+
+    [Fact]
     public async Task CitizensEndpointReturnsSortedRosterAndValidatesDecimalIds()
     {
         await WithFactoryAsync(async (factory, _) =>
@@ -31,6 +53,25 @@ public sealed class ServerIntegrationTests
             Assert.Equal(20, citizens.Length);
             Assert.Equal(Enumerable.Range(1, 20).Select(x => x.ToString(System.Globalization.CultureInfo.InvariantCulture)), citizens.Select(x => x.GetProperty("citizenId").GetString()));
             Assert.All(citizens, citizen => Assert.InRange(citizen.GetProperty("health").GetInt32(), 0, 10000));
+            Assert.All(citizens, citizen =>
+            {
+                Assert.True(citizen.GetProperty("isAlive").GetBoolean());
+                Assert.True(citizen.TryGetProperty("hunger", out var hunger));
+                Assert.True(citizen.TryGetProperty("rest", out var rest));
+                Assert.True(citizen.TryGetProperty("currentAction", out var currentAction));
+                Assert.True(citizen.TryGetProperty("actionPhase", out var actionPhase));
+                Assert.True(hunger.ValueKind != JsonValueKind.Undefined);
+                Assert.True(rest.ValueKind != JsonValueKind.Undefined);
+                Assert.True(currentAction.ValueKind != JsonValueKind.Undefined);
+                Assert.True(actionPhase.ValueKind != JsonValueKind.Undefined);
+            });
+
+            using var settlementResponse = await client.GetAsync("/api/v1/settlement");
+            settlementResponse.EnsureSuccessStatusCode();
+            using var settlement = JsonDocument.Parse(await settlementResponse.Content.ReadAsStringAsync());
+            Assert.Equal(400, settlement.RootElement.GetProperty("foodStored").GetInt32());
+            Assert.Equal(20, settlement.RootElement.GetProperty("livingPopulation").GetInt32());
+            Assert.Equal(0, settlement.RootElement.GetProperty("deadPopulation").GetInt32());
 
             using var detail = await client.GetAsync("/api/v1/citizens/1");
             Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
@@ -39,6 +80,193 @@ public sealed class ServerIntegrationTests
             using var missing = await client.GetAsync("/api/v1/citizens/999");
             Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         });
+    }
+
+    [Fact]
+    public async Task DeterministicHostAdvancePublishesCoherentM3Observation()
+    {
+        var dataRoot = CreateDataRoot();
+        try
+        {
+            long checkpointMinute;
+            string beforeRestart;
+            Dictionary<string, int> initialSkills;
+            var firstFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+            try
+            {
+                using var client = firstFactory.CreateClient();
+                var host = firstFactory.Services.GetRequiredService<SimulationHost>();
+                await host.WaitForRunningForTestingAsync();
+                using var initialCitizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+                initialSkills = initialCitizens.RootElement.EnumerateArray().ToDictionary(
+                    citizen => citizen.GetProperty("citizenId").GetString()!,
+                    citizen => citizen.GetProperty("skills").EnumerateObject().Sum(skill => skill.Value.GetInt32()),
+                    StringComparer.Ordinal);
+                await host.AdvanceForTestingAsync(360);
+                using var status = JsonDocument.Parse(await (await client.GetAsync("/api/v1/status")).Content.ReadAsStringAsync());
+                using var citizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+                using var detail = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+                var statusLiving = status.RootElement.GetProperty("livingPopulation").GetInt32();
+                var statusDead = status.RootElement.GetProperty("deadPopulation").GetInt32();
+                Assert.Equal(statusLiving, citizens.RootElement.EnumerateArray().Count(item => item.GetProperty("isAlive").GetBoolean()));
+                Assert.Equal(statusDead, citizens.RootElement.EnumerateArray().Count(item => !item.GetProperty("isAlive").GetBoolean()));
+                Assert.Equal(statusLiving, settlement.RootElement.GetProperty("livingPopulation").GetInt32());
+                Assert.Equal(statusDead, settlement.RootElement.GetProperty("deadPopulation").GetInt32());
+                Assert.Equal(statusLiving, status.RootElement.GetProperty("population").GetInt32());
+                Assert.Equal("1", detail.RootElement.GetProperty("citizenId").GetString());
+                checkpointMinute = status.RootElement.GetProperty("worldMinute").GetInt64();
+                beforeRestart = await BuildObservationFingerprintAsync(client);
+                await host.RequestCheckpointAsync();
+            }
+            finally
+            {
+                firstFactory.Dispose();
+            }
+
+            var secondFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+            try
+            {
+                using var client = secondFactory.CreateClient();
+                var host = secondFactory.Services.GetRequiredService<SimulationHost>();
+                await host.WaitForRunningForTestingAsync();
+                Assert.Equal(beforeRestart, await BuildObservationFingerprintAsync(client));
+                Assert.Equal(checkpointMinute, host.Status.WorldMinute);
+                await host.AdvanceForTestingAsync(60);
+                Assert.True(host.Status.WorldMinute > checkpointMinute);
+                await host.AdvanceForTestingAsync(10080);
+                using var continuedStatus = JsonDocument.Parse(await (await client.GetAsync("/api/v1/status")).Content.ReadAsStringAsync());
+                using var continuedCitizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+                using var continuedSettlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+                Assert.True(continuedStatus.RootElement.GetProperty("worldMinute").GetInt64() > checkpointMinute);
+                Assert.All(continuedCitizens.RootElement.EnumerateArray(), citizen =>
+                {
+                    Assert.InRange(citizen.GetProperty("health").GetInt32(), 0, 10000);
+                    Assert.InRange(citizen.GetProperty("hunger").GetInt32(), 0, 10000);
+                    Assert.InRange(citizen.GetProperty("rest").GetInt32(), 0, 10000);
+                });
+                Assert.All(continuedSettlement.RootElement.GetProperty("resources").EnumerateArray(), resource =>
+                    Assert.True(resource.GetProperty("currentQuantity").GetInt32() >= 0));
+                Assert.Contains(continuedCitizens.RootElement.EnumerateArray(), citizen =>
+                    citizen.GetProperty("skills").EnumerateObject().Sum(skill => skill.Value.GetInt32()) > initialSkills[citizen.GetProperty("citizenId").GetString()!]);
+            }
+            finally
+            {
+                secondFactory.Dispose();
+            }
+        }
+        finally
+        {
+            CleanupDataRoot(dataRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ActualM3ServerSmokeObservesGatherDepletionDepositEatNeedsCheckpointAndRestart()
+    {
+        var dataRoot = CreateDataRoot();
+        try
+        {
+            string beforeRestart;
+            long checkpointMinute;
+            var seenGatherTravel = false;
+            var seenGatherPerform = false;
+            var seenGatherReturn = false;
+            var seenEat = false;
+            var observedDepletion = false;
+            var observedDeposit = false;
+            var previousFood = -1;
+            var previousCarried = new Dictionary<string, int>(StringComparer.Ordinal);
+            var firstFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+            try
+            {
+                using var client = firstFactory.CreateClient();
+                var host = firstFactory.Services.GetRequiredService<SimulationHost>();
+                await host.WaitForRunningForTestingAsync();
+                using var initialRoster = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+                Assert.Equal(20, initialRoster.RootElement.GetArrayLength());
+                using var initialDetail = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                Assert.Equal("1", initialDetail.RootElement.GetProperty("citizenId").GetString());
+                using var initialSettlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+                previousFood = initialSettlement.RootElement.GetProperty("foodStored").GetInt32();
+                var initialNodes = initialSettlement.RootElement.GetProperty("resources").EnumerateArray().ToDictionary(
+                    resource => resource.GetProperty("resourceNodeId").GetString()!,
+                    resource => resource.GetProperty("currentQuantity").GetInt32(), StringComparer.Ordinal);
+
+                for (var step = 0; step < 2_500 && !(seenGatherTravel && seenGatherPerform && seenGatherReturn && seenEat && observedDepletion && observedDeposit); step++)
+                {
+                    await host.AdvanceForTestingAsync(5);
+                    using var roster = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+                    foreach (var citizen in roster.RootElement.EnumerateArray())
+                    {
+                        var id = citizen.GetProperty("citizenId").GetString()!;
+                        var action = citizen.GetProperty("currentAction").GetString();
+                        var phase = citizen.GetProperty("actionPhase").GetString();
+                        seenEat |= action == nameof(CitizenAction.Eat);
+                        if (action is nameof(CitizenAction.GatherFood) or nameof(CitizenAction.GatherWood) or nameof(CitizenAction.GatherStone))
+                        {
+                            seenGatherTravel |= phase == nameof(CitizenActionPhase.TravelToTarget);
+                            seenGatherPerform |= phase == nameof(CitizenActionPhase.Perform);
+                            seenGatherReturn |= phase == nameof(CitizenActionPhase.ReturnToStockpile) && citizen.GetProperty("carriedQuantity").GetInt32() > 0;
+                        }
+                        var carried = citizen.TryGetProperty("carriedQuantity", out var carriedValue) && carriedValue.ValueKind == JsonValueKind.Number ? carriedValue.GetInt32() : 0;
+                        if (previousCarried.TryGetValue(id, out var prior) && prior > 0 && carried == 0) observedDeposit = true;
+                        previousCarried[id] = carried;
+                        Assert.InRange(citizen.GetProperty("health").GetInt32(), 0, 10000);
+                        Assert.InRange(citizen.GetProperty("hunger").GetInt32(), 0, 10000);
+                        Assert.InRange(citizen.GetProperty("rest").GetInt32(), 0, 10000);
+                    }
+                    using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+                    var food = settlement.RootElement.GetProperty("foodStored").GetInt32();
+                    observedDeposit |= food > previousFood;
+                    previousFood = food;
+                    observedDepletion |= settlement.RootElement.GetProperty("resources").EnumerateArray().Any(resource =>
+                        initialNodes[resource.GetProperty("resourceNodeId").GetString()!] > resource.GetProperty("currentQuantity").GetInt32());
+                }
+
+                Assert.True(seenGatherTravel && seenGatherPerform && seenGatherReturn, "The server did not expose all gather phases through immutable observations.");
+                Assert.True(observedDepletion, "No resource-node depletion was observed.");
+                Assert.True(observedDeposit, "No physical gather deposit was observed.");
+                Assert.True(seenEat, "No Eat action was observed.");
+                using var finalDetail = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                Assert.True(finalDetail.RootElement.TryGetProperty("hunger", out _));
+                Assert.True(finalDetail.RootElement.TryGetProperty("health", out _));
+                using var finalSettlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+                Assert.True(finalSettlement.RootElement.TryGetProperty("resources", out _));
+                beforeRestart = await BuildObservationFingerprintAsync(client);
+                checkpointMinute = host.Status.WorldMinute;
+                Assert.True((await host.RequestCheckpointAsync()).Succeeded);
+            }
+            finally { firstFactory.Dispose(); }
+
+            var secondFactory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+            try
+            {
+                using var client = secondFactory.CreateClient();
+                var host = secondFactory.Services.GetRequiredService<SimulationHost>();
+                await host.WaitForRunningForTestingAsync();
+                Assert.Equal(beforeRestart, await BuildObservationFingerprintAsync(client));
+                Assert.Equal(checkpointMinute, host.Status.WorldMinute);
+                await host.AdvanceForTestingAsync(5);
+                Assert.True(host.Status.WorldMinute > checkpointMinute);
+                using var roster = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+                using var detail = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens/1")).Content.ReadAsStringAsync());
+                using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+                Assert.Equal("1", detail.RootElement.GetProperty("citizenId").GetString());
+                Assert.Equal(20, roster.RootElement.GetArrayLength());
+                Assert.True(settlement.RootElement.GetProperty("foodStored").GetInt32() >= 0);
+            }
+            finally { secondFactory.Dispose(); }
+        }
+        finally { CleanupDataRoot(dataRoot); }
+    }
+
+    private static async Task<string> BuildObservationFingerprintAsync(HttpClient client)
+    {
+        using var status = JsonDocument.Parse(await (await client.GetAsync("/api/v1/status")).Content.ReadAsStringAsync());
+        using var citizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
+        using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
+        return string.Concat(status.RootElement.GetRawText(), "|", citizens.RootElement.GetRawText(), "|", settlement.RootElement.GetRawText());
     }
 
     [Fact]
@@ -471,13 +699,13 @@ public sealed class ServerIntegrationTests
         }
     }
 
-    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, bool suppressLogs = false) : WebApplicationFactory<Program>
+    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("DataRoot", dataRoot);
             builder.UseSetting("ActiveWorld", "integration-world");
-            builder.UseSetting("WorldSeed", ulong.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            builder.UseSetting("WorldSeed", worldSeed.ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
             builder.UseSetting("SimulationMinutesPerSecond", simulationMinutesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture));
             if (suppressLogs) builder.ConfigureLogging(logging => logging.ClearProviders());

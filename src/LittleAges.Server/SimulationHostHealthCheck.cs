@@ -9,7 +9,7 @@ public sealed class SimulationHostHealthCheck(SimulationHost simulationHost) : I
     {
         _ = context;
         _ = cancellationToken;
-        var status = simulationHost.Status;
+        var status = simulationHost.Observation.Status;
         return Task.FromResult(status.State switch
         {
             SimulationHostState.Running => HealthCheckResult.Healthy("The simulation host is running."),
