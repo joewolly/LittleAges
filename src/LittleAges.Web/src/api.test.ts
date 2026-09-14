@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCitizens, parseHealth, parseSettlement, parseStatus } from './api'
+import { parseCitizens, parseHealth, parseMap, parseSettlement, parseStatus, parseStructures } from './api'
 
 const citizen = {
   citizenId: '9223372036854775807',
@@ -19,6 +19,16 @@ const citizen = {
   carriedResource: null,
   carriedQuantity: null,
   targetResourceNodeId: null,
+  homeStructureId: null,
+  targetStructureId: null,
+  occupation: 'Builder',
+  lifetimeWorkActivity: { foragingMinutes: 1, woodcuttingMinutes: 2, stoneworkingMinutes: 3, constructionMinutes: 4, haulingMinutes: 5 },
+}
+
+const structure = {
+  structureId: '9223372036854775807', type: 'Shelter', status: 'UnderConstruction', location: { x: 1, y: 2 }, startedMinute: 20, completedMinute: null,
+  requiredWood: 12, deliveredWood: 5, requiredStone: 4, deliveredStone: 2, requiredWork: 30, completedWork: 9, condition: 0,
+  capacity: 4, storageBonus: null, constructionMultiplierBasisPoints: null, currentOccupantIds: [], contributions: [{ citizenId: citizen.citizenId, constructionWork: 9, woodDelivered: 5, stoneDelivered: 2 }],
 }
 
 describe('API response parsing', () => {
@@ -61,6 +71,12 @@ describe('API response parsing', () => {
     expect(parsed.carriedQuantity).toBe(3)
   })
 
+  it('parses citizen settlement assignments and lifetime work activity', () => {
+    const parsed = parseCitizens([citizen])[0]
+    expect(parsed.occupation).toBe('Builder')
+    expect(parsed.lifetimeWorkActivity).toEqual({ foragingMinutes: 1, woodcuttingMinutes: 2, stoneworkingMinutes: 3, constructionMinutes: 4, haulingMinutes: 5 })
+  })
+
   it.each([
     ['health', { health: 'unwell' }],
     ['alive state', { isAlive: 'yes' }],
@@ -95,6 +111,28 @@ describe('API response parsing', () => {
     expect(parsed.remainingResources[0]).toEqual({ resourceType: 'Food', quantity: 77 })
     expect(parsed.resources[0].resourceNodeId).toBe('9223372036854775807')
   })
+
+  it('parses settlement construction aggregates and its active project', () => {
+    const parsed = parseSettlement({ foodStored: 4, woodStored: 5, stoneStored: 6, livingPopulation: 3, deadPopulation: 0, totalPopulation: 3, storageCapacity: 100, storageUsed: 15, shelterCapacity: 4, shelteredPopulation: 2, unhousedPopulation: 1, completedShelters: 0, completedStockpiles: 0, completedWorkshops: 0, exposureGraceUntilMinute: 720, activeConstructionProject: structure })
+    expect(parsed.storageUsed).toBe(15)
+    expect(parsed.activeConstructionProject?.structureId).toBe(structure.structureId)
+  })
+
+  it('parses canonical structures and a row-major terrain map', () => {
+    expect(parseStructures([structure])[0].contributions[0].constructionWork).toBe(9)
+    expect(parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], startingSite: { x: 1, y: 1 } })).toEqual({ width: 2, height: 2, terrain: [1, 2, 3, 4], startingSite: { x: 1, y: 1 } })
+  })
+
+  it.each([
+    () => parseCitizens([{ ...citizen, homeStructureId: '01' }]),
+    () => parseCitizens([{ ...citizen, occupation: 'Architect' }]),
+    () => parseCitizens([{ ...citizen, lifetimeWorkActivity: { ...citizen.lifetimeWorkActivity, haulingMinutes: -1 } }]),
+    () => parseStructures([{ ...structure, deliveredWood: 13 }]),
+    () => parseStructures([{ ...structure, status: 'Complete', completedMinute: null }]),
+    () => parseStructures([structure, { ...structure, structureId: '2' }]),
+    () => parseMap({ width: 2, height: 2, terrain: [1, 2, 3], startingSite: { x: 0, y: 0 } }),
+    () => parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 9], startingSite: { x: 0, y: 0 } }),
+  ])('rejects malformed M4 observation data', parse => expect(parse).toThrow())
 
   it.each([
     { foodStored: '400', woodStored: 120, stoneStored: 30, livingPopulation: 20, deadPopulation: 0 },

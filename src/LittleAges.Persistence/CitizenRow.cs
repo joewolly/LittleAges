@@ -47,4 +47,10 @@ public sealed class CitizenRow
     public long? TargetResourceNodeId { get; set; }
     public int? CarriedResourceType { get; set; }
     public int CarriedResourceQuantity { get; set; }
+    public long? TargetStructureId { get; set; }
+    public long LifetimeForagingMinutes { get; set; }
+    public long LifetimeWoodcuttingMinutes { get; set; }
+    public long LifetimeStoneworkingMinutes { get; set; }
+    public long LifetimeConstructionMinutes { get; set; }
+    public long LifetimeHaulingMinutes { get; set; }
 }

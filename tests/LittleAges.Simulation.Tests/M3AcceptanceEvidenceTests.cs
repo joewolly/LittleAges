@@ -24,7 +24,7 @@ public sealed class M3AcceptanceEvidenceTests
         // Regeneration is scheduled at the day boundary.  Use the first day of
         // each 90-day season so the event's minute is unambiguously in that season.
         var target = checked((long)(seasonIndex * WorldCalendar.DaysPerSeason + 1) * WorldCalendar.MinutesPerDay);
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = SnapshotAtMinute(source.CreatePersistenceSnapshot(), target - 1, target);
         var controlledNodes = source.World.Resources.Select(node =>
         {
@@ -62,7 +62,7 @@ public sealed class M3AcceptanceEvidenceTests
     [Fact]
     public void RegenerationClampsAtMaximumAsASeparateRule()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var target = (long)WorldCalendar.MinutesPerDay;
         var snapshot = SnapshotAtMinute(source.CreatePersistenceSnapshot(), target - 1, target);
         var node = source.World.Resources.First(x => x.RegenerationPotential > 0);
@@ -76,7 +76,7 @@ public sealed class M3AcceptanceEvidenceTests
     public void ZeroRegenerationPotentialAddsExactlyZero()
     {
         const long target = WorldCalendar.MinutesPerDay;
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var atBoundary = SnapshotAtMinute(source.CreatePersistenceSnapshot(), target - 1, target);
         source = SimulationEngine.FromPersistenceSnapshot(atBoundary);
         var original = source.World.Resources[0];
@@ -97,7 +97,7 @@ public sealed class M3AcceptanceEvidenceTests
     [Fact]
     public void ResourceEnumerationOrderCannotChangeCanonicalResult()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var baseline = source.CreatePersistenceSnapshot();
         var reversedWorld = new WorldMap(source.World.Seed, source.World.GenerationVersion, source.World.GenerationAttempt,
             source.World.Configuration, source.World.Tiles, source.World.Resources.Reverse(), source.World.StartingSite);
@@ -165,7 +165,7 @@ public sealed class M3AcceptanceEvidenceTests
     [Fact]
     public void ScarcityDepletionMovesGatherTargetToTheNextReachableNode()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var candidates = source.World.Resources.Where(node => node.Type == ResourceType.Food)
             .Select(node => (Node: node, Path: DeterministicPathfinder.Find(source.World, source.World.StartingSite, node.Coordinate)))
             .Where(item => item.Path is { Count: >= 2 })
@@ -247,7 +247,7 @@ public sealed class M3AcceptanceEvidenceTests
     {
         foreach (var (food, expectedConsumed) in new[] { (20, 10), (5, 5), (0, 0) })
         {
-            var source = new SimulationEngine(new WorldSeed(42));
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             var snapshot = source.CreatePersistenceSnapshot();
             var citizen = snapshot.Citizens[0];
             citizen.Needs = new CitizenNeeds(9000, 0, 0, 0);
@@ -267,7 +267,7 @@ public sealed class M3AcceptanceEvidenceTests
     [Fact]
     public void SimultaneousInsufficientMealsAreOrderedAndConserved()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         snapshot.Settlement!.FoodStored = 15;
         foreach (var citizen in snapshot.Citizens.Take(2))
@@ -307,7 +307,7 @@ public sealed class M3AcceptanceEvidenceTests
     [Fact]
     public void SimultaneousGatherersUseCitizenIdOrderAndConserveNearlyDepletedNode()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var node = source.World.Resources.Where(x => x.Type == ResourceType.Food)
             .First(x => DeterministicPathfinder.Find(source.World, source.World.StartingSite, x.Coordinate) is { Count: >= 2 });
         var snapshot = source.CreatePersistenceSnapshot();
@@ -349,11 +349,11 @@ public sealed class M3AcceptanceEvidenceTests
     public void FullCanonicalStateIsIndependentOfAdvanceChunking()
     {
         const long target = 3 * WorldCalendar.MinutesPerDay;
-        var whole = new SimulationEngine(new WorldSeed(42));
+        var whole = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         whole.AdvanceUntil(new WorldMinute(target));
-        var chunks = new SimulationEngine(new WorldSeed(42));
+        var chunks = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         for (var minute = 60L; minute <= target; minute += 60) chunks.AdvanceUntil(new WorldMinute(minute));
-        var events = new SimulationEngine(new WorldSeed(42));
+        var events = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         while (events.CurrentMinute.Value < target)
         {
             var next = events.CreatePersistenceSnapshot().ScheduledEvents.Min(e => e.Order.DueWorldMinute.Value);
@@ -369,7 +369,7 @@ public sealed class M3AcceptanceEvidenceTests
     public void DefaultSeed42UnattendedThirtyDaysRemainsViableAndReportsObservedMetrics()
     {
         const long target = 30L * WorldCalendar.MinutesPerDay;
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var starting = engine.CreatePersistenceSnapshot();
         var startingSkills = starting.Citizens.ToDictionary(x => x.Id.Value, x => x.Skills.Foraging + x.Skills.Woodcutting + x.Skills.Stoneworking);
         var observedActions = new HashSet<string>(StringComparer.Ordinal);
@@ -425,7 +425,7 @@ public sealed class M3AcceptanceEvidenceTests
     private static SimulationEngine PrepareGather(CitizenAction action, ResourceType type, int quantity,
         out ResourceNode node, out CitizenId citizenId, out long travel, out int skill)
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         node = source.World.Resources.Where(x => x.Type == type)
             .Select(x => (Node: x, Path: DeterministicPathfinder.Find(source.World, source.World.StartingSite, x.Coordinate)))
             .Where(x => x.Path is { Count: >= 2 })

@@ -33,7 +33,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void FreshM3InitializesStarterStockpileResourcesAndCanonicalEvents()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         Assert.Equal("m3-rng1-survival1", engine.SimulationRulesVersion);
         Assert.Equal(400, engine.Settlement.FoodStored); Assert.Equal(0, engine.Settlement.WoodStored); Assert.Equal(0, engine.Settlement.StoneStored);
         Assert.Equal(engine.World.Resources.Count, engine.ResourceStates.Count);
@@ -47,7 +47,7 @@ public sealed class M3SurvivalTests
     public void FreshM3AtNonzeroMinuteUsesCurrentUpdateBoundariesAndProjectsForward()
     {
         const long initialMinute = 1234;
-        var engine = new SimulationEngine(new WorldSeed(42), new WorldMinute(initialMinute));
+        var engine = new SimulationEngine(new WorldSeed(42), new WorldMinute(initialMinute), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = engine.CreatePersistenceSnapshot();
 
         Assert.All(engine.Citizens, citizen =>
@@ -130,7 +130,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3ValidationIgnoresSyntheticEventsThatCollideWithCitizenSortKeys()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var sequence = snapshot.Counters.NextScheduledEventSequence;
         var synthetic = new ScheduledEventSnapshot(new ScheduledEventId(sequence), new ScheduledEventOrder(new WorldMinute(1000), 0, 1, sequence), "legacy.m0.event", "{}");
@@ -152,7 +152,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void ResourceStateAndSettlementSnapshotsDoNotAliasEngineState()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = engine.CreatePersistenceSnapshot();
         snapshot.Settlement!.FoodStored = 1;
         snapshot.ResourceStates[0].CurrentQuantity = 0;
@@ -163,7 +163,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void ReadSnapshotsDoNotExposeMutableSkillOrStockpileState()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = engine.CreateReadSnapshot();
         snapshot.Citizens[0].Skills.Foraging = int.MaxValue;
         snapshot.Settlement!.FoodStored = 0;
@@ -174,7 +174,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void RegenerationEventAdvancesDailyAndClampsQuantities()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var before = engine.ResourceStates.ToDictionary(x => x.ResourceNodeId.Value, x => x.CurrentQuantity);
         engine.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerDay));
         Assert.Equal(WorldCalendar.MinutesPerDay, engine.CurrentMinute.Value);
@@ -186,7 +186,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void SurvivalFingerprintIsDeterministicAtDaySeven()
     {
-        var first = new SimulationEngine(new WorldSeed(42)); var second = new SimulationEngine(new WorldSeed(42));
+        var first = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion); var second = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         first.AdvanceUntil(new WorldMinute(7 * WorldCalendar.MinutesPerDay)); second.AdvanceUntil(new WorldMinute(7 * WorldCalendar.MinutesPerDay));
         Assert.Equal(first.SurvivalFingerprint, second.SurvivalFingerprint);
         // Golden: seed=42, minute=10080 (post gather/target cleanup reconciliation).
@@ -197,8 +197,8 @@ public sealed class M3SurvivalTests
     [Fact]
     public void ShortSurvivalGoldensCoverZeroAndMaximumSeeds()
     {
-        var zero = new SimulationEngine(new WorldSeed(0)); zero.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerDay));
-        var maximum = new SimulationEngine(new WorldSeed(ulong.MaxValue)); maximum.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerDay));
+        var zero = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion); zero.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerDay));
+        var maximum = new SimulationEngine(new WorldSeed(ulong.MaxValue), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion); maximum.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerDay));
         // Golden: seed=0, minute=1440 (post gather/target cleanup reconciliation).
         Assert.Equal("028677a72fa65710a064dd5573c6bc5dafbf0377faed0e10597db652c3238950", zero.SurvivalFingerprint);
         // Golden: seed=UInt64.MaxValue, minute=1440 (post gather/target cleanup reconciliation).
@@ -214,7 +214,7 @@ public sealed class M3SurvivalTests
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
-            var invariant = new SimulationEngine(new WorldSeed(42));
+            var invariant = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             invariant.AdvanceUntil(new WorldMinute(7 * WorldCalendar.MinutesPerDay));
             Assert.Contains(invariant.Citizens, citizen => citizen.BirthMinute < 0);
             var invariantHash = invariant.SurvivalFingerprint;
@@ -223,7 +223,7 @@ public sealed class M3SurvivalTests
             customizedCulture.NumberFormat.NegativeSign = "~";
             CultureInfo.CurrentCulture = customizedCulture;
             CultureInfo.CurrentUICulture = customizedCulture;
-            var customized = new SimulationEngine(new WorldSeed(42));
+            var customized = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             customized.AdvanceUntil(new WorldMinute(7 * WorldCalendar.MinutesPerDay));
             Assert.Contains(customized.Citizens, citizen => citizen.BirthMinute < 0);
             Assert.Equal(invariantHash, customized.SurvivalFingerprint);
@@ -238,7 +238,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void DecisionEvaluationExposesSurvivalFactorsAndExplicitTies()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var evaluations = engine.EvaluateDecision(new CitizenId(1));
         Assert.Contains(evaluations, x => x.Action == CitizenAction.Eat);
         Assert.Contains(evaluations, x => x.Action == CitizenAction.GatherFood);
@@ -266,7 +266,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3RunProducesGatheringAndPreservesResourceBounds()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var before = engine.Citizens.ToDictionary(x => x.Id.Value, x => x.Skills.Foraging);
         engine.AdvanceUntil(new WorldMinute(10080));
         Assert.Contains(engine.Citizens, x => x.Skills.Foraging > before[x.Id.Value]);
@@ -371,7 +371,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void GatherUsesActualDepletionYieldAndOnlyRelevantExperience()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var node = source.World.Resources.First(resource => resource.Type == ResourceType.Food);
         snapshot.ResourceStates.Single(state => state.ResourceNodeId == node.Id).CurrentQuantity = 5;
@@ -402,8 +402,8 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3SimulationIsEquivalentAcrossTimeChunks()
     {
-        var whole = new SimulationEngine(new WorldSeed(42));
-        var chunked = new SimulationEngine(new WorldSeed(42));
+        var whole = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
+        var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         whole.AdvanceUntil(new WorldMinute(720));
         chunked.AdvanceUntil(new WorldMinute(360));
         chunked.AdvanceUntil(new WorldMinute(720));
@@ -413,7 +413,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3SnapshotRoundTripPreservesMidActionExecution()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         source.ProcessNextEvent();
         var restored = SimulationEngine.FromPersistenceSnapshot(source.CreatePersistenceSnapshot());
         source.AdvanceUntil(new WorldMinute(720));
@@ -424,7 +424,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3SnapshotAtMinute35RetainsHealthBoundarySurvivalDueMinute360()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(35));
         var snapshot = source.CreatePersistenceSnapshot();
         var citizen = snapshot.Citizens.Single(x => x.Id.Value == 1);
@@ -440,7 +440,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3SnapshotRejectsOffCadenceSurvivalDueMinute()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(35));
         var snapshot = source.CreatePersistenceSnapshot();
         var events = snapshot.ScheduledEvents.Select(x => x.Name == CitizenEventNames.SurvivalCheck && x.Order.EntitySortKey == 1
@@ -453,7 +453,7 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M3SnapshotRejectsPastSurvivalDueMinute()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(35));
         var snapshot = source.CreatePersistenceSnapshot();
         var events = snapshot.ScheduledEvents.Select(x => x.Name == CitizenEventNames.SurvivalCheck && x.Order.EntitySortKey == 1
@@ -465,7 +465,7 @@ public sealed class M3SurvivalTests
 
     private static SimulationEngine ConfigureM3(Action<Citizen> configure, int food, bool zeroFoodNodes)
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var citizen = snapshot.Citizens[0];
         configure(citizen);
@@ -482,7 +482,7 @@ public sealed class M3SurvivalTests
 
     private static SimulationEngine ConfigureM3Actions(Action<Citizen, Citizen> configure, int food)
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         snapshot.Citizens[0].Location = source.World.StartingSite;
         snapshot.Citizens[1].Location = source.World.StartingSite;
@@ -519,7 +519,7 @@ public sealed class M3SurvivalTests
         };
         for (ulong seed = 0; seed < 256; seed++)
         {
-            var candidate = new SimulationEngine(new WorldSeed(seed), worldConfiguration: configuration.CanonicalJson);
+            var candidate = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion, worldConfiguration: configuration.CanonicalJson);
             if (candidate.World.Resources.Count == 0) return candidate;
         }
         throw new InvalidOperationException("The bounded zero-resource M3 test configuration did not produce a zero-resource world.");

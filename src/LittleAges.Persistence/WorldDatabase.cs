@@ -10,7 +10,8 @@ internal sealed record WorldDatabaseOpenOptions(
     DateTime? LegacyUpgradeCheckpointUtc = null,
     LegacyUpgradeFailurePoint? LegacyUpgradeFailurePoint = null,
     M2UpgradeFailurePoint? M2UpgradeFailurePoint = null,
-    M3UpgradeFailurePoint? M3UpgradeFailurePoint = null);
+    M3UpgradeFailurePoint? M3UpgradeFailurePoint = null,
+    M4UpgradeFailurePoint? M4UpgradeFailurePoint = null);
 
 /// <summary>Opens one world database, applies migrations, and configures connection-level SQLite safety.</summary>
 public sealed class WorldDatabase : IAsyncDisposable
@@ -76,6 +77,7 @@ public sealed class WorldDatabase : IAsyncDisposable
             var upgradedM1ToM2 = await database.CreateCheckpointStore().UpgradeM1ToM2IfNeededAsync(openOptions?.M2UpgradeFailurePoint, cancellationToken);
             var m3FailurePoint = openOptions?.M3UpgradeFailurePoint ?? (upgradedM1ToM2 ? null : openOptions?.M2UpgradeFailurePoint switch { M2UpgradeFailurePoint.AfterRowsWritten => M3UpgradeFailurePoint.AfterRowsWritten, _ => null });
             await database.CreateCheckpointStore().UpgradeM2ToM3IfNeededAsync(m3FailurePoint, cancellationToken);
+            await database.CreateCheckpointStore().UpgradeM3ToM4IfNeededAsync(openOptions?.M4UpgradeFailurePoint, cancellationToken);
             return database;
         }
         catch

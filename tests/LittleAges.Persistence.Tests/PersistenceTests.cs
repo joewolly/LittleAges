@@ -518,14 +518,14 @@ public sealed class PersistenceTests
             await using (var database = await WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(upgradeUtc)))
             {
                 var migrations = await database.Context.Database.GetAppliedMigrationsAsync();
-                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens", "20260912030000_M3Survival"], migrations.ToArray());
+                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens", "20260912030000_M3Survival", "20260912040000_M4Settlement"], migrations.ToArray());
                 var snapshot = await database.CreateCheckpointStore().LoadAsync();
                 Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
                 Assert.Equal(1234, snapshot.WorldMinute.Value);
                 Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, snapshot.WorldSchemaVersion);
                 Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
                 Assert.Equal("m0-test", snapshot.ApplicationVersion);
-                Assert.Equal(new DeterministicCountersSnapshot(276, 512, 50), snapshot.Counters);
+                Assert.Equal(new DeterministicCountersSnapshot(276, 512, 51), snapshot.Counters);
                 Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.World!.Configuration.CanonicalJson);
                 Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
                 Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World.GenerationVersion);
@@ -533,13 +533,18 @@ public sealed class PersistenceTests
                 Assert.Equal(new WorldGenerator().Generate(new WorldSeed(ulong.MaxValue)).Fingerprint, snapshot.World.Fingerprint);
                 Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"), snapshot.ScheduledEvents);
                 Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later"), snapshot.ScheduledEvents);
-                Assert.Equal(43, snapshot.ScheduledEvents.Count);
+                Assert.Equal(44, snapshot.ScheduledEvents.Count);
+                Assert.Equal(SimulationEngine.SettlementVersion, snapshot.SettlementVersion);
+                Assert.Equal(CitizenSimulationRules.BaseStorageCapacity, snapshot.Settlement!.BaseStorageCapacity);
+                Assert.Equal(snapshot.WorldMinute.Value, snapshot.Settlement.DemandUpdatedMinute);
+                Assert.Equal(snapshot.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, snapshot.Settlement.ExposureConsequencesStartMinute);
+                Assert.Contains(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.SettlementEvaluateDemand && item.PayloadJson == "{\"version\":1}");
                 var metadata = await database.Context.WorldMeta.SingleAsync();
                 Assert.Equal(createdUtc, metadata.CreatedUtc);
                 Assert.Equal(upgradeUtc, metadata.LastCheckpointUtc);
                 Assert.Equal(276, metadata.NextEntityId);
                 Assert.Equal(512, metadata.NextHistoricalEventId);
-                Assert.Equal(50, metadata.NextScheduledEventSequence);
+                Assert.Equal(51, metadata.NextScheduledEventSequence);
                 firstSnapshot = snapshot;
             }
 
@@ -575,11 +580,16 @@ public sealed class PersistenceTests
             var snapshot = await database.CreateCheckpointStore().LoadAsync();
             Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
             Assert.Equal(1234, snapshot.WorldMinute.Value);
-            Assert.Equal(new DeterministicCountersSnapshot(276, 512, 50), snapshot.Counters);
+            Assert.Equal(new DeterministicCountersSnapshot(276, 512, 51), snapshot.Counters);
             Assert.Equal("m0-test", snapshot.ApplicationVersion);
             Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(new WorldMinute(1250), 1, 2, 7), "sooner"), snapshot.ScheduledEvents);
             Assert.Contains(new ScheduledEventSnapshot(new ScheduledEventId(8), new ScheduledEventOrder(new WorldMinute(1300), 2, 3, 8), "later"), snapshot.ScheduledEvents);
-            Assert.Equal(43, snapshot.ScheduledEvents.Count);
+            Assert.Equal(44, snapshot.ScheduledEvents.Count);
+            Assert.Equal(SimulationEngine.SettlementVersion, snapshot.SettlementVersion);
+            Assert.Equal(CitizenSimulationRules.BaseStorageCapacity, snapshot.Settlement!.BaseStorageCapacity);
+            Assert.Equal(snapshot.WorldMinute.Value, snapshot.Settlement.DemandUpdatedMinute);
+            Assert.Equal(snapshot.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, snapshot.Settlement.ExposureConsequencesStartMinute);
+            Assert.Contains(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.SettlementEvaluateDemand && item.PayloadJson == "{\"version\":1}");
             Assert.Equal(WorldGenerationConfiguration.Default.CanonicalJson, snapshot.WorldConfiguration);
             Assert.Equal(WorldGenerationConfiguration.CurrentVersion, snapshot.World!.GenerationVersion);
             Assert.Equal(25_600, snapshot.World.Tiles.Count);

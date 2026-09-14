@@ -1,8 +1,38 @@
+using LittleAges.Domain;
+
 namespace LittleAges.Simulation;
 
 /// <summary>Single home for canonical survival tuning values.</summary>
 public static class CitizenSimulationRules
 {
+    public const int SettlementVersion = 1;
+    public const string CurrentRulesVersion = "m4-rng1-settlement1";
+    public const int BaseStorageCapacity = 800;
+    public const int StockpileStorageBonus = 800;
+    public const int ShelterCapacityPerBuilding = 4;
+    public const int ShelterRequiredWood = 40;
+    public const int ShelterRequiredStone = 10;
+    public const int ShelterRequiredWork = 600;
+    public const int StockpileRequiredWood = 60;
+    public const int StockpileRequiredStone = 30;
+    public const int StockpileRequiredWork = 900;
+    public const int WorkshopRequiredWood = 80;
+    public const int WorkshopRequiredStone = 50;
+    public const int WorkshopRequiredWork = 1200;
+    public const int SettlementDemandIntervalMinutes = 360;
+    public const int StorageRetryIntervalMinutes = 60;
+    public const int BaseConstructionCarryCapacity = 20;
+    public const int MaximumConstructionCarrySkillBonus = 20;
+    public const int ConstructionShiftDurationMinutes = 180;
+    public const int BaseConstructionWorkPerShift = 100;
+    public const int WorkshopConstructionMultiplierBasisPoints = 12500;
+    public const int ConstructionExperienceGain = 25;
+    public const int HaulingExperienceGain = 15;
+    public const int ExposureGraceDurationMinutes = 7 * WorldCalendar.MinutesPerDay;
+    public const int ShelterCriticalThreshold = 9000;
+    public const int ExposureDamagePerCheck = 150;
+    public const int WinterExposureDamagePerCheck = 300;
+    public const int RecoveryShelterThreshold = 8000;
     public const int FounderCount = 20;
     public const int IdleMinimumMinutes = 30;
     public const int IdleMaximumMinutes = 90;

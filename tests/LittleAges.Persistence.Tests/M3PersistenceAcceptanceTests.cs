@@ -14,7 +14,7 @@ public sealed class M3PersistenceAcceptanceTests
     [InlineData("survival0-with-resource-state", "UPDATE world_meta SET survival_version = 0;")]
     [InlineData("missing-resource-state", "DELETE FROM resource_state WHERE resource_node_id = (SELECT resource_node_id FROM resource_state LIMIT 1);")]
     [InlineData("missing-settlement", "DELETE FROM settlement_state;")]
-    [InlineData("multiple-settlement", "PRAGMA ignore_check_constraints = ON; INSERT INTO settlement_state (id, food_stored, wood_stored, stone_stored) VALUES (2, 0, 0, 0);")]
+    [InlineData("multiple-settlement", "PRAGMA ignore_check_constraints = ON; INSERT INTO settlement_state (id, food_stored, wood_stored, stone_stored, base_storage_capacity, demand_updated_minute, exposure_consequences_start_minute) VALUES (2, 0, 0, 0, 0, 0, 0);")]
     [InlineData("orphan-resource-state", "PRAGMA foreign_keys = OFF; INSERT INTO resource_state (resource_node_id, current_quantity) VALUES (999999, 0);")]
     [InlineData("missing-survival-event", "DELETE FROM scheduled_events WHERE id = (SELECT id FROM scheduled_events WHERE event_name = 'citizen.survival-check.v1' LIMIT 1);")]
     [InlineData("missing-regen-event", "DELETE FROM scheduled_events WHERE event_name = 'resource.regenerate.v1';")]
@@ -127,7 +127,7 @@ public sealed class M3PersistenceAcceptanceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42));
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             await using var database = await WorldDatabase.OpenAsync(path);
             var store = database.CreateCheckpointStore();
             await store.CheckpointAsync(source.CreatePersistenceSnapshot(), DateTime.UtcNow);
@@ -179,7 +179,7 @@ public sealed class M3PersistenceAcceptanceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42));
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
             var snapshot = source.CreatePersistenceSnapshot();
             var dead = snapshot.Citizens[0];
             dead.Health = 0; dead.DeathMinute = 0; dead.DeathCause = "starvation"; dead.CurrentAction = CitizenAction.Dead; dead.ActionPhase = CitizenActionPhase.None; dead.ActionSequence = 0; dead.ActionStartedMinute = null; dead.ActionCompletesMinute = null; dead.ActionTarget = null; dead.TargetResourceNodeId = null; dead.CarriedResourceType = null; dead.CarriedResourceQuantity = 0;
@@ -195,7 +195,7 @@ public sealed class M3PersistenceAcceptanceTests
     }
 
     [Fact]
-    public async Task ActualM0ToM3ChainIsIdempotent()
+    public async Task ActualM0ToM4ChainIsIdempotent()
     {
         await WithDatabaseAsync(async path =>
         {
@@ -204,7 +204,13 @@ public sealed class M3PersistenceAcceptanceTests
             {
                 var snapshot = await database.CreateCheckpointStore().LoadAsync();
                 Assert.Equal(1, snapshot.SurvivalVersion); Assert.Equal(20, snapshot.Citizens.Count); Assert.Equal(snapshot.World!.Resources.Count, snapshot.ResourceStates.Count); Assert.Equal(400, snapshot.Settlement!.FoodStored);
-                Assert.Equal(22 + 20 + 1, snapshot.ScheduledEvents.Count);
+                Assert.Equal(22 + 20 + 1 + 1, snapshot.ScheduledEvents.Count);
+                Assert.Equal(1, snapshot.SettlementVersion);
+                Assert.Equal(CitizenSimulationRules.BaseStorageCapacity, snapshot.Settlement.BaseStorageCapacity);
+                Assert.Equal(snapshot.WorldMinute.Value, snapshot.Settlement.DemandUpdatedMinute);
+                Assert.Equal(snapshot.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, snapshot.Settlement.ExposureConsequencesStartMinute);
+                Assert.Equal(51, snapshot.Counters.NextScheduledEventSequence);
+                Assert.Contains(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.SettlementEvaluateDemand && item.PayloadJson == "{\"version\":1}");
             }
             await using var reopened = await WorldDatabase.OpenAsync(path);
             var second = await reopened.CreateCheckpointStore().LoadAsync();
@@ -240,7 +246,7 @@ public sealed class M3PersistenceAcceptanceTests
 
     private static SimulationPersistenceSnapshot CreateM3ActionSnapshot(CitizenAction action)
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion);
         var baseline = engine.CreatePersistenceSnapshot();
         var world = baseline.World!;
         var citizen = baseline.Citizens[0];
@@ -282,7 +288,7 @@ public sealed class M3PersistenceAcceptanceTests
     private static async Task CreateFreshM3Async(string path)
     {
         await using var database = await WorldDatabase.OpenAsync(path);
-        await database.CreateCheckpointStore().CheckpointAsync(new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot(), DateTime.UtcNow);
+        await database.CreateCheckpointStore().CheckpointAsync(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M3SimulationRulesVersion).CreatePersistenceSnapshot(), DateTime.UtcNow);
     }
 
     private static async Task CreateActualM0DatabaseAsync(string path)

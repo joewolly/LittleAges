@@ -130,3 +130,38 @@ public sealed class RandomnessTests
         Assert.InRange(one.NextUnitDouble(RandomDomain.DecisionVariation, 1), 0d, 1d);
     }
 }
+
+public sealed class StructureValidationTests
+{
+    [Theory]
+    [InlineData(StructureType.Shelter, 41, 10, 600)]
+    [InlineData(StructureType.Stockpile, 60, 31, 900)]
+    [InlineData(StructureType.Workshop, 80, 50, 1201)]
+    public void ValidateRejectsNonCanonicalTypeRequirements(StructureType type, int wood, int stone, int work)
+    {
+        var structure = new Structure(new StructureId(1), type, new TileCoordinate(0, 0), 0, wood, stone, work);
+
+        Assert.Throws<ArgumentException>(structure.Validate);
+    }
+
+    [Theory]
+    [InlineData(39, 10, 600)]
+    [InlineData(40, 9, 600)]
+    [InlineData(40, 10, 599)]
+    [InlineData(41, 10, 600)]
+    [InlineData(40, 11, 600)]
+    [InlineData(40, 10, 601)]
+    public void ValidateRejectsIncompleteOrOverdeliveredCompletedStructure(int wood, int stone, int work)
+    {
+        var structure = new Structure(new StructureId(1), StructureType.Shelter, new TileCoordinate(0, 0), 0, 40, 10, 600)
+        {
+            Status = StructureStatus.Complete,
+            CompletedMinute = 1,
+            DeliveredWood = wood,
+            DeliveredStone = stone,
+            CompletedWork = work
+        };
+
+        Assert.Throws<ArgumentException>(structure.Validate);
+    }
+}

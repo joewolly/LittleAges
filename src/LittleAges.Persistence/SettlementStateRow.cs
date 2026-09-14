@@ -7,4 +7,7 @@ public sealed class SettlementStateRow
     public int FoodStored { get; set; }
     public int WoodStored { get; set; }
     public int StoneStored { get; set; }
+    public int BaseStorageCapacity { get; set; }
+    public long DemandUpdatedMinute { get; set; }
+    public long ExposureConsequencesStartMinute { get; set; }
 }

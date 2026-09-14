@@ -26,6 +26,11 @@ app.MapGet("/api/v1/world", (SimulationHost simulationHost) =>
     var world = simulationHost.Observation.Status.World;
     return world is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(world);
 });
+app.MapGet("/api/v1/map", (SimulationHost simulationHost) =>
+{
+    var map = simulationHost.Observation.Map;
+    return map is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(map);
+});
 app.MapGet("/api/v1/citizens", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Citizens));
 app.MapGet("/api/v1/citizens/{id}", (string id, SimulationHost simulationHost) =>
 {
@@ -37,6 +42,19 @@ app.MapGet("/api/v1/settlement", (SimulationHost simulationHost) =>
 {
     var settlement = simulationHost.Observation.Settlement;
     return settlement is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(settlement);
+});
+app.MapGet("/api/v1/structures", (SimulationHost simulationHost) =>
+{
+    var observation = simulationHost.Observation;
+    return observation.Map is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(observation.Structures);
+});
+app.MapGet("/api/v1/structures/{id}", (string id, SimulationHost simulationHost) =>
+{
+    if (!long.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0 || value.ToString(System.Globalization.CultureInfo.InvariantCulture) != id) return Results.BadRequest();
+    var observation = simulationHost.Observation;
+    if (observation.Map is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    var structure = observation.Structures.FirstOrDefault(x => x.StructureId == id);
+    return structure is null ? Results.NotFound() : Results.Ok(structure);
 });
 
 app.Run();
