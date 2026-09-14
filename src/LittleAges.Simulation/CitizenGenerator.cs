@@ -1,4 +1,5 @@
 using LittleAges.Domain;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -42,6 +43,7 @@ public static class CitizenGenerator
     public static string Fingerprint(WorldSeed seed, IReadOnlyList<Citizen> citizens)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        static string I<T>(T value) where T : IFormattable => value.ToString(null, CultureInfo.InvariantCulture);
         static void Append(IncrementalHash hash, string value)
         {
             var bytes = Encoding.UTF8.GetBytes(value);
@@ -51,14 +53,14 @@ public static class CitizenGenerator
         foreach (var c in citizens.OrderBy(x => x.FounderOrdinal))
         {
             Append(hash, "citizen-generation-version=1");
-            Append(hash, $"seed={seed.Value}"); Append(hash, $"ordinal={c.FounderOrdinal}"); Append(hash, $"id={c.Id.Value}");
-            Append(hash, $"given={c.GivenName}"); Append(hash, $"family={c.FamilyName}"); Append(hash, $"birth={c.BirthMinute}");
-            Append(hash, $"location-x={c.Location.X}"); Append(hash, $"location-y={c.Location.Y}"); Append(hash, $"health={c.Health}");
-            Append(hash, $"need-hunger={c.Needs.Hunger}"); Append(hash, $"need-rest={c.Needs.Rest}"); Append(hash, $"need-shelter={c.Needs.Shelter}"); Append(hash, $"need-social={c.Needs.Social}"); Append(hash, $"needs-updated={c.NeedsUpdatedMinute}");
-            Append(hash, $"trait-industriousness={c.Traits.Industriousness}"); Append(hash, $"trait-sociability={c.Traits.Sociability}"); Append(hash, $"trait-curiosity={c.Traits.Curiosity}"); Append(hash, $"trait-cooperativeness={c.Traits.Cooperativeness}"); Append(hash, $"trait-risk-tolerance={c.Traits.RiskTolerance}"); Append(hash, $"trait-resilience={c.Traits.Resilience}");
-            Append(hash, $"skill-foraging={c.Skills.Foraging}"); Append(hash, $"skill-woodcutting={c.Skills.Woodcutting}"); Append(hash, $"skill-stoneworking={c.Skills.Stoneworking}"); Append(hash, $"skill-construction={c.Skills.Construction}"); Append(hash, $"skill-hauling={c.Skills.Hauling}"); Append(hash, $"skill-domestic={c.Skills.Domestic}");
-            Append(hash, $"action={(int)c.CurrentAction}"); Append(hash, $"action-sequence={c.ActionSequence}"); Append(hash, $"action-started={(c.ActionStartedMinute?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")}"); Append(hash, $"action-completes={(c.ActionCompletesMinute?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")}"); Append(hash, $"target-x={(c.ActionTarget?.X.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")}"); Append(hash, $"target-y={(c.ActionTarget?.Y.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null")}");
-            Append(hash, $"lifetime-steps={c.LifetimeMovementSteps}"); Append(hash, $"lifetime-cost={c.LifetimeMovementCost}");
+            Append(hash, $"seed={I(seed.Value)}"); Append(hash, $"ordinal={I(c.FounderOrdinal)}"); Append(hash, $"id={I(c.Id.Value)}");
+            Append(hash, $"given={c.GivenName}"); Append(hash, $"family={c.FamilyName}"); Append(hash, $"birth={I(c.BirthMinute)}");
+            Append(hash, $"location-x={I(c.Location.X)}"); Append(hash, $"location-y={I(c.Location.Y)}"); Append(hash, $"health={I(c.Health)}");
+            Append(hash, $"need-hunger={I(c.Needs.Hunger)}"); Append(hash, $"need-rest={I(c.Needs.Rest)}"); Append(hash, $"need-shelter={I(c.Needs.Shelter)}"); Append(hash, $"need-social={I(c.Needs.Social)}"); Append(hash, $"needs-updated={I(c.NeedsUpdatedMinute)}");
+            Append(hash, $"trait-industriousness={I(c.Traits.Industriousness)}"); Append(hash, $"trait-sociability={I(c.Traits.Sociability)}"); Append(hash, $"trait-curiosity={I(c.Traits.Curiosity)}"); Append(hash, $"trait-cooperativeness={I(c.Traits.Cooperativeness)}"); Append(hash, $"trait-risk-tolerance={I(c.Traits.RiskTolerance)}"); Append(hash, $"trait-resilience={I(c.Traits.Resilience)}");
+            Append(hash, $"skill-foraging={I(c.Skills.Foraging)}"); Append(hash, $"skill-woodcutting={I(c.Skills.Woodcutting)}"); Append(hash, $"skill-stoneworking={I(c.Skills.Stoneworking)}"); Append(hash, $"skill-construction={I(c.Skills.Construction)}"); Append(hash, $"skill-hauling={I(c.Skills.Hauling)}"); Append(hash, $"skill-domestic={I(c.Skills.Domestic)}");
+            Append(hash, $"action={I((int)c.CurrentAction)}"); Append(hash, $"action-sequence={I(c.ActionSequence)}"); Append(hash, $"action-started={(c.ActionStartedMinute?.Value.ToString(CultureInfo.InvariantCulture) ?? "null")}"); Append(hash, $"action-completes={(c.ActionCompletesMinute?.Value.ToString(CultureInfo.InvariantCulture) ?? "null")}"); Append(hash, $"target-x={(c.ActionTarget?.X.ToString(CultureInfo.InvariantCulture) ?? "null")}"); Append(hash, $"target-y={(c.ActionTarget?.Y.ToString(CultureInfo.InvariantCulture) ?? "null")}");
+            Append(hash, $"lifetime-steps={I(c.LifetimeMovementSteps)}"); Append(hash, $"lifetime-cost={I(c.LifetimeMovementCost)}");
         }
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }

@@ -1,5 +1,6 @@
 using LittleAges.Domain;
 using LittleAges.Simulation;
+using System.Globalization;
 using Xunit;
 
 namespace LittleAges.Simulation.Tests;
@@ -40,6 +41,34 @@ public sealed class CitizenSimulationTests
     {
         var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
         Assert.Equal(expected, CitizenGenerator.Fingerprint(new WorldSeed(seed), engine.Citizens));
+    }
+
+    [Fact]
+    public void FounderFingerprintIsCultureInvariantWithNegativeBirthMinutes()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
+            var invariant = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+            Assert.Contains(invariant.Citizens, citizen => citizen.BirthMinute < 0);
+            var invariantHash = CitizenGenerator.Fingerprint(new WorldSeed(42), invariant.Citizens);
+
+            var customizedCulture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+            customizedCulture.NumberFormat.NegativeSign = "~";
+            CultureInfo.CurrentCulture = customizedCulture;
+            CultureInfo.CurrentUICulture = customizedCulture;
+            var customized = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+            Assert.Contains(customized.Citizens, citizen => citizen.BirthMinute < 0);
+            Assert.Equal(invariantHash, CitizenGenerator.Fingerprint(new WorldSeed(42), customized.Citizens));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 
     [Fact]

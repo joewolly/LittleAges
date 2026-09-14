@@ -1,5 +1,6 @@
 using LittleAges.Domain;
 using LittleAges.Simulation;
+using System.Globalization;
 using Xunit;
 
 namespace LittleAges.Simulation.Tests;
@@ -202,6 +203,36 @@ public sealed class M3SurvivalTests
         Assert.Equal("028677a72fa65710a064dd5573c6bc5dafbf0377faed0e10597db652c3238950", zero.SurvivalFingerprint);
         // Golden: seed=UInt64.MaxValue, minute=1440 (post gather/target cleanup reconciliation).
         Assert.Equal("3ff6cfe4eea7240784a1b46365a637a74fb0785607edd5e2276ffb3b529a501f", maximum.SurvivalFingerprint);
+    }
+
+    [Fact]
+    public void SurvivalFingerprintIsCultureInvariantWithNegativeFounderBirthMinutes()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
+            var invariant = new SimulationEngine(new WorldSeed(42));
+            invariant.AdvanceUntil(new WorldMinute(7 * WorldCalendar.MinutesPerDay));
+            Assert.Contains(invariant.Citizens, citizen => citizen.BirthMinute < 0);
+            var invariantHash = invariant.SurvivalFingerprint;
+
+            var customizedCulture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+            customizedCulture.NumberFormat.NegativeSign = "~";
+            CultureInfo.CurrentCulture = customizedCulture;
+            CultureInfo.CurrentUICulture = customizedCulture;
+            var customized = new SimulationEngine(new WorldSeed(42));
+            customized.AdvanceUntil(new WorldMinute(7 * WorldCalendar.MinutesPerDay));
+            Assert.Contains(customized.Citizens, citizen => citizen.BirthMinute < 0);
+            Assert.Equal(invariantHash, customized.SurvivalFingerprint);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 
     [Fact]
