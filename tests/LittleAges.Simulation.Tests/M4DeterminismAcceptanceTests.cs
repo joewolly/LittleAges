@@ -44,6 +44,27 @@ public sealed class M4DeterminismAcceptanceTests
     }
 
     [Fact]
+    public void SettlementFingerprintIsInvariantUnderCustomNegativeSignCulture()
+    {
+        var expected = Advance(new WorldSeed(42), 14 * WorldCalendar.MinutesPerDay).ComputeSettlementFingerprint();
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+        var customCulture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        customCulture.NumberFormat.NegativeSign = "~";
+        try
+        {
+            CultureInfo.CurrentCulture = customCulture;
+            CultureInfo.CurrentUICulture = customCulture;
+            Assert.Equal(expected, Advance(new WorldSeed(42), 14 * WorldCalendar.MinutesPerDay).ComputeSettlementFingerprint());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
+    }
+
+    [Fact]
     public void CheckpointReloadPreservesEqualCostGatherHaulBuildAndShelterRestRoutes()
     {
         var source = new SimulationEngine(new WorldSeed(42));
@@ -147,7 +168,9 @@ public sealed class M4DeterminismAcceptanceTests
         var events = baseline.ScheduledEvents.Select(item => item.Name == CitizenEventNames.Decision && item.Order.EntitySortKey == citizen.Id.Value
             ? item with { Name = CitizenEventNames.MoveStep, Order = new ScheduledEventOrder(firstDue, CitizenEventNames.MovementPriority, citizen.Id.Value, item.Order.Sequence) }
             : item).ToArray();
-        var snapshot = new SimulationPersistenceSnapshot(baseline.Seed, baseline.WorldMinute, baseline.WorldSchemaVersion, baseline.SimulationRulesVersion, baseline.ApplicationVersion, baseline.WorldConfiguration, baseline.Counters, events, baseline.World, baseline.Citizens, baseline.CitizenGenerationVersion, baseline.ResourceStates, baseline.Settlement, baseline.SurvivalVersion, baseline.SettlementVersion, structures ?? baseline.Structures, contributions ?? baseline.StructureContributions);
+        var effectiveStructures = structures ?? baseline.Structures;
+        var counters = effectiveStructures.Count == 0 ? baseline.Counters : baseline.Counters with { NextEntityId = Math.Max(baseline.Counters.NextEntityId, checked(effectiveStructures.Max(x => x.Id.Value) + 1)) };
+        var snapshot = new SimulationPersistenceSnapshot(baseline.Seed, baseline.WorldMinute, baseline.WorldSchemaVersion, baseline.SimulationRulesVersion, baseline.ApplicationVersion, baseline.WorldConfiguration, counters, events, baseline.World, baseline.Citizens, baseline.CitizenGenerationVersion, baseline.ResourceStates, baseline.Settlement, baseline.SurvivalVersion, baseline.SettlementVersion, effectiveStructures, contributions ?? baseline.StructureContributions);
         return new ActiveSnapshot(snapshot, citizen.Id, route.Path, target, firstDue, citizen.ActionCompletesMinute.Value, route.HasEqualCostAlternative);
     }
 
@@ -171,9 +194,7 @@ public sealed class M4DeterminismAcceptanceTests
         return new EqualCostRoute(start, canonical, true);
     }
 
-    // This explicit non-counter ID prevents a scheduled demand event in a synthetic
-    // active-route snapshot from colliding with the test's independent structure.
-    private static Structure NewShelter(SimulationPersistenceSnapshot baseline, TileCoordinate site) => new(new StructureId(10_001), StructureType.Shelter, site, baseline.WorldMinute.Value, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
+    private static Structure NewShelter(SimulationPersistenceSnapshot baseline, TileCoordinate site) => new(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, site, baseline.WorldMinute.Value, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
     private static TileCoordinate ValidSite(WorldMap world, TileCoordinate excluded) => world.Tiles.First(tile => tile.Coordinate != excluded && tile.Buildable && world.GetResources(tile.Coordinate).Count == 0).Coordinate;
 
     private static string CanonicalSnapshot(SimulationPersistenceSnapshot snapshot)

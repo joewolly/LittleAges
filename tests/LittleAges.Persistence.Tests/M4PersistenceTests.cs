@@ -16,13 +16,13 @@ public sealed class M4PersistenceTests
         {
             var source = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
             var site = source.World!.Tiles.First(tile => tile.Coordinate != source.World.StartingSite && tile.Buildable && source.World.GetResources(tile.Coordinate).Count == 0).Coordinate;
-            var structure = new Structure(new StructureId(10_000), StructureType.Shelter, site, source.WorldMinute.Value, 40, 10, 600)
+            var structure = new Structure(new StructureId(source.Counters.NextEntityId), StructureType.Shelter, site, source.WorldMinute.Value, 40, 10, 600)
             {
-                DeliveredWood = 7, DeliveredStone = 3, CompletedWork = 25
+                DeliveredWood = 40, DeliveredStone = 10, CompletedWork = 25
             };
             var citizen = source.Citizens[0];
             citizen.LifetimeConstructionMinutes = 25;
-            var snapshot = new SimulationPersistenceSnapshot(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, source.Counters, source.ScheduledEvents, source.World, source.Citizens, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, new[] { structure }, new[] { new StructureContribution(structure.Id, citizen.Id, 25, 7, 3) });
+            var snapshot = new SimulationPersistenceSnapshot(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, CountersAfterStructures(source.Counters, new[] { structure }), source.ScheduledEvents, source.World, source.Citizens, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, new[] { structure }, new[] { new StructureContribution(structure.Id, citizen.Id, 25, 40, 10) });
             await using var database = await WorldDatabase.OpenAsync(path);
             await database.CreateCheckpointStore().CheckpointAsync(snapshot, DateTime.UtcNow);
             var loaded = await database.CreateCheckpointStore().LoadAsync();
@@ -78,7 +78,7 @@ public sealed class M4PersistenceTests
     public void SnapshotRejectsNonCanonicalStructureState(StructureType type, int requiredWood, int requiredStone, int requiredWork, int deliveredWood, int deliveredStone, int completedWork)
     {
         var source = CreateStructuredSnapshot();
-        var original = source.Structures.Single(item => item.Id.Value == 10003);
+        var original = source.Structures.Single(item => item.Id.Value == 23);
         var replacement = new Structure(original.Id, type, original.Location, original.ConstructionStartedMinute, requiredWood, requiredStone, requiredWork)
         {
             Status = StructureStatus.Complete,
@@ -97,7 +97,7 @@ public sealed class M4PersistenceTests
         await WithDatabaseAsync(async path =>
         {
             var source = CreateStructuredSnapshot();
-            var project = source.Structures.Single(item => item.Id.Value == 10003);
+            var project = source.Structures.Single(item => item.Id.Value == 23);
             var builder = source.Citizens[0];
             builder.CurrentAction = CitizenAction.Build; builder.ActionPhase = CitizenActionPhase.Perform; builder.TargetStructureId = project.Id; builder.ActionStartedMinute = WorldMinute.Zero; builder.ActionCompletesMinute = new WorldMinute(1);
             var waiting = source.Citizens[1];
@@ -232,29 +232,29 @@ public sealed class M4PersistenceTests
     [Theory]
     [InlineData("settlement0-with-structures", "PRAGMA ignore_check_constraints = ON; UPDATE world_meta SET simulation_rules_version = 'm3-rng1-survival1', settlement_version = 0;")]
     [InlineData("missing-demand", "DELETE FROM scheduled_events WHERE event_name = 'settlement.evaluate-demand.v1';")]
-    [InlineData("invalid-structure-type", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET type = 99 WHERE id = 10001;")]
-    [InlineData("invalid-structure-status", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET status = 99 WHERE id = 10001;")]
-    [InlineData("invalid-structure-condition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET condition = 5 WHERE id = 10001;")]
-    [InlineData("invalid-structure-cost", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_work = 0 WHERE id = 10001;")]
-    [InlineData("wrong-shelter-definition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_wood = 41 WHERE id = 10001;")]
-    [InlineData("wrong-stockpile-definition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_stone = 31 WHERE id = 10002;")]
-    [InlineData("wrong-workshop-definition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_work = 1201 WHERE id = 10003;")]
-    [InlineData("invalid-structure-material", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_wood = required_wood + 1 WHERE id = 10001;")]
-    [InlineData("invalid-structure-work", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET completed_work = required_work + 1 WHERE id = 10001;")]
-    [InlineData("complete-missing-wood", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_wood = required_wood - 1 WHERE id = 10001;")]
-    [InlineData("complete-missing-stone", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_stone = required_stone - 1 WHERE id = 10002;")]
-    [InlineData("complete-missing-work", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET completed_work = required_work - 1 WHERE id = 10001;")]
-    [InlineData("complete-overdelivered-wood", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_wood = required_wood + 1 WHERE id = 10001;")]
-    [InlineData("complete-overdelivered-stone", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_stone = required_stone + 1 WHERE id = 10002;")]
-    [InlineData("complete-overdelivered-work", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET completed_work = required_work + 1 WHERE id = 10001;")]
-    [InlineData("unknown-contributor", "PRAGMA foreign_keys = OFF; INSERT INTO structure_contributions (structure_id, citizen_id, construction_work, wood_delivered, stone_delivered) VALUES (10003, 999999, 0, 0, 0);")]
-    [InlineData("contribution-aggregate-mismatch", "PRAGMA ignore_check_constraints = ON; UPDATE structure_contributions SET construction_work = construction_work + 1 WHERE structure_id = 10003 AND citizen_id = 1;")]
-    [InlineData("home-workshop", "UPDATE citizens SET home_structure_id = 10002 WHERE id = 1;")]
-    [InlineData("home-under-construction", "UPDATE citizens SET home_structure_id = 10003 WHERE id = 1;")]
+    [InlineData("invalid-structure-type", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET type = 99 WHERE id = 21;")]
+    [InlineData("invalid-structure-status", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET status = 99 WHERE id = 21;")]
+    [InlineData("invalid-structure-condition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET condition = 5 WHERE id = 21;")]
+    [InlineData("invalid-structure-cost", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_work = 0 WHERE id = 21;")]
+    [InlineData("wrong-shelter-definition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_wood = 41 WHERE id = 21;")]
+    [InlineData("wrong-stockpile-definition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_stone = 31 WHERE id = 22;")]
+    [InlineData("wrong-workshop-definition", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET required_work = 1201 WHERE id = 23;")]
+    [InlineData("invalid-structure-material", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_wood = required_wood + 1 WHERE id = 21;")]
+    [InlineData("invalid-structure-work", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET completed_work = required_work + 1 WHERE id = 21;")]
+    [InlineData("complete-missing-wood", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_wood = required_wood - 1 WHERE id = 21;")]
+    [InlineData("complete-missing-stone", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_stone = required_stone - 1 WHERE id = 22;")]
+    [InlineData("complete-missing-work", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET completed_work = required_work - 1 WHERE id = 21;")]
+    [InlineData("complete-overdelivered-wood", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_wood = required_wood + 1 WHERE id = 21;")]
+    [InlineData("complete-overdelivered-stone", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET delivered_stone = required_stone + 1 WHERE id = 22;")]
+    [InlineData("complete-overdelivered-work", "PRAGMA ignore_check_constraints = ON; UPDATE structures SET completed_work = required_work + 1 WHERE id = 21;")]
+    [InlineData("unknown-contributor", "PRAGMA foreign_keys = OFF; INSERT INTO structure_contributions (structure_id, citizen_id, construction_work, wood_delivered, stone_delivered) VALUES (23, 999999, 0, 0, 0);")]
+    [InlineData("contribution-aggregate-mismatch", "PRAGMA ignore_check_constraints = ON; UPDATE structure_contributions SET construction_work = construction_work + 1 WHERE structure_id = 23 AND citizen_id = 1;")]
+    [InlineData("home-workshop", "UPDATE citizens SET home_structure_id = 22 WHERE id = 1;")]
+    [InlineData("home-under-construction", "UPDATE citizens SET home_structure_id = 23 WHERE id = 1;")]
     [InlineData("home-unknown", "UPDATE citizens SET home_structure_id = 999999 WHERE id = 1;")]
-    [InlineData("shelter-occupancy", "UPDATE citizens SET home_structure_id = 10001 WHERE id BETWEEN 1 AND 5;")]
+    [InlineData("shelter-occupancy", "UPDATE citizens SET home_structure_id = 21 WHERE id BETWEEN 1 AND 5;")]
     [InlineData("storage-overflow", "UPDATE settlement_state SET food_stored = 5000 WHERE id = 1;")]
-    [InlineData("transit-over-requirement", "PRAGMA ignore_check_constraints = ON; UPDATE citizens SET current_action = 10, action_phase = 5, target_structure_id = 10003, carried_resource_type = 2, carried_resource_quantity = 999 WHERE id = 1;")]
+    [InlineData("transit-over-requirement", "PRAGMA ignore_check_constraints = ON; UPDATE citizens SET current_action = 10, action_phase = 5, target_structure_id = 23, carried_resource_type = 2, carried_resource_quantity = 999 WHERE id = 1;")]
     public async Task M4CorruptionIsRejectedWithoutRepair(string _, string mutation)
     {
         await WithDatabaseAsync(async path =>
@@ -275,9 +275,9 @@ public sealed class M4PersistenceTests
         var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
         var sites = baseline.World!.Tiles.Where(tile => tile.Coordinate != baseline.World.StartingSite && tile.Buildable && baseline.World.GetResources(tile.Coordinate).Count == 0 && DeterministicPathfinder.Find(baseline.World, baseline.World.StartingSite, tile.Coordinate) is { Count: >= 2 }).Select(tile => tile.Coordinate).Take(3).ToArray();
         Assert.Equal(3, sites.Length);
-        var shelter = Complete(new Structure(new StructureId(10001), StructureType.Shelter, sites[0], 0, 40, 10, 600), 40, 10, 600);
-        var stockpile = Complete(new Structure(new StructureId(10002), StructureType.Stockpile, sites[1], 0, 60, 30, 900), 60, 30, 900);
-        var project = new Structure(new StructureId(10003), StructureType.Workshop, sites[2], 0, 80, 50, 1200) { DeliveredWood = 4, DeliveredStone = 3, CompletedWork = 10 };
+        var shelter = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, sites[0], 0, 40, 10, 600), 40, 10, 600);
+        var stockpile = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId + 1), StructureType.Stockpile, sites[1], 0, 60, 30, 900), 60, 30, 900);
+        var project = new Structure(new StructureId(baseline.Counters.NextEntityId + 2), StructureType.Workshop, sites[2], 0, 80, 50, 1200) { DeliveredWood = 4, DeliveredStone = 3 };
         baseline.Citizens[0].HomeStructureId = shelter.Id;
         baseline.Citizens[0].LifetimeConstructionMinutes = 30;
         baseline.Citizens[1].LifetimeHaulingMinutes = 12;
@@ -286,9 +286,9 @@ public sealed class M4PersistenceTests
         {
             new StructureContribution(shelter.Id, baseline.Citizens[0].Id, 600, 40, 10),
             new StructureContribution(stockpile.Id, baseline.Citizens[1].Id, 900, 60, 30),
-            new StructureContribution(project.Id, baseline.Citizens[0].Id, 10, 4, 3)
+            new StructureContribution(project.Id, baseline.Citizens[0].Id, 0, 4, 3)
         };
-        return new SimulationPersistenceSnapshot(baseline.Seed, baseline.WorldMinute, baseline.WorldSchemaVersion, baseline.SimulationRulesVersion, baseline.ApplicationVersion, baseline.WorldConfiguration, baseline.Counters, baseline.ScheduledEvents, baseline.World, baseline.Citizens, baseline.CitizenGenerationVersion, baseline.ResourceStates, baseline.Settlement, baseline.SurvivalVersion, baseline.SettlementVersion, new[] { shelter, stockpile, project }, contributions);
+        return new SimulationPersistenceSnapshot(baseline.Seed, baseline.WorldMinute, baseline.WorldSchemaVersion, baseline.SimulationRulesVersion, baseline.ApplicationVersion, baseline.WorldConfiguration, CountersAfterStructures(baseline.Counters, new[] { shelter, stockpile, project }), baseline.ScheduledEvents, baseline.World, baseline.Citizens, baseline.CitizenGenerationVersion, baseline.ResourceStates, baseline.Settlement, baseline.SurvivalVersion, baseline.SettlementVersion, new[] { shelter, stockpile, project }, contributions);
     }
 
     private static Structure Complete(Structure structure, int wood, int stone, int work)
@@ -299,6 +299,12 @@ public sealed class M4PersistenceTests
         structure.Status = StructureStatus.Complete;
         structure.CompletedMinute = 0;
         return structure;
+    }
+
+    private static DeterministicCountersSnapshot CountersAfterStructures(DeterministicCountersSnapshot counters, Structure[] structures)
+    {
+        var nextEntityId = structures.Length == 0 ? counters.NextEntityId : Math.Max(counters.NextEntityId, checked(structures.Max(x => x.Id.Value) + 1));
+        return counters with { NextEntityId = nextEntityId };
     }
 
     private static SimulationPersistenceSnapshot CreateM3InFlightSnapshot(CitizenAction action)

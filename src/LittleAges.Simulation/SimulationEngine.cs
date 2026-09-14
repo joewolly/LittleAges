@@ -94,7 +94,7 @@ public sealed record SimulationPersistenceSnapshot
         ScheduledEvents = Array.AsReadOnly(events); World = world; Citizens = Array.AsReadOnly((citizens ?? Array.Empty<Citizen>()).OrderBy(x => x.Id.Value).Select(CloneCitizen).ToArray()); CitizenGenerationVersion = citizenGenerationVersion; ResourceStates = Array.AsReadOnly((resourceStates ?? Array.Empty<ResourceState>()).OrderBy(x => x.ResourceNodeId.Value).Select(x => new ResourceState(x.ResourceNodeId, x.CurrentQuantity)).ToArray()); Settlement = settlement is null ? null : CloneSettlement(settlement); SurvivalVersion = survivalVersion; SettlementVersion = settlementVersion; Structures = Array.AsReadOnly((structures ?? Array.Empty<Structure>()).OrderBy(x => x.Id.Value).Select(CloneStructure).ToArray()); StructureContributions = Array.AsReadOnly((structureContributions ?? Array.Empty<StructureContribution>()).OrderBy(x => x.StructureId.Value).ThenBy(x => x.CitizenId.Value).Select(CloneContribution).ToArray());
         if (citizenGenerationVersion == 1 && m2) ValidateM2Roster(Citizens, ScheduledEvents, world, worldMinute);
         if (m3) ValidateM3State(Citizens, ScheduledEvents, ResourceStates, Settlement, world, worldMinute);
-        if (m4) ValidateM4State(Citizens, ScheduledEvents, ResourceStates, Settlement, Structures, StructureContributions, world, worldMinute);
+        if (m4) ValidateM4State(Citizens, ScheduledEvents, ResourceStates, Settlement, Structures, StructureContributions, Counters, world, worldMinute);
     }
     public WorldSeed Seed { get; } public WorldMinute WorldMinute { get; } public string WorldSchemaVersion { get; } public string SimulationRulesVersion { get; } public string ApplicationVersion { get; } public string WorldConfiguration { get; } public DeterministicCountersSnapshot Counters { get; } public IReadOnlyList<ScheduledEventSnapshot> ScheduledEvents { get; } public WorldMap? World { get; } public IReadOnlyList<Citizen> Citizens { get; } public int CitizenGenerationVersion { get; } public IReadOnlyList<ResourceState> ResourceStates { get; } public SettlementState? Settlement { get; } public int SurvivalVersion { get; } public int SettlementVersion { get; } public IReadOnlyList<Structure> Structures { get; } public IReadOnlyList<StructureContribution> StructureContributions { get; }
     private static void ValidateM2Roster(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, WorldMap? world, WorldMinute minute)
@@ -211,7 +211,7 @@ public sealed record SimulationPersistenceSnapshot
         if (events.Count(x => x.Name == CitizenEventNames.SurvivalCheck) != living.Length) throw new ArgumentException("M3 requires one survival event per living citizen.");
     }
 
-    private static void ValidateM4State(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, IReadOnlyList<ResourceState> resources, SettlementState? settlement, IReadOnlyList<Structure> structures, IReadOnlyList<StructureContribution> contributions, WorldMap? world, WorldMinute minute)
+    private static void ValidateM4State(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, IReadOnlyList<ResourceState> resources, SettlementState? settlement, IReadOnlyList<Structure> structures, IReadOnlyList<StructureContribution> contributions, DeterministicCountersSnapshot counters, WorldMap? world, WorldMinute minute)
     {
         if (world is null || settlement is null) throw new ArgumentException("M4 snapshots require world and settlement state.");
         settlement.Validate();
@@ -223,9 +223,11 @@ public sealed record SimulationPersistenceSnapshot
         foreach (var state in resources) state.Validate(world.Resources.SingleOrDefault(x => x.Id == state.ResourceNodeId) ?? throw new ArgumentException("M4 resource state references an unknown node.", nameof(resources)));
         if (structures.Select(x => x.Id.Value).Distinct().Count() != structures.Count || structures.Select(x => x.Location).Distinct().Count() != structures.Count || structures.Count(x => x.Status == StructureStatus.UnderConstruction) > 1) throw new ArgumentException("M4 structures must have unique IDs, locations, and at most one active project.", nameof(structures));
         var structureIds = structures.Select(x => x.Id.Value).ToHashSet(); var citizenIds = citizens.Select(x => x.Id.Value).ToHashSet();
+        if (structureIds.Overlaps(citizenIds) || counters.NextEntityId <= structures.Select(x => x.Id.Value).Concat(citizens.Select(x => x.Id.Value)).Max()) throw new ArgumentException("M4 entity IDs and next entity counter are invalid.", nameof(counters));
         foreach (var structure in structures)
         {
             structure.Validate();
+            if (structure.ConstructionStartedMinute > minute.Value || (structure.Status == StructureStatus.Complete && (structure.CompletedMinute < structure.ConstructionStartedMinute || structure.CompletedMinute > minute.Value))) throw new ArgumentException("M4 structure timeline is invalid.", nameof(structures));
             if (structure.Location == world.StartingSite || !world.GetTile(structure.Location).Buildable || world.GetTile(structure.Location).Terrain == TerrainType.Freshwater || world.GetResources(structure.Location).Count != 0) throw new ArgumentException("M4 structure location is invalid.", nameof(structures));
         }
         if (contributions.Select(x => (x.StructureId.Value, x.CitizenId.Value)).Distinct().Count() != contributions.Count) throw new ArgumentException("M4 contributions must be unique by structure and citizen.", nameof(contributions));
@@ -442,15 +444,16 @@ public sealed class SimulationEngine
     public string ComputeSettlementFingerprint()
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        static string I<T>(T value) where T : IFormattable => value.ToString(null, CultureInfo.InvariantCulture);
         static void Add(IncrementalHash value, string text) { var bytes = Encoding.UTF8.GetBytes(text); value.AppendData(Encoding.UTF8.GetBytes(bytes.Length.ToString(CultureInfo.InvariantCulture) + ":")); value.AppendData(bytes); }
         Add(hash, "survival=" + ComputeSurvivalFingerprint());
-        Add(hash, "settlement-version=" + SettlementVersion.ToString(CultureInfo.InvariantCulture));
-        Add(hash, "settlement-base=" + Settlement.BaseStorageCapacity.ToString(CultureInfo.InvariantCulture));
-        Add(hash, "settlement-demand=" + Settlement.DemandUpdatedMinute.ToString(CultureInfo.InvariantCulture));
-        Add(hash, "settlement-exposure=" + Settlement.ExposureConsequencesStartMinute.ToString(CultureInfo.InvariantCulture));
-        foreach (var structure in _structures.Values.OrderBy(x => x.Id.Value)) Add(hash, $"structure={structure.Id.Value.ToString(CultureInfo.InvariantCulture)}:{(int)structure.Type}:{(int)structure.Status}:{structure.Location.X.ToString(CultureInfo.InvariantCulture)},{structure.Location.Y.ToString(CultureInfo.InvariantCulture)}:{structure.ConstructionStartedMinute.ToString(CultureInfo.InvariantCulture)}:{structure.CompletedMinute?.ToString(CultureInfo.InvariantCulture) ?? "null"}:{structure.RequiredWood.ToString(CultureInfo.InvariantCulture)}:{structure.DeliveredWood.ToString(CultureInfo.InvariantCulture)}:{structure.RequiredStone.ToString(CultureInfo.InvariantCulture)}:{structure.DeliveredStone.ToString(CultureInfo.InvariantCulture)}:{structure.RequiredWork.ToString(CultureInfo.InvariantCulture)}:{structure.CompletedWork.ToString(CultureInfo.InvariantCulture)}");
-        foreach (var contribution in _structureContributions.Values.OrderBy(x => x.StructureId.Value).ThenBy(x => x.CitizenId.Value)) Add(hash, $"contribution={contribution.StructureId.Value.ToString(CultureInfo.InvariantCulture)}:{contribution.CitizenId.Value.ToString(CultureInfo.InvariantCulture)}:{contribution.ConstructionWork.ToString(CultureInfo.InvariantCulture)}:{contribution.WoodDelivered.ToString(CultureInfo.InvariantCulture)}:{contribution.StoneDelivered.ToString(CultureInfo.InvariantCulture)}");
-        foreach (var citizen in _citizens.Values.OrderBy(x => x.Id.Value)) Add(hash, $"citizen-m4={citizen.Id.Value.ToString(CultureInfo.InvariantCulture)}:{citizen.HomeStructureId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}:{citizen.TargetStructureId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}:{citizen.LifetimeForagingMinutes.ToString(CultureInfo.InvariantCulture)}:{citizen.LifetimeWoodcuttingMinutes.ToString(CultureInfo.InvariantCulture)}:{citizen.LifetimeStoneworkingMinutes.ToString(CultureInfo.InvariantCulture)}:{citizen.LifetimeConstructionMinutes.ToString(CultureInfo.InvariantCulture)}:{citizen.LifetimeHaulingMinutes.ToString(CultureInfo.InvariantCulture)}");
+        Add(hash, "settlement-version=" + I(SettlementVersion));
+        Add(hash, "settlement-base=" + I(Settlement.BaseStorageCapacity));
+        Add(hash, "settlement-demand=" + I(Settlement.DemandUpdatedMinute));
+        Add(hash, "settlement-exposure=" + I(Settlement.ExposureConsequencesStartMinute));
+        foreach (var structure in _structures.Values.OrderBy(x => x.Id.Value)) Add(hash, $"structure={I(structure.Id.Value)}:{I((int)structure.Type)}:{I((int)structure.Status)}:{I(structure.Location.X)},{I(structure.Location.Y)}:{I(structure.ConstructionStartedMinute)}:{(structure.CompletedMinute is { } completedMinute ? I(completedMinute) : "null")}:{I(structure.RequiredWood)}:{I(structure.DeliveredWood)}:{I(structure.RequiredStone)}:{I(structure.DeliveredStone)}:{I(structure.RequiredWork)}:{I(structure.CompletedWork)}");
+        foreach (var contribution in _structureContributions.Values.OrderBy(x => x.StructureId.Value).ThenBy(x => x.CitizenId.Value)) Add(hash, $"contribution={I(contribution.StructureId.Value)}:{I(contribution.CitizenId.Value)}:{I(contribution.ConstructionWork)}:{I(contribution.WoodDelivered)}:{I(contribution.StoneDelivered)}");
+        foreach (var citizen in _citizens.Values.OrderBy(x => x.Id.Value)) Add(hash, $"citizen-m4={I(citizen.Id.Value)}:{(citizen.HomeStructureId is { } homeStructureId ? I(homeStructureId.Value) : "null")}:{(citizen.TargetStructureId is { } targetStructureId ? I(targetStructureId.Value) : "null")}:{I(citizen.LifetimeForagingMinutes)}:{I(citizen.LifetimeWoodcuttingMinutes)}:{I(citizen.LifetimeStoneworkingMinutes)}:{I(citizen.LifetimeConstructionMinutes)}:{I(citizen.LifetimeHaulingMinutes)}");
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
     public string SettlementFingerprint => ComputeSettlementFingerprint();

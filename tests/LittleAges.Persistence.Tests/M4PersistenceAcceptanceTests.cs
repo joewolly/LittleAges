@@ -55,8 +55,9 @@ public sealed class M4PersistenceAcceptanceTests
             replacement.Citizens[6].Skills.Construction = checked(replacement.Citizens[6].Skills.Construction + 25);
             replacement.Citizens[6].LifetimeConstructionMinutes = 99;
             var project = replacement.Structures.Single(item => item.Status == StructureStatus.UnderConstruction);
-            project.CompletedWork = 1;
-            replacement.StructureContributions.Single(item => item.StructureId == project.Id && item.CitizenId == replacement.Citizens[6].Id).ConstructionWork = 1;
+            project.DeliveredStone = project.RequiredStone - 1;
+            var projectContribution = replacement.StructureContributions.Single(item => item.StructureId == project.Id && item.CitizenId == replacement.Citizens[6].Id);
+            projectContribution.StoneDelivered = project.DeliveredStone;
             var alteredEvents = replacement.ScheduledEvents.Select(item => item.Name == CitizenEventNames.SettlementEvaluateDemand
                 ? item with { PayloadJson = "{\"version\":1}" }
                 : item).ToArray();
@@ -165,7 +166,7 @@ public sealed class M4PersistenceAcceptanceTests
         var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var site = Sites(world, 1)[0];
-        var project = new Structure(new StructureId(90_001), StructureType.Shelter, site, 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
+        var project = new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, site, 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
         var hauler = baseline.Citizens[0];
         var path = DeterministicPathfinder.Find(world, hauler.Location, site)!;
         Assert.True(path.Count >= 2);
@@ -188,9 +189,9 @@ public sealed class M4PersistenceAcceptanceTests
         var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var sites = Sites(world, 3);
-        var shelter = Complete(new Structure(new StructureId(80_001), StructureType.Shelter, sites[0], 0, 40, 10, 600));
-        var stockpile = Complete(new Structure(new StructureId(80_002), StructureType.Stockpile, sites[1], 0, 60, 30, 900));
-        var project = new Structure(new StructureId(80_003), StructureType.Workshop, sites[2], 0, 80, 50, 1200) { DeliveredWood = 79, DeliveredStone = 50 };
+        var shelter = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, sites[0], 0, 40, 10, 600));
+        var stockpile = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId + 1), StructureType.Stockpile, sites[1], 0, 60, 30, 900));
+        var project = new Structure(new StructureId(baseline.Counters.NextEntityId + 2), StructureType.Workshop, sites[2], 0, 80, 50, 1200) { DeliveredWood = 79, DeliveredStone = 50 };
         var citizens = baseline.Citizens;
         citizens[5].HomeStructureId = shelter.Id;
         var events = baseline.ScheduledEvents;
@@ -232,8 +233,16 @@ public sealed class M4PersistenceAcceptanceTests
         citizen.ActionCompletesMinute = new WorldMinute(RemainingPathCost(path, world));
     }
 
-    private static SimulationPersistenceSnapshot Rebuild(SimulationPersistenceSnapshot source, IReadOnlyList<ScheduledEventSnapshot>? scheduledEvents = null, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? contributions = null) =>
-        new(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, source.Counters, scheduledEvents ?? source.ScheduledEvents, source.World, source.Citizens, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, structures ?? source.Structures, contributions ?? source.StructureContributions);
+    private static SimulationPersistenceSnapshot Rebuild(SimulationPersistenceSnapshot source, IReadOnlyList<ScheduledEventSnapshot>? scheduledEvents = null, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? contributions = null)
+    {
+        var effectiveStructures = structures ?? source.Structures;
+        return new(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, CountersAfterStructures(source.Counters, effectiveStructures), scheduledEvents ?? source.ScheduledEvents, source.World, source.Citizens, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, effectiveStructures, contributions ?? source.StructureContributions);
+    }
+    private static DeterministicCountersSnapshot CountersAfterStructures(DeterministicCountersSnapshot counters, IReadOnlyList<Structure> structures)
+    {
+        var nextEntityId = structures.Count == 0 ? counters.NextEntityId : Math.Max(counters.NextEntityId, checked(structures.Max(x => x.Id.Value) + 1));
+        return counters with { NextEntityId = nextEntityId };
+    }
 
     private static ScheduledEventSnapshot[] ReplaceActionEvent(SimulationPersistenceSnapshot source, Citizen citizen, string name, long due, int priority = CitizenEventNames.MovementPriority) => ReplaceActionEvent(source.ScheduledEvents, citizen, name, due, priority);
     private static ScheduledEventSnapshot[] ReplaceActionEvent(IReadOnlyList<ScheduledEventSnapshot> events, Citizen citizen, string name, long due, int priority = CitizenEventNames.MovementPriority) => events.Select(item => item.Name == CitizenEventNames.Decision && item.Order.EntitySortKey == citizen.Id.Value ? item with { Name = name, Order = new ScheduledEventOrder(new WorldMinute(due), priority, citizen.Id.Value, item.Order.Sequence), PayloadJson = $"{{\"citizenId\":\"{citizen.Id.Value}\",\"actionSequence\":{citizen.ActionSequence}}}" } : item).ToArray();

@@ -69,7 +69,7 @@ public sealed class Structure
 
     public Structure Validate()
     {
-        if (!Enum.IsDefined(Type) || !Enum.IsDefined(Status) || !StructureDefinitions.HasCanonicalRequirements(Type, RequiredWood, RequiredStone, RequiredWork) || ConstructionStartedMinute < 0 || DeliveredWood < 0 || DeliveredWood > RequiredWood || DeliveredStone < 0 || DeliveredStone > RequiredStone || CompletedWork < 0 || CompletedWork > RequiredWork || (Status == StructureStatus.UnderConstruction && CompletedMinute is not null) || (Status == StructureStatus.Complete && (CompletedMinute is null || DeliveredWood != RequiredWood || DeliveredStone != RequiredStone || CompletedWork != RequiredWork)))
+        if (!Enum.IsDefined(Type) || !Enum.IsDefined(Status) || !StructureDefinitions.HasCanonicalRequirements(Type, RequiredWood, RequiredStone, RequiredWork) || ConstructionStartedMinute < 0 || DeliveredWood < 0 || DeliveredWood > RequiredWood || DeliveredStone < 0 || DeliveredStone > RequiredStone || CompletedWork < 0 || CompletedWork > RequiredWork || (CompletedWork > 0 && (DeliveredWood != RequiredWood || DeliveredStone != RequiredStone)) || (Status == StructureStatus.UnderConstruction && (CompletedMinute is not null || CompletedWork == RequiredWork)) || (Status == StructureStatus.Complete && (CompletedMinute is null || DeliveredWood != RequiredWood || DeliveredStone != RequiredStone || CompletedWork != RequiredWork)))
             throw new ArgumentException("Structure canonical state is invalid.");
         return this;
     }

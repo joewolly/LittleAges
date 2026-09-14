@@ -48,7 +48,7 @@ public sealed class M4SettlementAcceptanceTests
         var source = new SimulationEngine(new WorldSeed(42));
         var snapshot = source.CreatePersistenceSnapshot();
         var site = ValidSites(source.World, 1)[0];
-        var project = Shelter(new StructureId(10_001), site);
+        var project = Shelter(new StructureId(snapshot.Counters.NextEntityId), site);
         snapshot.Settlement!.WoodStored = 40;
         snapshot.Settlement.FoodStored = 0;
         var routeToStockpile = RouteFromDeterministicNeighbor(source.World, source.World.StartingSite);
@@ -93,10 +93,10 @@ public sealed class M4SettlementAcceptanceTests
         var source = new SimulationEngine(new WorldSeed(42));
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, 2);
-        var project = Shelter(new StructureId(10_001), sites[0]);
+        var project = Shelter(new StructureId(snapshot.Counters.NextEntityId), sites[0]);
         project.DeliveredWood = project.RequiredWood;
         project.DeliveredStone = project.RequiredStone;
-        var workshop = CompleteWorkshop(new StructureId(10_002), sites[1], snapshot.Citizens[2].Id);
+        var workshop = CompleteWorkshop(new StructureId(snapshot.Counters.NextEntityId + 1), sites[1], snapshot.Citizens[2].Id);
         snapshot.Citizens[0].Location = project.Location;
         snapshot.Citizens[0].Skills.Construction = 5_000;
         var multipliedEvents = ConfigureBuild(snapshot.ScheduledEvents, snapshot, snapshot.Citizens[0], project.Id);
@@ -109,7 +109,7 @@ public sealed class M4SettlementAcceptanceTests
         Assert.Equal(180, multiplied.GetCitizen(snapshot.Citizens[0].Id)!.LifetimeConstructionMinutes);
 
         var concurrentSnapshot = source.CreatePersistenceSnapshot();
-        var concurrent = Shelter(new StructureId(10_003), sites[0]);
+        var concurrent = Shelter(new StructureId(concurrentSnapshot.Counters.NextEntityId), sites[0]);
         concurrent.DeliveredWood = concurrent.RequiredWood;
         concurrent.DeliveredStone = concurrent.RequiredStone;
         concurrent.CompletedWork = 400;
@@ -132,8 +132,8 @@ public sealed class M4SettlementAcceptanceTests
         var source = new SimulationEngine(new WorldSeed(42));
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, 2);
-        var existing = CompleteShelter(new StructureId(10_001), sites[0], snapshot.Citizens[0].Id);
-        var completing = Shelter(new StructureId(10_002), sites[1]);
+        var existing = CompleteShelter(new StructureId(snapshot.Counters.NextEntityId), sites[0], snapshot.Citizens[0].Id);
+        var completing = Shelter(new StructureId(snapshot.Counters.NextEntityId + 1), sites[1]);
         completing.DeliveredWood = completing.RequiredWood;
         completing.DeliveredStone = completing.RequiredStone;
         completing.CompletedWork = 500;
@@ -155,7 +155,7 @@ public sealed class M4SettlementAcceptanceTests
     {
         var source = new SimulationEngine(new WorldSeed(42));
         var snapshot = source.CreatePersistenceSnapshot();
-        var shelter = CompleteShelter(new StructureId(10_001), ValidSites(source.World, 1)[0], snapshot.Citizens[0].Id);
+        var shelter = CompleteShelter(new StructureId(snapshot.Counters.NextEntityId), ValidSites(source.World, 1)[0], snapshot.Citizens[0].Id);
         var sheltered = snapshot.Citizens[0];
         var unhoused = snapshot.Citizens[1];
         sheltered.HomeStructureId = shelter.Structure.Id;
@@ -223,7 +223,7 @@ public sealed class M4SettlementAcceptanceTests
         var source = new SimulationEngine(new WorldSeed(42));
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, count);
-        var structures = sites.Select((site, index) => CompleteShelter(new StructureId(10_001 + index), site, snapshot.Citizens[index].Id)).ToArray();
+        var structures = sites.Select((site, index) => CompleteShelter(new StructureId(snapshot.Counters.NextEntityId + index), site, snapshot.Citizens[index].Id)).ToArray();
         var settlement = new SettlementState(food, wood, stone, CitizenSimulationRules.BaseStorageCapacity, 0, CitizenSimulationRules.ExposureGraceDurationMinutes);
         var frozenEvents = FreezeActions(snapshot.ScheduledEvents, snapshot);
         return SimulationEngine.FromPersistenceSnapshot(Copy(snapshot, events: frozenEvents, settlement: settlement, structures: structures.Select(x => x.Structure).ToArray(), contributions: structures.SelectMany(x => x.Contributions).ToArray()));
@@ -366,5 +366,13 @@ public sealed class M4SettlementAcceptanceTests
         citizen.LifetimeForagingMinutes = foraging; citizen.LifetimeWoodcuttingMinutes = wood; citizen.LifetimeStoneworkingMinutes = stone; citizen.LifetimeConstructionMinutes = construction; citizen.LifetimeHaulingMinutes = hauling;
     }
     private static SimulationPersistenceSnapshot Copy(SimulationPersistenceSnapshot value, IReadOnlyList<ScheduledEventSnapshot>? events = null, SettlementState? settlement = null, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? contributions = null)
-        => new(value.Seed, value.WorldMinute, value.WorldSchemaVersion, value.SimulationRulesVersion, value.ApplicationVersion, value.WorldConfiguration, value.Counters, events ?? value.ScheduledEvents, value.World, value.Citizens, value.CitizenGenerationVersion, value.ResourceStates, settlement ?? value.Settlement, value.SurvivalVersion, value.SettlementVersion, structures ?? value.Structures, contributions ?? value.StructureContributions);
+    {
+        var effectiveStructures = structures ?? value.Structures;
+        return new(value.Seed, value.WorldMinute, value.WorldSchemaVersion, value.SimulationRulesVersion, value.ApplicationVersion, value.WorldConfiguration, CountersAfterStructures(value.Counters, effectiveStructures), events ?? value.ScheduledEvents, value.World, value.Citizens, value.CitizenGenerationVersion, value.ResourceStates, settlement ?? value.Settlement, value.SurvivalVersion, value.SettlementVersion, effectiveStructures, contributions ?? value.StructureContributions);
+    }
+    private static DeterministicCountersSnapshot CountersAfterStructures(DeterministicCountersSnapshot counters, IReadOnlyList<Structure> structures)
+    {
+        var nextEntityId = structures.Count == 0 ? counters.NextEntityId : Math.Max(counters.NextEntityId, checked(structures.Max(x => x.Id.Value) + 1));
+        return counters with { NextEntityId = nextEntityId };
+    }
 }
