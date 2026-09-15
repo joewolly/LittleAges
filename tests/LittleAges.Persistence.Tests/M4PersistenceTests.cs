@@ -70,6 +70,96 @@ public sealed class M4PersistenceTests
         });
     }
 
+    [Fact]
+    public async Task M4ToM5UpgradeRejectsPreexistingSocialGlobalEvent()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var snapshot = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
+            var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
+            var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+            await using (var context = new LittleAgesDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                await new WorldCheckpointStore(context).CheckpointAsync(snapshot, DateTime.UtcNow);
+                var sequence = snapshot.Counters.NextScheduledEventSequence;
+                context.ScheduledEvents.Add(new ScheduledEventRow
+                {
+                    Id = sequence,
+                    Sequence = sequence,
+                    DueWorldMinute = WorldCalendar.MinutesPerDay,
+                    Priority = CitizenEventNames.FamilyCheckPriority,
+                    EntitySortKey = 0,
+                    EventName = CitizenEventNames.FamilyCheck,
+                    EventPayloadJson = "{\"version\":1}"
+                });
+                await context.SaveChangesAsync();
+            }
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+        });
+    }
+
+    [Theory]
+    [InlineData("UPDATE citizens SET founder_ordinal = NULL WHERE id = 1;")]
+    [InlineData("PRAGMA ignore_check_constraints = ON; UPDATE citizens SET founder_ordinal = 20 WHERE id = 1;")]
+    public async Task M4ToM5UpgradeRejectsNonCanonicalFounderOrdinalRoster(string mutation)
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            await using var database = await WorldDatabase.OpenAsync(path);
+            await database.CreateCheckpointStore().CheckpointAsync(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot(), DateTime.UtcNow);
+            await using var command = database.Context.Database.GetDbConnection().CreateCommand();
+            command.CommandText = mutation;
+            await command.ExecuteNonQueryAsync();
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+        });
+    }
+
+    [Fact]
+    public async Task M4ToM5UpgradeRollsBackThenRetriesIdempotentlyAndPreservesHistoricalCounter()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
+            var counter = new DeterministicCountersSnapshot(source.Counters.NextEntityId, 987_654, source.Counters.NextScheduledEventSequence);
+            source = new SimulationPersistenceSnapshot(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, counter, source.ScheduledEvents, source.World, source.Citizens, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, source.Structures, source.StructureContributions);
+            var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString();
+            var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+            await using (var context = new LittleAgesDbContext(options))
+            {
+                await context.Database.MigrateAsync();
+                await new WorldCheckpointStore(context).CheckpointAsync(source, DateTime.UtcNow);
+            }
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() => WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(M5UpgradeFailurePoint: M5UpgradeFailurePoint.AfterRowsWritten)));
+            await using (var rollback = new SqliteConnection(connectionString))
+            {
+                await rollback.OpenAsync();
+                await using var command = rollback.CreateCommand();
+                command.CommandText = "SELECT social_version, simulation_rules_version, next_historical_event_id, (SELECT COUNT(*) FROM scheduled_events WHERE event_name IN ('social.family-check.v1', 'population.lifecycle-check.v1')) FROM world_meta;";
+                await using var reader = await command.ExecuteReaderAsync();
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal(0, reader.GetInt32(0));
+                Assert.Equal(SimulationEngine.M4SimulationRulesVersion, reader.GetString(1));
+                Assert.Equal(987_654, reader.GetInt64(2));
+                Assert.Equal(0L, reader.GetInt64(3));
+            }
+
+            await using var upgraded = await WorldDatabase.OpenAsync(path);
+            var snapshot = await upgraded.CreateCheckpointStore().LoadAsync();
+            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
+            Assert.Equal(987_654, snapshot.Counters.NextHistoricalEventId);
+            Assert.Single(snapshot.ScheduledEvents, x => x.Name == CitizenEventNames.FamilyCheck);
+            Assert.Single(snapshot.ScheduledEvents, x => x.Name == CitizenEventNames.LifecycleCheck);
+            await upgraded.CreateCheckpointStore().UpgradeM4ToM5IfNeededAsync();
+            var idempotent = await upgraded.CreateCheckpointStore().LoadAsync();
+            Assert.Equal(snapshot.Counters, idempotent.Counters);
+            Assert.Equal(snapshot.ScheduledEvents, idempotent.ScheduledEvents);
+        });
+    }
+
     [Theory]
     [InlineData(StructureType.Shelter, 41, 10, 600, 0, 0, 0)]
     [InlineData(StructureType.Shelter, 40, 10, 600, 39, 10, 600)]
@@ -147,6 +237,8 @@ public sealed class M4PersistenceTests
             Assert.Equal(CitizenEventNames.SettlementDemandPriority, demand.Order.Priority);
             Assert.Equal(0, demand.Order.EntitySortKey);
             Assert.Equal("{\"version\":1}", demand.PayloadJson);
+            Assert.Single(loaded.ScheduledEvents, x => x.Name == CitizenEventNames.FamilyCheck);
+            Assert.Single(loaded.ScheduledEvents, x => x.Name == CitizenEventNames.LifecycleCheck);
         });
     }
 
@@ -192,8 +284,8 @@ public sealed class M4PersistenceTests
             Assert.Equal(Math.Max(CitizenSimulationRules.BaseStorageCapacity, 917), upgraded.Settlement.BaseStorageCapacity);
             Assert.Equal(m3.WorldMinute.Value, upgraded.Settlement.DemandUpdatedMinute);
             Assert.Equal(m3.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, upgraded.Settlement.ExposureConsequencesStartMinute);
-            Assert.Equal(m3.Counters.NextScheduledEventSequence + 1, upgraded.Counters.NextScheduledEventSequence);
-            Assert.Equal(m3.ScheduledEvents.OrderBy(x => x.Order), upgraded.ScheduledEvents.Where(x => x.Name != CitizenEventNames.SettlementEvaluateDemand).OrderBy(x => x.Order));
+            Assert.Equal(m3.Counters.NextScheduledEventSequence + 3, upgraded.Counters.NextScheduledEventSequence);
+            Assert.Equal(m3.ScheduledEvents.OrderBy(x => x.Order), upgraded.ScheduledEvents.Where(x => x.Name is not (CitizenEventNames.SettlementEvaluateDemand or CitizenEventNames.FamilyCheck or CitizenEventNames.LifecycleCheck)).OrderBy(x => x.Order));
             Assert.Single(upgraded.ScheduledEvents, x => x.Name == CitizenEventNames.SettlementEvaluateDemand);
         });
     }
@@ -225,7 +317,7 @@ public sealed class M4PersistenceTests
             var actualCitizen = upgraded.Citizens.Single(item => item.Id.Value == 1);
             Assert.Equal(ActionKey(expectedCitizen), ActionKey(actualCitizen));
             Assert.Equal(expectedEvent, upgraded.ScheduledEvents.Single(item => item.Id == expectedEvent.Id));
-            Assert.Equal(m3.Counters.NextScheduledEventSequence + 1, upgraded.Counters.NextScheduledEventSequence);
+            Assert.Equal(m3.Counters.NextScheduledEventSequence + 3, upgraded.Counters.NextScheduledEventSequence);
         });
     }
 

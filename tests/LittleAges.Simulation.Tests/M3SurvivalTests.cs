@@ -143,8 +143,8 @@ public sealed class M3SurvivalTests
     [Fact]
     public void M2ConstructionRetainsM2RulesAndDoesNotAddSurvivalEvents()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
-        Assert.Equal(SimulationEngine.PreviousSimulationRulesVersion, engine.SimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
+        Assert.Equal(SimulationEngine.M2SimulationRulesVersion, engine.SimulationRulesVersion);
         Assert.Equal(0, engine.Settlement.FoodStored);
         Assert.DoesNotContain(engine.CreatePersistenceSnapshot().ScheduledEvents, x => x.Name is CitizenEventNames.SurvivalCheck or CitizenEventNames.ResourceRegenerate);
     }

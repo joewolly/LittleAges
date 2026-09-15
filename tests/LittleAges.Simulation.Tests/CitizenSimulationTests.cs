@@ -13,10 +13,10 @@ public sealed class CitizenSimulationTests
     [InlineData(ulong.MaxValue)]
     public void FoundersAreDeterministicCompleteAndValid(ulong seed)
     {
-        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var citizens = engine.Citizens;
         Assert.Equal(20, citizens.Count);
-        Assert.Equal(Enumerable.Range(0, 20), citizens.Select(c => c.FounderOrdinal));
+        Assert.Equal(Enumerable.Range(0, 20), citizens.Select(c => c.FounderOrdinal!.Value));
         Assert.Equal(Enumerable.Range(1, 20), citizens.Select(c => checked((int)c.Id.Value)));
         Assert.Equal(20, citizens.Select(c => c.Name).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(20, citizens.Select(c => c.Location).Distinct().Count());
@@ -39,7 +39,7 @@ public sealed class CitizenSimulationTests
     [InlineData(ulong.MaxValue, "eaae4f6399cb5819de832012ec0c0a2ce7a3cd74b8f17265d576e2765e4efe2e")]
     public void FounderRosterFingerprintIsLocked(ulong seed, string expected)
     {
-        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         Assert.Equal(expected, CitizenGenerator.Fingerprint(new WorldSeed(seed), engine.Citizens));
     }
 
@@ -52,7 +52,7 @@ public sealed class CitizenSimulationTests
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
-            var invariant = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+            var invariant = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
             Assert.Contains(invariant.Citizens, citizen => citizen.BirthMinute < 0);
             var invariantHash = CitizenGenerator.Fingerprint(new WorldSeed(42), invariant.Citizens);
 
@@ -60,7 +60,7 @@ public sealed class CitizenSimulationTests
             customizedCulture.NumberFormat.NegativeSign = "~";
             CultureInfo.CurrentCulture = customizedCulture;
             CultureInfo.CurrentUICulture = customizedCulture;
-            var customized = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+            var customized = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
             Assert.Contains(customized.Citizens, citizen => citizen.BirthMinute < 0);
             Assert.Equal(invariantHash, CitizenGenerator.Fingerprint(new WorldSeed(42), customized.Citizens));
         }
@@ -90,7 +90,7 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void SubstantialM2RunLeavesWorldResourcesHealthAndSkillsUnchanged()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var fingerprint = engine.World.Fingerprint;
         var resources = engine.World.Resources.ToArray();
         var skills = engine.Citizens.ToDictionary(c => c.Id.Value, c => c.Skills);
@@ -113,8 +113,8 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void DecisionsAdvanceLocalSequenceAndAreRepeatable()
     {
-        var first = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
-        var second = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var first = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
+        var second = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         first.ProcessNextEvent();
         second.ProcessNextEvent();
         var a = first.CreateReadSnapshot().Citizens[0];
@@ -155,7 +155,7 @@ public sealed class CitizenSimulationTests
         var payload = "{\"citizenId\":\"7\",\"actionSequence\":3}";
         var scheduled = new ScheduledEventSnapshot(new ScheduledEventId(7), new ScheduledEventOrder(WorldMinute.Zero, CitizenEventNames.DecisionPriority, 7, 7), CitizenEventNames.Decision, payload).Validate();
         Assert.Equal(payload, scheduled.EventPayloadJson);
-        var engine = new SimulationEngine(new WorldSeed(1), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(1), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var read = engine.CreateReadSnapshot();
         Assert.Equal(20, read.Citizens.Count);
         Assert.NotSame(engine.GetCitizen(new CitizenId(1)), engine.GetCitizen(new CitizenId(1)));
@@ -164,7 +164,7 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void WeightedPathIsDeterministicAndNeverUsesBlockedTiles()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var start = engine.World.StartingSite;
         var destination = engine.World.Tiles.First(tile => tile.Walkable && tile.Coordinate != start).Coordinate;
         var path = DeterministicPathfinder.FindPath(engine.World, start, destination);
@@ -307,12 +307,12 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void PersistenceAndTimeChunksPreserveCitizenState()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(180));
         var restored = SimulationEngine.FromPersistenceSnapshot(source.CreatePersistenceSnapshot());
         Assert.Equal(source.CreateReadSnapshot().Citizens, restored.CreateReadSnapshot().Citizens);
 
-        var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         chunked.AdvanceUntil(new WorldMinute(60));
         chunked.AdvanceUntil(new WorldMinute(180));
         Assert.Equal(source.CreateReadSnapshot().Citizens, chunked.CreateReadSnapshot().Citizens);
@@ -321,8 +321,8 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void ReadSnapshotPollingDoesNotAlterCanonicalHistory()
     {
-        var unobserved = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
-        var observed = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var unobserved = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
+        var observed = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
 
         unobserved.AdvanceUntil(new WorldMinute(500));
         for (var minute = 1; minute <= 500; minute++)
@@ -343,7 +343,7 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void ReversedCitizenInputOrderCanonicalizesToTheSameSnapshot()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var reversed = new SimulationPersistenceSnapshot(snapshot.Seed, snapshot.WorldMinute, snapshot.WorldSchemaVersion, snapshot.SimulationRulesVersion, snapshot.ApplicationVersion, snapshot.WorldConfiguration, snapshot.Counters, snapshot.ScheduledEvents, snapshot.World, snapshot.Citizens.Reverse().ToArray(), snapshot.CitizenGenerationVersion);
         Assert.Equal(snapshot.Citizens, reversed.Citizens);
@@ -353,7 +353,7 @@ public sealed class CitizenSimulationTests
     [Fact]
     public void MidActionReloadContinuesAtTheSameMinuteAndState()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         while (source.GetCitizen(new CitizenId(1))!.CurrentAction == CitizenAction.None) Assert.True(source.ProcessNextEvent());
         var checkpoint = source.CreatePersistenceSnapshot();
         var restored = SimulationEngine.FromPersistenceSnapshot(checkpoint);
@@ -469,7 +469,7 @@ public sealed class CitizenSimulationTests
             new WorldSeed(9),
             WorldMinute.Zero,
             SimulationEngine.CurrentWorldSchemaVersion,
-            SimulationEngine.PreviousSimulationRulesVersion,
+            SimulationEngine.M2SimulationRulesVersion,
             "test",
             config.CanonicalJson,
             new DeterministicCountersSnapshot(21, 1, 21),

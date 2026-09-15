@@ -13,7 +13,7 @@ public sealed class M4SettlementCoreTests
         Assert.Equal(4, (int)CitizenActionPhase.TravelToStockpile); Assert.Equal(5, (int)CitizenActionPhase.TransportToConstruction); Assert.Equal(6, (int)CitizenActionPhase.WaitingForStorage);
         Assert.Equal(1, (int)StructureType.Shelter); Assert.Equal(2, (int)StructureType.Stockpile); Assert.Equal(3, (int)StructureType.Workshop);
         Assert.Equal(1, (int)StructureStatus.UnderConstruction); Assert.Equal(2, (int)StructureStatus.Complete);
-        Assert.Equal("m4-rng1-settlement1", SimulationEngine.CurrentSimulationRulesVersion); Assert.Equal(800, CitizenSimulationRules.BaseStorageCapacity);
+        Assert.Equal("m4-rng1-settlement1", SimulationEngine.M4SimulationRulesVersion); Assert.Equal(800, CitizenSimulationRules.BaseStorageCapacity);
         Assert.Equal(40, CitizenSimulationRules.ShelterRequiredWood); Assert.Equal(10, CitizenSimulationRules.ShelterRequiredStone); Assert.Equal(600, CitizenSimulationRules.ShelterRequiredWork);
     }
 

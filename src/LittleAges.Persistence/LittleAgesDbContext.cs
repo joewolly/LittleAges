@@ -13,6 +13,8 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
     public DbSet<CitizenRow> Citizens => Set<CitizenRow>();
     public DbSet<StructureRow> Structures => Set<StructureRow>();
     public DbSet<StructureContributionRow> StructureContributions => Set<StructureContributionRow>();
+    public DbSet<RelationshipRow> Relationships => Set<RelationshipRow>();
+    public DbSet<HouseholdRow> Households => Set<HouseholdRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -23,6 +25,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
                 table.HasCheckConstraint("CK_world_meta_singleton", "id = 1");
                 table.HasCheckConstraint("CK_world_meta_survival_version", "survival_version IN (0, 1)");
                 table.HasCheckConstraint("CK_world_meta_settlement_version", "settlement_version IN (0, 1)");
+                table.HasCheckConstraint("CK_world_meta_social_version", "social_version IN (0, 1)");
             });
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
@@ -40,6 +43,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.CitizenGenerationVersion).HasColumnName("citizen_generation_version").IsRequired();
             entity.Property(row => row.SurvivalVersion).HasColumnName("survival_version").IsRequired();
             entity.Property(row => row.SettlementVersion).HasColumnName("settlement_version").IsRequired();
+            entity.Property(row => row.SocialVersion).HasColumnName("social_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();
             entity.Property(row => row.NextScheduledEventSequence).HasColumnName("next_scheduled_event_sequence").IsRequired();
@@ -114,14 +118,15 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.ToTable("citizens", table =>
             {
                 table.HasCheckConstraint("CK_citizens_id", "id > 0");
-                table.HasCheckConstraint("CK_citizens_founder", "founder_ordinal BETWEEN 0 AND 19");
+                table.HasCheckConstraint("CK_citizens_founder", "founder_ordinal IS NULL OR founder_ordinal BETWEEN 0 AND 19");
                 table.HasCheckConstraint("CK_citizens_health", "health BETWEEN 0 AND 10000");
                 table.HasCheckConstraint("CK_citizens_needs", "hunger BETWEEN 0 AND 10000 AND rest BETWEEN 0 AND 10000 AND shelter BETWEEN 0 AND 10000 AND social BETWEEN 0 AND 10000");
-                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11)");
-                table.HasCheckConstraint("CK_citizens_m4_state", "health_updated_minute >= 0 AND action_phase IN (0,1,2,3,4,5,6) AND (target_resource_node_id IS NULL OR target_resource_node_id > 0) AND (target_structure_id IS NULL OR target_structure_id > 0) AND carried_resource_quantity >= 0 AND lifetime_foraging_minutes >= 0 AND lifetime_woodcutting_minutes >= 0 AND lifetime_stoneworking_minutes >= 0 AND lifetime_construction_minutes >= 0 AND lifetime_hauling_minutes >= 0 AND ((carried_resource_quantity = 0 AND carried_resource_type IS NULL) OR (carried_resource_quantity > 0 AND carried_resource_type IN (1,2,3)))");
+                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12)");
+                table.HasCheckConstraint("CK_citizens_m4_state", "health_updated_minute >= 0 AND action_phase IN (0,1,2,3,4,5,6) AND (target_citizen_id IS NULL OR target_citizen_id > 0) AND (target_resource_node_id IS NULL OR target_resource_node_id > 0) AND (target_structure_id IS NULL OR target_structure_id > 0) AND carried_resource_quantity >= 0 AND lifetime_foraging_minutes >= 0 AND lifetime_woodcutting_minutes >= 0 AND lifetime_stoneworking_minutes >= 0 AND lifetime_construction_minutes >= 0 AND lifetime_hauling_minutes >= 0 AND ((carried_resource_quantity = 0 AND carried_resource_type IS NULL) OR (carried_resource_quantity > 0 AND carried_resource_type IN (1,2,3)))");
             });
             entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
-            entity.Property(row => row.FounderOrdinal).HasColumnName("founder_ordinal").IsRequired();
+            entity.Property(row => row.FounderOrdinal).HasColumnName("founder_ordinal");
+            entity.Property(row => row.TargetCitizenId).HasColumnName("target_citizen_id");
             entity.Property(row => row.GivenName).HasColumnName("given_name").HasColumnType("TEXT").IsRequired(); entity.Property(row => row.FamilyName).HasColumnName("family_name").HasColumnType("TEXT").IsRequired();
             entity.Property(row => row.BirthMinute).HasColumnName("birth_minute").IsRequired(); entity.Property(row => row.LocationX).HasColumnName("location_x").IsRequired(); entity.Property(row => row.LocationY).HasColumnName("location_y").IsRequired();
             entity.Property(row => row.DeathMinute).HasColumnName("death_minute"); entity.Property(row => row.DeathCause).HasColumnName("death_cause").HasColumnType("TEXT"); entity.Property(row => row.ParentAId).HasColumnName("parent_a_id"); entity.Property(row => row.ParentBId).HasColumnName("parent_b_id"); entity.Property(row => row.PartnerId).HasColumnName("partner_id"); entity.Property(row => row.HouseholdId).HasColumnName("household_id"); entity.Property(row => row.HomeStructureId).HasColumnName("home_structure_id");
@@ -130,6 +135,21 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.Foraging).HasColumnName("foraging"); entity.Property(row => row.Woodcutting).HasColumnName("woodcutting"); entity.Property(row => row.Stoneworking).HasColumnName("stoneworking"); entity.Property(row => row.Construction).HasColumnName("construction"); entity.Property(row => row.Hauling).HasColumnName("hauling"); entity.Property(row => row.Domestic).HasColumnName("domestic");
             entity.Property(row => row.CurrentAction).HasColumnName("current_action"); entity.Property(row => row.ActionSequence).HasColumnName("action_sequence"); entity.Property(row => row.ActionStartedMinute).HasColumnName("action_started_minute"); entity.Property(row => row.ActionCompletesMinute).HasColumnName("action_completes_minute"); entity.Property(row => row.ActionTargetX).HasColumnName("action_target_x"); entity.Property(row => row.ActionTargetY).HasColumnName("action_target_y"); entity.Property(row => row.NeedsUpdatedMinute).HasColumnName("needs_updated_minute"); entity.Property(row => row.LifetimeMovementSteps).HasColumnName("lifetime_movement_steps"); entity.Property(row => row.LifetimeMovementCost).HasColumnName("lifetime_movement_cost"); entity.Property(row => row.HealthUpdatedMinute).HasColumnName("health_updated_minute"); entity.Property(row => row.ActionPhase).HasColumnName("action_phase"); entity.Property(row => row.TargetResourceNodeId).HasColumnName("target_resource_node_id"); entity.Property(row => row.CarriedResourceType).HasColumnName("carried_resource_type"); entity.Property(row => row.CarriedResourceQuantity).HasColumnName("carried_resource_quantity"); entity.Property(row => row.TargetStructureId).HasColumnName("target_structure_id"); entity.Property(row => row.LifetimeForagingMinutes).HasColumnName("lifetime_foraging_minutes"); entity.Property(row => row.LifetimeWoodcuttingMinutes).HasColumnName("lifetime_woodcutting_minutes"); entity.Property(row => row.LifetimeStoneworkingMinutes).HasColumnName("lifetime_stoneworking_minutes"); entity.Property(row => row.LifetimeConstructionMinutes).HasColumnName("lifetime_construction_minutes"); entity.Property(row => row.LifetimeHaulingMinutes).HasColumnName("lifetime_hauling_minutes");
             entity.HasIndex(row => row.FounderOrdinal).IsUnique();
+        });
+
+        modelBuilder.Entity<RelationshipRow>(entity =>
+        {
+            entity.ToTable("relationships", table =>
+                table.HasCheckConstraint("CK_relationships_values", "citizen_a_id > 0 AND citizen_b_id > citizen_a_id AND familiarity BETWEEN 0 AND 10000 AND affinity BETWEEN -10000 AND 10000 AND trust BETWEEN 0 AND 10000 AND conflict BETWEEN 0 AND 10000 AND last_interaction_minute >= 0 AND interaction_count >= 1"));
+            entity.HasKey(row => new { row.CitizenAId, row.CitizenBId });
+            entity.Property(row => row.CitizenAId).HasColumnName("citizen_a_id"); entity.Property(row => row.CitizenBId).HasColumnName("citizen_b_id");
+            entity.Property(row => row.Familiarity).HasColumnName("familiarity"); entity.Property(row => row.Affinity).HasColumnName("affinity"); entity.Property(row => row.Trust).HasColumnName("trust"); entity.Property(row => row.Conflict).HasColumnName("conflict"); entity.Property(row => row.LastInteractionMinute).HasColumnName("last_interaction_minute"); entity.Property(row => row.InteractionCount).HasColumnName("interaction_count");
+        });
+
+        modelBuilder.Entity<HouseholdRow>(entity =>
+        {
+            entity.ToTable("households", table => table.HasCheckConstraint("CK_households_minutes", "id > 0 AND created_minute >= 0 AND (dissolved_minute IS NULL OR dissolved_minute >= created_minute) AND (dwelling_structure_id IS NULL OR dwelling_structure_id > 0)"));
+            entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever(); entity.Property(row => row.CreatedMinute).HasColumnName("created_minute"); entity.Property(row => row.DissolvedMinute).HasColumnName("dissolved_minute"); entity.Property(row => row.DwellingStructureId).HasColumnName("dwelling_structure_id");
         });
 
         modelBuilder.Entity<ResourceStateRow>(entity =>

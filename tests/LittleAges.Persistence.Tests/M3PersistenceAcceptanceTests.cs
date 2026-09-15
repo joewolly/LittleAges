@@ -204,12 +204,12 @@ public sealed class M3PersistenceAcceptanceTests
             {
                 var snapshot = await database.CreateCheckpointStore().LoadAsync();
                 Assert.Equal(1, snapshot.SurvivalVersion); Assert.Equal(20, snapshot.Citizens.Count); Assert.Equal(snapshot.World!.Resources.Count, snapshot.ResourceStates.Count); Assert.Equal(400, snapshot.Settlement!.FoodStored);
-                Assert.Equal(22 + 20 + 1 + 1, snapshot.ScheduledEvents.Count);
+                Assert.Equal(22 + 20 + 1 + 1 + 2, snapshot.ScheduledEvents.Count);
                 Assert.Equal(1, snapshot.SettlementVersion);
                 Assert.Equal(CitizenSimulationRules.BaseStorageCapacity, snapshot.Settlement.BaseStorageCapacity);
                 Assert.Equal(snapshot.WorldMinute.Value, snapshot.Settlement.DemandUpdatedMinute);
                 Assert.Equal(snapshot.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, snapshot.Settlement.ExposureConsequencesStartMinute);
-                Assert.Equal(51, snapshot.Counters.NextScheduledEventSequence);
+                Assert.Equal(53, snapshot.Counters.NextScheduledEventSequence);
                 Assert.Contains(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.SettlementEvaluateDemand && item.PayloadJson == "{\"version\":1}");
             }
             await using var reopened = await WorldDatabase.OpenAsync(path);
@@ -220,7 +220,7 @@ public sealed class M3PersistenceAcceptanceTests
 
     private static SimulationPersistenceSnapshot CreateM2ActionSnapshot(CitizenAction action)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var baseline = engine.CreatePersistenceSnapshot();
         var world = baseline.World!;
         var citizen = baseline.Citizens[0]; citizen.CurrentAction = action; citizen.ActionStartedMinute = WorldMinute.Zero;
