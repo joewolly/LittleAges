@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCitizens, parseHealth, parseMap, parseSettlement, parseStatus, parseStructures } from './api'
+import { parseCitizens, parseHealth, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseStatus, parseStructures } from './api'
 
 const citizen = {
   citizenId: '9223372036854775807',
@@ -23,7 +23,17 @@ const citizen = {
   targetStructureId: null,
   occupation: 'Builder',
   lifetimeWorkActivity: { foragingMinutes: 1, woodcuttingMinutes: 2, stoneworkingMinutes: 3, constructionMinutes: 4, haulingMinutes: 5 },
+  founderOrdinal: null,
+  parentAId: null,
+  parentBId: null,
+  partnerId: null,
+  householdId: null,
+  childrenIds: [],
+  targetCitizenId: null,
 }
+
+const relationship = { otherCitizenId: '9223372036854775807', otherCitizenName: 'Bram Vale', familiarity: 3000, affinity: -25, trust: 2200, conflict: 100, lastInteractionMinute: 720, interactionCount: 4, label: 'Friend' }
+const household = { householdId: '9223372036854775807', createdMinute: 720, dissolvedMinute: null, dwellingStructureId: '7', memberIds: ['2', '3'], livingMemberIds: ['2', '3'], partnerPair: ['2', '3'], childrenIds: [] }
 
 const structure = {
   structureId: '9223372036854775807', type: 'Shelter', status: 'UnderConstruction', location: { x: 1, y: 2 }, startedMinute: 20, completedMinute: null,
@@ -45,7 +55,7 @@ describe('API response parsing', () => {
     expect(() => parseCitizens([{ citizenId: '01' }])).toThrow()
   })
 
-  it.each(['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead'])('accepts CitizenAction %s from ASP.NET JSON', currentAction => {
+  it.each(['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize'])('accepts CitizenAction %s from ASP.NET JSON', currentAction => {
     expect(parseCitizens([{ ...citizen, currentAction }])[0].currentAction).toBe(currentAction)
   })
 
@@ -76,6 +86,26 @@ describe('API response parsing', () => {
     expect(parsed.occupation).toBe('Builder')
     expect(parsed.lifetimeWorkActivity).toEqual({ foragingMinutes: 1, woodcuttingMinutes: 2, stoneworkingMinutes: 3, constructionMinutes: 4, haulingMinutes: 5 })
   })
+
+  it('parses M5 social and nullable family fields without losing decimal IDs', () => {
+    const parsed = parseCitizens([{ ...citizen, founderOrdinal: 4, parentAId: '2', parentBId: '3', partnerId: '4', householdId: '5', childrenIds: ['6', '9007199254740993'], targetCitizenId: '7', shelter: 300, social: 400, currentAction: 'Socialize' }])[0]
+    expect(parsed).toMatchObject({ founderOrdinal: 4, parentAId: '2', parentBId: '3', partnerId: '4', householdId: '5', childrenIds: ['6', '9007199254740993'], targetCitizenId: '7', shelter: 300, social: 400, currentAction: 'Socialize' })
+  })
+
+  it('parses stable relationship and household snapshots', () => {
+    expect(parseRelationships([relationship])[0]).toEqual(relationship)
+    expect(parseHousehold(household)).toEqual(household)
+    expect(parseHouseholds([household])[0].householdId).toBe(household.householdId)
+  })
+
+  it.each([
+    () => parseRelationships([{ ...relationship, otherCitizenId: '01' }]),
+    () => parseRelationships([relationship, { ...relationship, otherCitizenId: '2' }]),
+    () => parseRelationships([{ ...relationship, affinity: -10001 }]),
+    () => parseHousehold({ ...household, partnerPair: ['2'] }),
+    () => parseHousehold({ ...household, livingMemberIds: ['4'] }),
+    () => parseHouseholds([household, { ...household, householdId: '2' }]),
+  ])('rejects malformed or unstable M5 social snapshots', parse => expect(parse).toThrow())
 
   it.each([
     ['health', { health: 'unwell' }],
@@ -116,6 +146,11 @@ describe('API response parsing', () => {
     const parsed = parseSettlement({ foodStored: 4, woodStored: 5, stoneStored: 6, livingPopulation: 3, deadPopulation: 0, totalPopulation: 3, storageCapacity: 100, storageUsed: 15, shelterCapacity: 4, shelteredPopulation: 2, unhousedPopulation: 1, completedShelters: 0, completedStockpiles: 0, completedWorkshops: 0, exposureGraceUntilMinute: 720, activeConstructionProject: structure })
     expect(parsed.storageUsed).toBe(15)
     expect(parsed.activeConstructionProject?.structureId).toBe(structure.structureId)
+  })
+
+  it('parses M5 social settlement counters', () => {
+    const parsed = parseSettlement({ foodStored: 4, woodStored: 5, stoneStored: 6, livingPopulation: 3, deadPopulation: 0, totalPopulation: 3, householdCount: 2, activeHouseholdCount: 1, partnershipCount: 1, relationshipCount: 2, friendCount: 1, rivalCount: 1, youngChildCount: 0, childCount: 0, adolescentCount: 0, adultCount: 3, elderCount: 0 })
+    expect(parsed).toMatchObject({ householdCount: 2, activeHouseholdCount: 1, partnershipCount: 1, relationshipCount: 2, friendCount: 1, rivalCount: 1, adultCount: 3 })
   })
 
   it('parses canonical structures and a row-major terrain map', () => {

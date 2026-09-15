@@ -3,7 +3,8 @@ namespace LittleAges.Persistence;
 public sealed class CitizenRow
 {
     public long Id { get; set; }
-    public int FounderOrdinal { get; set; }
+    public int? FounderOrdinal { get; set; }
+    public long? TargetCitizenId { get; set; }
     public string GivenName { get; set; } = string.Empty;
     public string FamilyName { get; set; } = string.Empty;
     public long BirthMinute { get; set; }

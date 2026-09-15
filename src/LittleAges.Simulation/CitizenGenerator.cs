@@ -37,8 +37,18 @@ public static class CitizenGenerator
         foreach (var candidate in candidates) if (DeterministicPathfinder.Find(world, citizen.Location, candidate.Coordinate) is { Count: > 1 }) return candidate.Coordinate;
         return null;
     }
+    /// <summary>Uses the immutable founder catalog without changing founder-generation keys.</summary>
+    public static string SelectDescendantGivenName(WorldSeed seed, CitizenId childId) =>
+        GivenNames[(int)(new DeterministicRandom(seed).NextUInt64(RandomDomain.Reproduction, (ulong)childId.Value, 0x4e414d45UL, 0x4348494c44UL) % (ulong)GivenNames.Length)];
     private static int Val(DeterministicRandom random, int ordinal, ulong key) => (int)(random.NextUInt64(RandomDomain.CitizenGeneration, key, (ulong)ordinal, 1) % 10001);
-    private static ulong Rank(WorldSeed seed, Citizen citizen, TileCoordinate coordinate, ulong purpose) => new DeterministicRandom(seed).NextUInt64(RandomDomain.DecisionVariation, (ulong)citizen.FounderOrdinal, (ulong)citizen.ActionSequence, purpose ^ ((ulong)(uint)coordinate.X << 32) ^ (uint)coordinate.Y);
+    private static ulong Rank(WorldSeed seed, Citizen citizen, TileCoordinate coordinate, ulong purpose)
+    {
+        // Founder ordinals are part of the published M1--M4 target-selection stream.
+        // Descendants deliberately use their immutable entity identity instead, so their
+        // movement remains deterministic without changing any founder golden values.
+        var identity = citizen.FounderOrdinal is { } ordinal ? (ulong)ordinal : (ulong)citizen.Id.Value;
+        return new DeterministicRandom(seed).NextUInt64(RandomDomain.DecisionVariation, identity, (ulong)citizen.ActionSequence, purpose ^ ((ulong)(uint)coordinate.X << 32) ^ (uint)coordinate.Y);
+    }
     private static long DistanceSquared(TileCoordinate a, TileCoordinate b) { var x = (long)a.X - b.X; var y = (long)a.Y - b.Y; return checked(x * x + y * y); }
     public static string Fingerprint(WorldSeed seed, IReadOnlyList<Citizen> citizens)
     {
@@ -53,7 +63,7 @@ public static class CitizenGenerator
         foreach (var c in citizens.OrderBy(x => x.FounderOrdinal))
         {
             Append(hash, "citizen-generation-version=1");
-            Append(hash, $"seed={I(seed.Value)}"); Append(hash, $"ordinal={I(c.FounderOrdinal)}"); Append(hash, $"id={I(c.Id.Value)}");
+            Append(hash, $"seed={I(seed.Value)}"); Append(hash, $"ordinal={I(c.FounderOrdinal ?? throw new InvalidOperationException("Founder fingerprint requires a founder ordinal."))}"); Append(hash, $"id={I(c.Id.Value)}");
             Append(hash, $"given={c.GivenName}"); Append(hash, $"family={c.FamilyName}"); Append(hash, $"birth={I(c.BirthMinute)}");
             Append(hash, $"location-x={I(c.Location.X)}"); Append(hash, $"location-y={I(c.Location.Y)}"); Append(hash, $"health={I(c.Health)}");
             Append(hash, $"need-hunger={I(c.Needs.Hunger)}"); Append(hash, $"need-rest={I(c.Needs.Rest)}"); Append(hash, $"need-shelter={I(c.Needs.Shelter)}"); Append(hash, $"need-social={I(c.Needs.Social)}"); Append(hash, $"needs-updated={I(c.NeedsUpdatedMinute)}");

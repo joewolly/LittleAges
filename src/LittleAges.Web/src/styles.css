@@ -33,6 +33,9 @@ h1 em { color: #a8603d; font-style: italic; }
 .stock-grid { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 1px; border: 1px solid #d8cbbb; background: #d8cbbb; gap: 1px; font: 12px/1.3 'Trebuchet MS', sans-serif; color: #817468; text-transform: uppercase; letter-spacing: .1em; }
 .stock-grid span { display: flex; justify-content: space-between; gap: 8px; padding: 13px 16px; background: rgba(250,246,238,.72); }
 .stock-grid strong { color: #4b3d31; font-weight: 400; }
+.social-summary { margin-top: 16px; display: grid; gap: 1px; border: 1px solid #d8cbbb; background: #d8cbbb; font: 12px/1.45 'Trebuchet MS', sans-serif; color: #75685c; }
+.social-summary span { padding: 11px 15px; background: rgba(250,246,238,.72); }
+.social-summary strong { color: #4b3d31; font-weight: 400; }
 .active-project { margin-top: 16px; display: grid; grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.5fr); gap: 24px; align-items: center; padding: 20px; border: 1px solid #d8cbbb; background: rgba(232,220,201,.65); }
 .active-project h3 { margin: 7px 0 0; font-size: 1.35rem; font-weight: 400; }
 .project-progress { display: grid; gap: 8px; font: 12px/1.4 'Trebuchet MS', sans-serif; color: #75685c; }
@@ -57,8 +60,11 @@ progress::-moz-progress-bar { background: #a8603d; }
 .map-figure figcaption strong { font-size: 1.2rem; font-weight: 400; }.map-figure figcaption span { color: #817468; font: 12px/1.4 'Trebuchet MS', sans-serif; }
 .map-legend { display: flex; flex-wrap: wrap; gap: 12px 18px; list-style: none; margin: 0; padding: 0 18px 16px; font: 11px/1.2 'Trebuchet MS', sans-serif; color: #817468; text-transform: uppercase; letter-spacing: .08em; }
 .map-legend li { display: flex; align-items: center; gap: 6px; }.map-legend i { width: 11px; height: 11px; display: inline-block; }.legend-start { border: 2px solid #302a24; }.legend-shelter { background: #c76848; }.legend-stockpile { background: #805c3d; }.legend-workshop { background: #75569a; }.legend-citizen { width: 7px !important; height: 7px !important; margin: 2px; background: #302a24; border-radius: 50%; }
-.citizens { padding-bottom: 70px; }
-.citizen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.households, .citizens, .relationship-inspector { padding-bottom: 70px; }
+.household-grid, .citizen-grid, .relationship-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.household-card, .household-detail, .relationship-card { border: 1px solid #d8cbbb; background: rgba(250,246,238,.72); padding: 18px; }
+.household-card h3, .household-detail h3, .relationship-card h3 { margin: 0 0 12px; font-size: 1.2rem; font-weight: 400; }
+.household-card p, .relationship-card p { margin: 6px 0 14px; font: 12px/1.4 'Trebuchet MS', sans-serif; color: #817468; }
 .citizen-card { border: 1px solid #d8cbbb; background: rgba(250,246,238,.72); padding: 18px; }
 .citizen-card.is-dead { background: rgba(235, 224, 216, .72); }
 .citizen-card h3 { margin: 0 0 12px; font-size: 1.2rem; font-weight: 400; }
@@ -67,6 +73,11 @@ progress::-moz-progress-bar { background: #a8603d; }
 .citizen-details div { display: flex; justify-content: space-between; gap: 10px; margin-top: 5px; }
 .citizen-details dt { color: #817468; }
 .citizen-details dd { margin: 0; color: #4b3d31; text-align: right; }
+.card-section { margin-top: 17px; padding-top: 12px; border-top: 1px solid #e0d5c8; }
+.card-section h4 { margin: 0; font: 11px/1.2 'Trebuchet MS', sans-serif; text-transform: uppercase; letter-spacing: .14em; color: #a2613d; }
+.card-section .citizen-details { margin-top: 10px; }
+.observer-button { margin-top: 16px; padding: 8px 10px; border: 1px solid #a8603d; background: transparent; color: #754326; font: 11px/1.2 'Trebuchet MS', sans-serif; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.observer-button:hover { background: #f1dfcd; }
 footer { margin-top: auto; border-top: 1px solid #d8cbbb; padding-top: 17px; display: flex; justify-content: space-between; gap: 15px; }
 @media (max-width: 900px) { .settlement-grid, .settlement-grid-expanded { grid-template-columns: repeat(2, 1fr); } .active-project { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .page-shell { width: min(100% - 32px, 1080px); padding-top: 24px; } .hero { padding: 15vh 0 13vh; } .desktop-break { display: none; } .reading-grid, .settlement-grid, .settlement-grid-expanded { grid-template-columns: 1fr; } .stock-grid { grid-template-columns: 1fr; } .reading { min-height: 155px; padding: 22px; } footer { flex-direction: column; gap: 8px; } .status-detail { display: none; } }

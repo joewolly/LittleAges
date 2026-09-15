@@ -51,6 +51,30 @@ public sealed class ServerIntegrationTests
     }
 
     [Fact]
+    public void HouseholdObserverSnapshotDoesNotRetainCallerOwnedLists()
+    {
+        var members = new List<string> { "1", "2" };
+        var living = new List<string> { "1", "2" };
+        var partners = new List<string> { "1", "2" };
+        var children = new List<string> { "3" };
+        var snapshot = new ServerHouseholdSnapshot("7", 12, null, "9", members, living, partners, children);
+
+        members[0] = "mutated";
+        living.Clear();
+        partners.Add("mutated");
+        children.Clear();
+
+        Assert.Equal("1", snapshot.MemberIds[0]);
+        Assert.Equal("2", snapshot.MemberIds[1]);
+        Assert.Equal("1", snapshot.LivingMemberIds[0]);
+        Assert.Equal("2", snapshot.LivingMemberIds[1]);
+        Assert.NotNull(snapshot.PartnerPair);
+        Assert.Equal("1", snapshot.PartnerPair![0]);
+        Assert.Equal("2", snapshot.PartnerPair[1]);
+        Assert.Equal("3", Assert.Single(snapshot.ChildrenIds));
+    }
+
+    [Fact]
     public async Task CitizensEndpointReturnsSortedRosterAndValidatesDecimalIds()
     {
         await WithFactoryAsync(async (factory, _) =>
@@ -90,6 +114,31 @@ public sealed class ServerIntegrationTests
             Assert.Equal(HttpStatusCode.BadRequest, malformed.StatusCode);
             using var missing = await client.GetAsync("/api/v1/citizens/999");
             Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        });
+    }
+
+    [Fact]
+    public async Task M5SocialReadRoutesValidateIdsAndExposeImmutableEmptyFoundingState()
+    {
+        await WithFactoryAsync(async (factory, _) =>
+        {
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+
+            using var relationships = await client.GetAsync("/api/v1/citizens/1/relationships");
+            relationships.EnsureSuccessStatusCode();
+            using var relationshipDocument = JsonDocument.Parse(await relationships.Content.ReadAsStringAsync());
+            Assert.Equal(JsonValueKind.Array, relationshipDocument.RootElement.ValueKind);
+
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/v1/citizens/01/relationships")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/citizens/999/relationships")).StatusCode);
+
+            using var households = await client.GetAsync("/api/v1/households");
+            households.EnsureSuccessStatusCode();
+            using var householdDocument = JsonDocument.Parse(await households.Content.ReadAsStringAsync());
+            Assert.Equal(JsonValueKind.Array, householdDocument.RootElement.ValueKind);
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/v1/households/01")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/api/v1/households/999")).StatusCode);
         });
     }
 

@@ -92,10 +92,16 @@ public sealed record ServerCitizenSnapshot
             snapshot.LifetimeStoneworkingMinutes,
             snapshot.LifetimeConstructionMinutes,
             snapshot.LifetimeHaulingMinutes);
+        ParentAId = snapshot.ParentAId?.Value.ToString(CultureInfo.InvariantCulture);
+        ParentBId = snapshot.ParentBId?.Value.ToString(CultureInfo.InvariantCulture);
+        PartnerId = snapshot.PartnerId?.Value.ToString(CultureInfo.InvariantCulture);
+        HouseholdId = snapshot.HouseholdId?.Value.ToString(CultureInfo.InvariantCulture);
+        ChildrenIds = Array.AsReadOnly((snapshot.ChildrenIds ?? Array.Empty<string>()).OrderBy(static value => long.Parse(value, CultureInfo.InvariantCulture)).ToArray());
+        TargetCitizenId = snapshot.TargetCitizenId?.Value.ToString(CultureInfo.InvariantCulture);
     }
 
     public string CitizenId { get; }
-    public int FounderOrdinal { get; }
+    public int? FounderOrdinal { get; }
     public string GivenName { get; }
     public string FamilyName { get; }
     public string Name { get; }
@@ -128,6 +134,39 @@ public sealed record ServerCitizenSnapshot
     public string? TargetStructureId { get; }
     public string Occupation { get; }
     public ServerLifetimeWorkActivitySnapshot LifetimeWorkActivity { get; }
+    public string? ParentAId { get; }
+    public string? ParentBId { get; }
+    public string? PartnerId { get; }
+    public string? HouseholdId { get; }
+    public IReadOnlyList<string> ChildrenIds { get; }
+    public string? TargetCitizenId { get; }
+}
+
+public sealed record ServerRelationshipSnapshot(string OtherCitizenId, string OtherCitizenName, int Familiarity, int Affinity, int Trust, int Conflict, long LastInteractionMinute, long InteractionCount, string Label);
+public sealed record ServerHouseholdSnapshot
+{
+    public ServerHouseholdSnapshot(string householdId, long createdMinute, long? dissolvedMinute, string? dwellingStructureId, IEnumerable<string> memberIds, IEnumerable<string> livingMemberIds, IEnumerable<string>? partnerPair, IEnumerable<string> childrenIds)
+    {
+        HouseholdId = householdId;
+        CreatedMinute = createdMinute;
+        DissolvedMinute = dissolvedMinute;
+        DwellingStructureId = dwellingStructureId;
+        MemberIds = CopyIds(memberIds);
+        LivingMemberIds = CopyIds(livingMemberIds);
+        PartnerPair = partnerPair is null ? null : CopyIds(partnerPair);
+        ChildrenIds = CopyIds(childrenIds);
+    }
+
+    public string HouseholdId { get; }
+    public long CreatedMinute { get; }
+    public long? DissolvedMinute { get; }
+    public string? DwellingStructureId { get; }
+    public IReadOnlyList<string> MemberIds { get; }
+    public IReadOnlyList<string> LivingMemberIds { get; }
+    public IReadOnlyList<string>? PartnerPair { get; }
+    public IReadOnlyList<string> ChildrenIds { get; }
+
+    private static ReadOnlyCollection<string> CopyIds(IEnumerable<string> ids) => Array.AsReadOnly((ids ?? throw new ArgumentNullException(nameof(ids))).ToArray());
 }
 
 public sealed record ServerResourceQuantitySnapshot(ResourceType ResourceType, int Quantity);
@@ -230,7 +269,8 @@ public sealed record ServerSettlementSnapshot
         int completedStockpiles = 0,
         int completedWorkshops = 0,
         long exposureGraceUntilMinute = 0,
-        ServerStructureSnapshot? activeConstructionProject = null)
+        ServerStructureSnapshot? activeConstructionProject = null,
+        int householdCount = 0, int activeHouseholdCount = 0, int partnershipCount = 0, int relationshipCount = 0, int friendCount = 0, int rivalCount = 0, int youngChildCount = 0, int childCount = 0, int adolescentCount = 0, int adultCount = 0, int elderCount = 0)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(foodStored);
         ArgumentOutOfRangeException.ThrowIfNegative(woodStored);
@@ -254,6 +294,7 @@ public sealed record ServerSettlementSnapshot
         CompletedWorkshops = completedWorkshops;
         ExposureGraceUntilMinute = exposureGraceUntilMinute;
         ActiveConstructionProject = activeConstructionProject;
+        HouseholdCount = householdCount; ActiveHouseholdCount = activeHouseholdCount; PartnershipCount = partnershipCount; RelationshipCount = relationshipCount; FriendCount = friendCount; RivalCount = rivalCount; YoungChildCount = youngChildCount; ChildCount = childCount; AdolescentCount = adolescentCount; AdultCount = adultCount; ElderCount = elderCount;
     }
 
     public int FoodStored { get; }
@@ -274,6 +315,7 @@ public sealed record ServerSettlementSnapshot
     public int CompletedWorkshops { get; }
     public long ExposureGraceUntilMinute { get; }
     public ServerStructureSnapshot? ActiveConstructionProject { get; }
+    public int HouseholdCount { get; } public int ActiveHouseholdCount { get; } public int PartnershipCount { get; } public int RelationshipCount { get; } public int FriendCount { get; } public int RivalCount { get; } public int YoungChildCount { get; } public int ChildCount { get; } public int AdolescentCount { get; } public int AdultCount { get; } public int ElderCount { get; }
 }
 
 public sealed record ServerObservationSnapshot
@@ -288,7 +330,7 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         Status = status;
@@ -296,6 +338,8 @@ public sealed record ServerObservationSnapshot
         Settlement = settlement;
         Structures = Array.AsReadOnly((structures ?? Array.Empty<ServerStructureSnapshot>()).OrderBy(static structure => long.Parse(structure.StructureId, CultureInfo.InvariantCulture)).ToArray());
         Map = map;
+        Relationships = Array.AsReadOnly((relationships ?? Array.Empty<RelationshipState>()).OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray());
+        Households = Array.AsReadOnly((households ?? Array.Empty<Household>()).OrderBy(x => x.Id.Value).Select(x => new Household(x.Id, x.CreatedMinute) { DissolvedMinute = x.DissolvedMinute, DwellingStructureId = x.DwellingStructureId }).ToArray());
     }
 
     public ServerStatusSnapshot Status { get; }
@@ -303,6 +347,8 @@ public sealed record ServerObservationSnapshot
     public ServerSettlementSnapshot? Settlement { get; }
     public IReadOnlyList<ServerStructureSnapshot> Structures { get; }
     public ServerMapSnapshot? Map { get; }
+    public IReadOnlyList<RelationshipState> Relationships { get; }
+    public IReadOnlyList<Household> Households { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -468,7 +514,7 @@ public sealed partial class SimulationHost : BackgroundService
             return;
         }
 
-        _engine = new SimulationEngine(_options.WorldSeed, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
+        _engine = new SimulationEngine(_options.WorldSeed, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
         await _checkpointStore.CheckpointAsync(_engine.CreatePersistenceSnapshot(), DateTime.UtcNow, cancellationToken: cancellationToken);
         LogWorldCreated(_options.ActiveWorld, _options.DatabasePath);
     }
@@ -613,7 +659,7 @@ public sealed partial class SimulationHost : BackgroundService
             citizenSnapshots.Length,
             livingPopulation,
             deadPopulation);
-        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map));
+        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households));
         if (state == SimulationHostState.Running)
         {
             _runningForTesting.TrySetResult(true);
@@ -690,7 +736,14 @@ public sealed partial class SimulationHost : BackgroundService
             completedStockpiles,
             completedWorkshops,
             settlement.ExposureConsequencesStartMinute,
-            structures.SingleOrDefault(static structure => structure.Status == StructureStatus.UnderConstruction));
+            structures.SingleOrDefault(static structure => structure.Status == StructureStatus.UnderConstruction),
+            readSnapshot.Households.Count,
+            readSnapshot.Households.Count(x => x.DissolvedMinute is null),
+            citizens.Count(x => x.PartnerId is not null) / 2,
+            readSnapshot.Relationships.Count,
+            readSnapshot.Relationships.Count(x => RelationshipLabels.Derive(x, false, false) is RelationshipLabels.Friend or RelationshipLabels.CloseFriend),
+            readSnapshot.Relationships.Count(x => RelationshipLabels.Derive(x, false, false) == RelationshipLabels.Rival),
+            citizens.Count(x => x.LifeStage == "Young Child"), citizens.Count(x => x.LifeStage == "Child"), citizens.Count(x => x.LifeStage == "Adolescent"), citizens.Count(x => x.LifeStage == "Adult"), citizens.Count(x => x.LifeStage == "Elder"));
     }
 
     private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)
