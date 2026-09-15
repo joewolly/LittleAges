@@ -104,14 +104,14 @@ public sealed class M5LongHorizonAcceptanceTests
 
     private static string DescribeSettlementReadiness(SimulationEngine engine, int year)
     {
-        var housingBlockedReadiness = HasHousingBlockedReadiness(engine);
+        var reproductionReadyIgnoringHousing = HasReproductionReadyHouseholdIgnoringHousing(engine);
         var selectedDemand = typeof(SimulationEngine).GetMethod("SelectSettlementDemand", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null);
         var activeProject = engine.ActiveConstructionProject;
         var shelters = engine.Structures.Where(x => x.Type == StructureType.Shelter).ToArray();
-        return $"year={year} living={engine.LivingPopulation} food={engine.Settlement.FoodStored} active-households={engine.Households.Count(x => x.DissolvedMinute is null)} housing-blocked-reproduction-ready={housingBlockedReadiness} selected-demand={selectedDemand ?? "none"} active-project={activeProject?.Type.ToString() ?? "none"}:{activeProject?.Id.Value.ToString(CultureInfo.InvariantCulture) ?? "none"} shelters-complete={shelters.Count(x => x.Status == StructureStatus.Complete)} shelters-under-construction={shelters.Count(x => x.Status == StructureStatus.UnderConstruction)} shelter-capacity={engine.ShelterCapacity}";
+        return $"year={year} living={engine.LivingPopulation} food={engine.Settlement.FoodStored} active-households={engine.Households.Count(x => x.DissolvedMinute is null)} reproduction-ready-ignoring-housing={reproductionReadyIgnoringHousing} selected-demand={selectedDemand ?? "none"} active-project={activeProject?.Type.ToString() ?? "none"}:{activeProject?.Id.Value.ToString(CultureInfo.InvariantCulture) ?? "none"} shelters-complete={shelters.Count(x => x.Status == StructureStatus.Complete)} shelters-under-construction={shelters.Count(x => x.Status == StructureStatus.UnderConstruction)} shelter-capacity={engine.ShelterCapacity}";
     }
 
-    private static bool HasHousingBlockedReadiness(SimulationEngine engine) => Assert.IsType<bool>(typeof(SimulationEngine).GetMethod("HasHousingBlockedReproductiveHousehold", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null));
+    private static bool HasReproductionReadyHouseholdIgnoringHousing(SimulationEngine engine) => Assert.IsType<bool>(typeof(SimulationEngine).GetMethod("HasReproductionReadyHouseholdIgnoringHousing", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null));
 
     private static string DescribeFirstReadinessHousing(SimulationEngine engine, int year)
     {

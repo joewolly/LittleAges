@@ -293,6 +293,147 @@ public sealed class M5AcceptanceMatrixTests
     }
 
     [Fact]
+    public void SocializePartnershipHousingChangeResetsOnlyRestTravelAndPreservesSurvival()
+    {
+        var engine = PrepareSocialEngine(42);
+        var people = Citizens(engine);
+        var first = people[1];
+        var second = people[2];
+        var donor = people[3];
+        var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var sites = engine.World.Tiles.Where(tile => tile.Buildable && tile.Coordinate != engine.World.StartingSite && engine.World.GetResources(tile.Coordinate).Count == 0 && DeterministicPathfinder.Find(engine.World, second.Location, tile.Coordinate) is { Count: >= 2 }).Select(tile => tile.Coordinate).Take(2).ToArray();
+        Assert.Equal(2, sites.Length);
+        var source = CompletedShelter(counters.AllocateStructureId(), sites[0]);
+        var destination = CompletedShelter(counters.AllocateStructureId(), sites[1]);
+        Structures(engine).Add(source.Id.Value, source);
+        Structures(engine).Add(destination.Id.Value, destination);
+        var contributions = Assert.IsType<Dictionary<(long, long), StructureContribution>>(typeof(SimulationEngine).GetField("_structureContributions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        foreach (var shelter in new[] { source, destination }) contributions.Add((shelter.Id.Value, first.Id.Value), new StructureContribution(shelter.Id, first.Id, shelter.CompletedWork, shelter.DeliveredWood, shelter.DeliveredStone));
+        donor.HomeStructureId = source.Id;
+        second.HomeStructureId = source.Id;
+        second.CurrentAction = CitizenAction.Rest;
+        second.ActionPhase = CitizenActionPhase.TravelToTarget;
+        second.TargetStructureId = source.Id;
+        second.ActionTarget = source.Location;
+        second.ActionStartedMinute = engine.CurrentMinute;
+        var path = Assert.IsAssignableFrom<IReadOnlyList<TileCoordinate>>(DeterministicPathfinder.Find(engine.World, second.Location, source.Location));
+        second.ActionCompletesMinute = engine.CurrentMinute.Add(SimulationEngine.RemainingPathCost(path, engine.World));
+        RemoveActionEvent(engine, second.Id);
+        ScheduleCitizen(engine, second, CitizenEventNames.MoveStep, engine.CurrentMinute.Add(SimulationEngine.StepCost(path[0], path[1], engine.World)), CitizenEventNames.MovementPriority);
+
+        RemoveActionEvent(engine, first.Id);
+        first.CurrentAction = CitizenAction.Socialize;
+        first.ActionPhase = CitizenActionPhase.Perform;
+        first.TargetCitizenId = second.Id;
+        first.ActionStartedMinute = engine.CurrentMinute;
+        first.ActionCompletesMinute = engine.CurrentMinute.Add(CitizenSimulationRules.SocializeDurationMinutes);
+        Relationships(engine).Add((first.Id.Value, second.Id.Value), new RelationshipState(first.Id, second.Id, 10_000, 10_000, 10_000, 0, 0, 1));
+        var completeAction = typeof(SimulationEngine).GetMethod("CompleteAction", BindingFlags.Instance | BindingFlags.NonPublic, binder: null, types: new[] { typeof(Citizen), typeof(bool) }, modifiers: null)!;
+        completeAction.Invoke(engine, new object?[] { first, false });
+
+        var snapshot = engine.CreatePersistenceSnapshot();
+        var reloaded = SimulationEngine.FromPersistenceSnapshot(snapshot).CreatePersistenceSnapshot();
+        Assert.Equal(first.Id, second.PartnerId);
+        Assert.Equal(second.Id, first.PartnerId);
+        Assert.Equal(CitizenAction.None, second.CurrentAction);
+        Assert.Equal(CitizenActionPhase.None, second.ActionPhase);
+        Assert.Single(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.Decision && item.Order.EntitySortKey == second.Id.Value);
+        Assert.Single(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.SurvivalCheck && item.Order.EntitySortKey == second.Id.Value);
+        Assert.Equal(snapshot.Citizens, reloaded.Citizens);
+        Assert.Equal(snapshot.ScheduledEvents, reloaded.ScheduledEvents);
+    }
+
+    [Fact]
+    public void SchedulerDrivenSocializeContentionUsesStableEntityOrderAndPersistsOnePartnership()
+    {
+        var engine = PrepareSocialEngine(42);
+        var people = Citizens(engine);
+        var first = people[1];
+        var second = people[2];
+        var target = people[3];
+        first.Location = target.Location;
+        second.Location = target.Location;
+        var nextEntityBefore = engine.CounterSnapshot.NextEntityId;
+
+        foreach (var citizen in people.Values)
+        {
+            RemoveActionEvent(engine, citizen.Id);
+            if (citizen.Id is { Value: 1 or 2 }) continue;
+
+            citizen.CurrentAction = CitizenAction.Idle;
+            citizen.ActionPhase = CitizenActionPhase.Perform;
+            citizen.ActionStartedMinute = engine.CurrentMinute;
+            citizen.ActionCompletesMinute = new WorldMinute(1_000);
+            ScheduleCitizen(engine, citizen, CitizenEventNames.ActionComplete, citizen.ActionCompletesMinute.Value, CitizenEventNames.CompletionPriority);
+        }
+        foreach (var initiator in new[] { first, second })
+        {
+            RemoveActionEvent(engine, initiator.Id);
+            initiator.CurrentAction = CitizenAction.Socialize;
+            initiator.ActionPhase = CitizenActionPhase.Perform;
+            initiator.TargetCitizenId = target.Id;
+            initiator.ActionStartedMinute = engine.CurrentMinute;
+            initiator.ActionCompletesMinute = engine.CurrentMinute.Add(CitizenSimulationRules.SocializeDurationMinutes);
+            ScheduleCitizen(engine, initiator, CitizenEventNames.ActionComplete, initiator.ActionCompletesMinute.Value, CitizenEventNames.CompletionPriority);
+        }
+        Relationships(engine).Add((first.Id.Value, target.Id.Value), new RelationshipState(first.Id, target.Id, 10_000, 10_000, 10_000, 0, 0, 1));
+        Relationships(engine).Add((second.Id.Value, target.Id.Value), new RelationshipState(second.Id, target.Id, 10_000, 10_000, 10_000, 0, 0, 1));
+
+        Assert.True(engine.ProcessNextEvent());
+        Assert.Equal(CitizenAction.Socialize, second.CurrentAction);
+        Assert.Equal(first.Id, target.PartnerId);
+        Assert.True(engine.ProcessNextEvent());
+
+        Assert.Equal(first.Id, target.PartnerId);
+        Assert.Equal(target.Id, first.PartnerId);
+        Assert.Null(second.PartnerId);
+        Assert.Single(engine.Households);
+        Assert.Equal(nextEntityBefore + 1, engine.CounterSnapshot.NextEntityId);
+        var snapshot = engine.CreatePersistenceSnapshot();
+        var reloaded = SimulationEngine.FromPersistenceSnapshot(snapshot).CreatePersistenceSnapshot();
+        Assert.Equal(snapshot.Citizens, reloaded.Citizens);
+        Assert.Equal(snapshot.Relationships, reloaded.Relationships);
+        Assert.Equal(snapshot.Households.Select(HouseholdKey), reloaded.Households.Select(HouseholdKey));
+        Assert.Equal(snapshot.Counters, reloaded.Counters);
+    }
+
+    [Fact]
+    public void OneScheduledFamilyCheckBirthsTwoHouseholdsInAscendingIdAndSharedEntityOrder()
+    {
+        var seed = FindTwoBirthSeed();
+        var firstRun = PrepareTwoBirthHouseholdEngine(seed);
+        ProcessOneFamilyCheck(firstRun.Engine);
+        var firstSnapshot = firstRun.Engine.CreatePersistenceSnapshot();
+        var firstChildren = firstSnapshot.Citizens.Where(citizen => citizen.ParentAId is not null).OrderBy(citizen => citizen.Id.Value).ToArray();
+
+        Assert.Equal(2, firstChildren.Length);
+        Assert.Equal(firstRun.FirstHousehold.Id, firstChildren[0].HouseholdId);
+        Assert.Equal(firstRun.SecondHousehold.Id, firstChildren[1].HouseholdId);
+        Assert.Equal(new CitizenId(firstRun.InitialNextEntityId), firstChildren[0].Id);
+        Assert.Equal(new CitizenId(firstRun.InitialNextEntityId + 1), firstChildren[1].Id);
+        Assert.Equal(firstRun.InitialNextEntityId + 2, firstSnapshot.Counters.NextEntityId);
+        Assert.Equal(firstRun.FirstParentIds, (firstChildren[0].ParentAId, firstChildren[0].ParentBId));
+        Assert.Equal(firstRun.SecondParentIds, (firstChildren[1].ParentAId, firstChildren[1].ParentBId));
+        AssertEntityCollectionsDisjoint(firstSnapshot);
+
+        var reloaded = SimulationEngine.FromPersistenceSnapshot(firstSnapshot).CreatePersistenceSnapshot();
+        Assert.Equal(firstSnapshot.Citizens, reloaded.Citizens);
+        Assert.Equal(firstSnapshot.Relationships, reloaded.Relationships);
+        Assert.Equal(firstSnapshot.Households.Select(HouseholdKey), reloaded.Households.Select(HouseholdKey));
+        Assert.Equal(firstSnapshot.Counters, reloaded.Counters);
+        Assert.Equal(SimulationEngine.FromPersistenceSnapshot(firstSnapshot).SocialFingerprint, SimulationEngine.FromPersistenceSnapshot(reloaded).SocialFingerprint);
+
+        var secondRun = PrepareTwoBirthHouseholdEngine(seed);
+        ProcessOneFamilyCheck(secondRun.Engine);
+        var secondSnapshot = secondRun.Engine.CreatePersistenceSnapshot();
+        Assert.Equal(firstSnapshot.Citizens, secondSnapshot.Citizens);
+        Assert.Equal(firstSnapshot.Relationships, secondSnapshot.Relationships);
+        Assert.Equal(firstSnapshot.Households.Select(HouseholdKey), secondSnapshot.Households.Select(HouseholdKey));
+        Assert.Equal(firstSnapshot.Counters, secondSnapshot.Counters);
+        Assert.Equal(SimulationEngine.FromPersistenceSnapshot(firstSnapshot).SocialFingerprint, SimulationEngine.FromPersistenceSnapshot(secondSnapshot).SocialFingerprint);
+    }
+
+    [Fact]
     public void ChunkingReloadAndAggressiveObserverReadsAreSocialFingerprintIndependent()
     {
         var target = new WorldMinute(28L * WorldCalendar.MinutesPerDay);
@@ -330,7 +471,7 @@ public sealed class M5AcceptanceMatrixTests
 
     private static string Golden(ulong seed, long days) => (seed, days) switch
     {
-        (42UL, 360L) => "e74bc960449ddca847e027d0219bf3032569557b7df8f1b5c87f464a84473ffe",
+        (42UL, 360L) => "ad8c239554f69661dbd8368166e3677f9d75b9ad51f4cfcfb384ef4fb06ea781",
         (0UL, 7L) => "c89ececb36dea0cff34ce1e8ad7da885a8c5ac3dc457b4bdeb62d1ef95556de1",
         (ulong.MaxValue, 7L) => "ed1f56877aad14350a351ea6325357f43026cdd1fb9c8e547e16fbdc048b198d",
         _ => throw new ArgumentOutOfRangeException(nameof(seed))
@@ -349,6 +490,99 @@ public sealed class M5AcceptanceMatrixTests
         people[1].Location = new TileCoordinate(20, 20);
         people[2].Location = new TileCoordinate(21, 20);
         return engine;
+    }
+
+    private static ulong FindTwoBirthSeed()
+    {
+        for (ulong seed = 0; seed < 2_000_000; seed++)
+        {
+            var random = new DeterministicRandom(new WorldSeed(seed));
+            var firstDraw = random.NextUInt64(RandomDomain.Reproduction, 23, 1, 0x4249525448UL) % 10_000;
+            var secondDraw = random.NextUInt64(RandomDomain.Reproduction, 24, 1, 0x4249525448UL) % 10_000;
+            if (firstDraw < 35 && secondDraw < 35) return seed;
+        }
+
+        throw new InvalidOperationException("No deterministic two-household birth seed found in the bounded search.");
+    }
+
+    private sealed record TwoBirthSetup(SimulationEngine Engine, Household FirstHousehold, Household SecondHousehold, long InitialNextEntityId, (CitizenId A, CitizenId B) FirstParentIds, (CitizenId A, CitizenId B) SecondParentIds);
+
+    private static TwoBirthSetup PrepareTwoBirthHouseholdEngine(ulong seed)
+    {
+        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, captureFamilyCheckDiagnostics: true);
+        var people = Citizens(engine);
+        var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var sites = engine.World.Tiles.Where(tile => tile.Buildable && tile.Coordinate != engine.World.StartingSite && engine.World.GetResources(tile.Coordinate).Count == 0).Select(tile => tile.Coordinate).Take(2).ToArray();
+        Assert.Equal(2, sites.Length);
+        var firstShelter = CompletedShelter(counters.AllocateStructureId(), sites[0]);
+        var secondShelter = CompletedShelter(counters.AllocateStructureId(), sites[1]);
+        Structures(engine).Add(firstShelter.Id.Value, firstShelter);
+        Structures(engine).Add(secondShelter.Id.Value, secondShelter);
+        Contributions(engine).Add((firstShelter.Id.Value, people[1].Id.Value), new StructureContribution(firstShelter.Id, people[1].Id, firstShelter.CompletedWork, firstShelter.DeliveredWood, firstShelter.DeliveredStone));
+        Contributions(engine).Add((secondShelter.Id.Value, people[3].Id.Value), new StructureContribution(secondShelter.Id, people[3].Id, secondShelter.CompletedWork, secondShelter.DeliveredWood, secondShelter.DeliveredStone));
+        var firstHousehold = new Household(counters.AllocateHouseholdId(), engine.CurrentMinute.Value) { DwellingStructureId = firstShelter.Id };
+        var secondHousehold = new Household(counters.AllocateHouseholdId(), engine.CurrentMinute.Value) { DwellingStructureId = secondShelter.Id };
+        Households(engine).Add(firstHousehold.Id.Value, firstHousehold);
+        Households(engine).Add(secondHousehold.Id.Value, secondHousehold);
+        var first = people[1];
+        var second = people[2];
+        var third = people[3];
+        var fourth = people[4];
+        first.PartnerId = second.Id;
+        second.PartnerId = first.Id;
+        first.HouseholdId = firstHousehold.Id;
+        second.HouseholdId = firstHousehold.Id;
+        first.HomeStructureId = firstShelter.Id;
+        second.HomeStructureId = firstShelter.Id;
+        third.PartnerId = fourth.Id;
+        fourth.PartnerId = third.Id;
+        third.HouseholdId = secondHousehold.Id;
+        fourth.HouseholdId = secondHousehold.Id;
+        third.HomeStructureId = secondShelter.Id;
+        fourth.HomeStructureId = secondShelter.Id;
+        Relationships(engine).Add((first.Id.Value, second.Id.Value), new RelationshipState(first.Id, second.Id, 10_000, 10_000, 10_000, 0, 0, 1));
+        Relationships(engine).Add((third.Id.Value, fourth.Id.Value), new RelationshipState(third.Id, fourth.Id, 10_000, 10_000, 10_000, 0, 0, 1));
+        foreach (var citizen in people.Values.Where(citizen => citizen.Id.Value >= 5)) KillFixtureCitizen(engine, citizen);
+        var familyMinute = new WorldMinute(WorldCalendar.MinutesPerDay);
+        foreach (var citizen in people.Values)
+        {
+            if (!citizen.IsAlive) continue;
+            RemoveActionEvent(engine, citizen.Id);
+            ScheduleCitizen(engine, citizen, CitizenEventNames.Decision, familyMinute, CitizenEventNames.DecisionPriority);
+        }
+        var demand = ScheduledEvents(engine).Single(item => item.Name == CitizenEventNames.SettlementEvaluateDemand);
+        RemoveScheduledEvent(engine, demand.Id);
+        engine.Settlement.DemandUpdatedMinute = familyMinute.Value;
+        typeof(SimulationEngine).GetMethod("ScheduleSettlementDemand", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null);
+        Assert.Equal(2, people.Values.Count(citizen => citizen.IsAlive && citizen.HomeStructureId == firstShelter.Id));
+        Assert.Equal(2, people.Values.Count(citizen => citizen.IsAlive && citizen.HomeStructureId == secondShelter.Id));
+        return new TwoBirthSetup(engine, firstHousehold, secondHousehold, counters.Snapshot.NextEntityId, (first.Id, second.Id), (third.Id, fourth.Id));
+    }
+
+    private static void ProcessOneFamilyCheck(SimulationEngine engine)
+    {
+        while (true)
+        {
+            var next = ScheduledEvents(engine).OrderBy(item => item.Order.DueWorldMinute.Value).ThenBy(item => item.Order.Priority).ThenBy(item => item.Order.EntitySortKey).ThenBy(item => item.Order.Sequence).First();
+            if (next.Name == CitizenEventNames.FamilyCheck) break;
+            Assert.True(engine.ProcessNextEvent());
+        }
+        Assert.True(engine.ProcessNextEvent());
+        Assert.Equal(CitizenEventNames.LifecycleCheck, ScheduledEvents(engine).OrderBy(item => item.Order.DueWorldMinute.Value).ThenBy(item => item.Order.Priority).First().Name);
+        Assert.True(engine.ProcessNextEvent());
+    }
+
+    private static void AssertEntityCollectionsDisjoint(SimulationPersistenceSnapshot snapshot)
+    {
+        var citizenIds = snapshot.Citizens.Select(citizen => citizen.Id.Value).ToHashSet();
+        var structureIds = snapshot.Structures.Select(structure => structure.Id.Value).ToHashSet();
+        var householdIds = snapshot.Households.Select(household => household.Id.Value).ToHashSet();
+        Assert.Equal(snapshot.Citizens.Count, citizenIds.Count);
+        Assert.Equal(snapshot.Structures.Count, structureIds.Count);
+        Assert.Equal(snapshot.Households.Count, householdIds.Count);
+        Assert.Empty(citizenIds.Intersect(structureIds));
+        Assert.Empty(citizenIds.Intersect(householdIds));
+        Assert.Empty(structureIds.Intersect(householdIds));
     }
 
     private static ulong FindSocialSeed(bool negative)
@@ -383,6 +617,15 @@ public sealed class M5AcceptanceMatrixTests
         return (first, second, household);
     }
 
+    private static Structure CompletedShelter(StructureId id, TileCoordinate site) => new(id, StructureType.Shelter, site, 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork)
+    {
+        Status = StructureStatus.Complete,
+        CompletedMinute = 0,
+        DeliveredWood = CitizenSimulationRules.ShelterRequiredWood,
+        DeliveredStone = CitizenSimulationRules.ShelterRequiredStone,
+        CompletedWork = CitizenSimulationRules.ShelterRequiredWork
+    };
+
     private static void CompleteSocialize(SimulationEngine engine, Citizen initiator, Citizen target)
     {
         initiator.CurrentAction = CitizenAction.Socialize; initiator.ActionPhase = CitizenActionPhase.Perform; initiator.TargetCitizenId = target.Id;
@@ -391,6 +634,41 @@ public sealed class M5AcceptanceMatrixTests
     private static void FormPartnership(SimulationEngine engine, Citizen first, Citizen second, RelationshipState relationship) => typeof(SimulationEngine).GetMethod("TryFormPartnership", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, [first, second, relationship]);
     private static void TryBirth(SimulationEngine engine, Household household) => typeof(SimulationEngine).GetMethod("TryBirth", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, [household, null]);
     private static void CreateChild(SimulationEngine engine, Citizen first, Citizen second, Household household) => typeof(SimulationEngine).GetMethod("CreateChild", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, [first, second, household]);
+    private static void ScheduleCitizen(SimulationEngine engine, Citizen citizen, string name, WorldMinute due, int priority) => typeof(SimulationEngine).GetMethod("ScheduleCitizen", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, [citizen, name, due, priority]);
+    private static void RemoveActionEvent(SimulationEngine engine, CitizenId citizenId)
+    {
+        var events = Assert.IsAssignableFrom<System.Collections.IEnumerable>(typeof(SimulationEngine).GetField("_scheduledEvents", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var set = events.GetType();
+        var remove = set.GetMethod("Remove")!;
+        foreach (var item in events.Cast<object>().Where(item =>
+        {
+            var name = item.GetType().GetProperty("Name")!.GetValue(item) as string;
+            var order = (ScheduledEventOrder)item.GetType().GetProperty("Order")!.GetValue(item)!;
+            return name is (CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete) && order.EntitySortKey == citizenId.Value;
+        }).ToArray()) remove.Invoke(events, [item]);
+    }
+    private static void RemoveScheduledEvent(SimulationEngine engine, ScheduledEventId id)
+    {
+        var events = Assert.IsAssignableFrom<System.Collections.IEnumerable>(typeof(SimulationEngine).GetField("_scheduledEvents", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var remove = events.GetType().GetMethod("Remove")!;
+        foreach (var item in events.Cast<object>().Where(item => ((ScheduledEventId)item.GetType().GetProperty("Id")!.GetValue(item)!) == id).ToArray()) remove.Invoke(events, [item]);
+    }
+    private static void KillFixtureCitizen(SimulationEngine engine, Citizen citizen)
+    {
+        RemoveActionEvent(engine, citizen.Id);
+        foreach (var item in ScheduledEvents(engine).Where(item => item.Name == CitizenEventNames.SurvivalCheck && item.Order.EntitySortKey == citizen.Id.Value).ToArray()) RemoveScheduledEvent(engine, item.Id);
+        citizen.Health = 0;
+        citizen.DeathMinute = engine.CurrentMinute.Value;
+        citizen.DeathCause = "natural";
+        citizen.CurrentAction = CitizenAction.Dead;
+        citizen.ActionPhase = CitizenActionPhase.None;
+        citizen.ActionStartedMinute = null;
+        citizen.ActionCompletesMinute = null;
+        citizen.TargetCitizenId = null;
+        citizen.TargetStructureId = null;
+        citizen.ActionTarget = null;
+    }
+    private static (long Id, long Created, long? Dissolved, long? Dwelling) HouseholdKey(Household household) => (household.Id.Value, household.CreatedMinute, household.DissolvedMinute, household.DwellingStructureId?.Value);
     private static int FoodSecurityGatherContribution(SimulationEngine engine) => Assert.IsType<int>(typeof(SimulationEngine).GetMethod("FoodSecurityGatherContribution", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null));
     private static bool IsAgeEligible(CitizenAction action, int age) => (bool)typeof(SimulationEngine).GetMethod("IsAgeEligible", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [action, age])!;
     private static Dictionary<long, Citizen> Citizens(SimulationEngine engine) => Assert.IsType<Dictionary<long, Citizen>>(typeof(SimulationEngine).GetField("_citizens", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));

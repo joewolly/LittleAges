@@ -35,6 +35,35 @@ public sealed class M5SocialCoreTests
     }
 
     [Fact]
+    public void M5FamilyAndLifecycleEventsRequireTheExactNextStrictDayBoundary()
+    {
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var expected = new WorldMinute(WorldCalendar.MinutesPerDay);
+
+        foreach (var name in new[] { CitizenEventNames.FamilyCheck, CitizenEventNames.LifecycleCheck })
+        {
+            var exact = source.ScheduledEvents.Single(item => item.Name == name);
+            Assert.Equal(expected, exact.Order.DueWorldMinute);
+            _ = SimulationEngine.FromPersistenceSnapshot(source);
+
+            var invalid = new[]
+            {
+                WithOrder(exact, new WorldMinute(expected.Value + WorldCalendar.MinutesPerDay)),
+                WithOrder(exact, new WorldMinute(expected.Value + (3L * WorldCalendar.MinutesPerDay))),
+                WithOrder(exact, WorldMinute.Zero),
+                WithOrder(exact, exact.Order.DueWorldMinute, exact.Order.Priority + 1),
+                exact with { PayloadJson = "{\"version\":2}" }
+            };
+
+            foreach (var malformed in invalid)
+            {
+                var events = source.ScheduledEvents.Select(item => item.Name == name ? malformed : item).ToArray();
+                Assert.Throws<ArgumentException>(() => Recreate(source, events: events));
+            }
+        }
+    }
+
+    [Fact]
     public void M5MortalityUsesCurrentMinuteRatherThanAnUnboundedSyntheticAge()
     {
         var traits = new CitizenTraits(0, 0, 0, 0, 0, 0); var skills = new CitizenSkills(0, 0, 0, 0, 0, 0);
@@ -43,6 +72,11 @@ public sealed class M5SocialCoreTests
         Assert.Equal(1, SimulationEngine.NaturalMortalityRisk(thirtyNine, WorldMinute.Zero));
         Assert.Equal(3, SimulationEngine.NaturalMortalityRisk(forty, WorldMinute.Zero));
     }
+
+    private static ScheduledEventSnapshot WithOrder(ScheduledEventSnapshot source, WorldMinute due, int? priority = null) => source with
+    {
+        Order = new ScheduledEventOrder(due, priority ?? source.Order.Priority, source.Order.EntitySortKey, source.Order.Sequence)
+    };
 
     [Fact]
     public void DescendantTargetSelectionUsesStableCitizenIdentity()
@@ -68,6 +102,107 @@ public sealed class M5SocialCoreTests
         var missingAction = snapshot.ScheduledEvents.Where(x => !(x.Name == CitizenEventNames.Decision && x.Order.EntitySortKey == 1)).ToArray();
 
         Assert.Throws<ArgumentException>(() => Recreate(snapshot, missingAction));
+    }
+
+    [Fact]
+    public void M5SnapshotRejectsDuplicateAndCrossCollectionEntityIds()
+    {
+        var source = CreateM5SettlementSnapshot();
+        var structure = Assert.Single(source.Structures);
+        var duplicateHousehold = new Household(new HouseholdId(source.Counters.NextEntityId), source.WorldMinute.Value) { DissolvedMinute = source.WorldMinute.Value };
+        var duplicateHouseholds = new[]
+        {
+            duplicateHousehold,
+            new Household(duplicateHousehold.Id, source.WorldMinute.Value) { DissolvedMinute = source.WorldMinute.Value }
+        };
+        Assert.Throws<ArgumentException>(() => Recreate(source, households: duplicateHouseholds, counters: source.Counters with { NextEntityId = source.Counters.NextEntityId + 1 }));
+
+        var duplicateCitizens = source.Citizens.Concat([source.Citizens[0]]).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(source, citizens: duplicateCitizens));
+
+        var duplicateStructure = CopyStructure(structure, structure.Id);
+        Assert.Throws<ArgumentException>(() => Recreate(source, structures: [structure, duplicateStructure]));
+
+        var collidingStructure = CopyStructure(structure, new StructureId(source.Citizens[0].Id.Value));
+        Assert.Throws<ArgumentException>(() => Recreate(source, structures: [collidingStructure]));
+    }
+
+    [Fact]
+    public void M5SnapshotRejectsFutureAndInconsistentCitizenTemporalState()
+    {
+        var founderSnapshot = CreateM5Snapshot();
+        Assert.All(founderSnapshot.Citizens.Where(citizen => citizen.FounderOrdinal is not null), citizen => Assert.True(citizen.BirthMinute < 0));
+        _ = SimulationEngine.FromPersistenceSnapshot(founderSnapshot);
+
+        var needsSnapshot = CreateM5Snapshot();
+        var needsTarget = needsSnapshot.Citizens[0];
+        var futureNeeds = needsSnapshot.Citizens.Select(citizen => citizen.Id == needsTarget.Id
+            ? ReplaceCitizen(citizen, needsUpdatedMinute: needsSnapshot.WorldMinute.Value + 1)
+            : ReplaceCitizen(citizen)).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(needsSnapshot, citizens: futureNeeds));
+
+        var healthSnapshot = CreateM5Snapshot();
+        var healthTarget = healthSnapshot.Citizens[0];
+        var futureHealth = healthSnapshot.Citizens.Select(citizen => citizen.Id == healthTarget.Id
+            ? ReplaceCitizen(citizen, healthUpdatedMinute: healthSnapshot.WorldMinute.Value + 1)
+            : ReplaceCitizen(citizen)).ToArray();
+        var healthBoundary = new WorldMinute(healthSnapshot.WorldMinute.Value + 1);
+        var futureHealthEvents = healthSnapshot.ScheduledEvents.Select(item => item.Name == CitizenEventNames.SurvivalCheck && item.Order.EntitySortKey == healthTarget.Id.Value
+            ? item with { Order = new ScheduledEventOrder(healthBoundary.Add(CitizenSimulationRules.SurvivalCheckIntervalMinutes), item.Order.Priority, item.Order.EntitySortKey, item.Order.Sequence) }
+            : item).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(healthSnapshot, events: futureHealthEvents, citizens: futureHealth));
+
+        var futureBirthSnapshot = CreateM5SnapshotWithChild();
+        var futureBirthChild = futureBirthSnapshot.Citizens.Single(citizen => citizen.ParentAId is not null);
+        var futureChild = ReplaceCitizen(futureBirthChild, birthMinute: futureBirthSnapshot.WorldMinute.Value + 1);
+        var futureBirthCitizens = futureBirthSnapshot.Citizens.Select(citizen => citizen.Id == futureBirthChild.Id ? futureChild : ReplaceCitizen(citizen)).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(futureBirthSnapshot, citizens: futureBirthCitizens));
+
+        var futureDeathSnapshot = CreateM5SnapshotWithChild();
+        var futureDeathChild = futureDeathSnapshot.Citizens.Single(citizen => citizen.ParentAId is not null);
+        var futureDeath = MakeDead(ReplaceCitizen(futureDeathChild));
+        futureDeath.DeathMinute = futureDeathSnapshot.WorldMinute.Value + 1;
+        var futureDeathCitizens = futureDeathSnapshot.Citizens.Select(citizen => citizen.Id == futureDeathChild.Id ? futureDeath : ReplaceCitizen(citizen)).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(futureDeathSnapshot,
+            events: futureDeathSnapshot.ScheduledEvents.Where(item => item.Order.EntitySortKey != futureDeathChild.Id.Value).ToArray(),
+            citizens: futureDeathCitizens));
+
+        var negativeDeathSnapshot = CreateM5Snapshot();
+        var negativeDeathFounder = MakeDead(ReplaceCitizen(negativeDeathSnapshot.Citizens[0]));
+        negativeDeathFounder.DeathMinute = -1;
+        var negativeDeathCitizens = negativeDeathSnapshot.Citizens.Select(citizen => citizen.Id == negativeDeathFounder.Id ? negativeDeathFounder : ReplaceCitizen(citizen)).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(negativeDeathSnapshot,
+            events: negativeDeathSnapshot.ScheduledEvents.Where(item => item.Order.EntitySortKey != negativeDeathFounder.Id.Value).ToArray(),
+            citizens: negativeDeathCitizens));
+
+        var futureActionStartSnapshot = CreateM5Snapshot();
+        var futureActionTarget = futureActionStartSnapshot.Citizens[0];
+        var futureActionCitizen = ReplaceCitizen(futureActionTarget, currentAction: CitizenAction.Idle, actionPhase: CitizenActionPhase.Perform,
+            actionStartedMinute: futureActionStartSnapshot.WorldMinute.Add(1), actionCompletesMinute: futureActionStartSnapshot.WorldMinute.Add(2));
+        var futureActionCitizens = futureActionStartSnapshot.Citizens.Select(citizen => citizen.Id == futureActionTarget.Id ? futureActionCitizen : ReplaceCitizen(citizen)).ToArray();
+        var futureActionEvents = futureActionStartSnapshot.ScheduledEvents.Select(item => item.Order.EntitySortKey == futureActionTarget.Id.Value && item.Name == CitizenEventNames.Decision
+            ? item with { Name = CitizenEventNames.ActionComplete, Order = new ScheduledEventOrder(futureActionStartSnapshot.WorldMinute.Add(2), CitizenEventNames.CompletionPriority, item.Order.EntitySortKey, item.Order.Sequence) }
+            : item).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(futureActionStartSnapshot, events: futureActionEvents, citizens: futureActionCitizens));
+
+        var pastActionSnapshot = CreateM5Snapshot(new WorldMinute(10));
+        var pastActionTarget = pastActionSnapshot.Citizens[0];
+        var pastActionCitizen = ReplaceCitizen(pastActionTarget, currentAction: CitizenAction.Idle, actionPhase: CitizenActionPhase.Perform,
+            actionStartedMinute: WorldMinute.Zero, actionCompletesMinute: WorldMinute.Zero);
+        var pastActionCitizens = pastActionSnapshot.Citizens.Select(citizen => citizen.Id == pastActionTarget.Id ? pastActionCitizen : ReplaceCitizen(citizen)).ToArray();
+        var pastActionEvents = pastActionSnapshot.ScheduledEvents.Select(item => item.Order.EntitySortKey == pastActionTarget.Id.Value && item.Name == CitizenEventNames.Decision
+            ? item with { Name = CitizenEventNames.ActionComplete, Order = new ScheduledEventOrder(WorldMinute.Zero, CitizenEventNames.CompletionPriority, item.Order.EntitySortKey, item.Order.Sequence) }
+            : item).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(pastActionSnapshot, events: pastActionEvents, citizens: pastActionCitizens));
+
+        var deathBeforeBirthSnapshot = CreateM5SnapshotWithChild(new WorldMinute(10));
+        var youngChild = deathBeforeBirthSnapshot.Citizens.Single(citizen => citizen.ParentAId is not null);
+        var deathBeforeBirth = MakeDead(ReplaceCitizen(youngChild));
+        deathBeforeBirth.DeathMinute = youngChild.BirthMinute - 1;
+        var deathBeforeBirthCitizens = deathBeforeBirthSnapshot.Citizens.Select(citizen => citizen.Id == youngChild.Id ? deathBeforeBirth : ReplaceCitizen(citizen)).ToArray();
+        Assert.Throws<ArgumentException>(() => Recreate(deathBeforeBirthSnapshot,
+            events: deathBeforeBirthSnapshot.ScheduledEvents.Where(item => item.Order.EntitySortKey != youngChild.Id.Value).ToArray(),
+            citizens: deathBeforeBirthCitizens));
     }
 
     [Fact]
@@ -242,6 +377,33 @@ public sealed class M5SocialCoreTests
     }
 
     [Fact]
+    public void M5FamilyBufferShelterDemandRequiresThreeSpareSlotsAndAllNonHousingPrerequisites()
+    {
+        var threeSpare = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        AddCompletedShelters(threeSpare, 5);
+        AddFamilyBufferHousehold(threeSpare, deceasedCount: 3);
+        Assert.Equal(3, threeSpare.ShelterCapacity - threeSpare.LivingPopulation);
+        Assert.Equal(StructureType.Shelter, SelectSettlementDemand(threeSpare));
+
+        var fourSpare = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        AddCompletedShelters(fourSpare, 5);
+        AddFamilyBufferHousehold(fourSpare, deceasedCount: 4);
+        Assert.Equal(4, fourSpare.ShelterCapacity - fourSpare.LivingPopulation);
+        Assert.NotEqual(StructureType.Shelter, SelectSettlementDemand(fourSpare));
+
+        var failedPrerequisite = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        AddCompletedShelters(failedPrerequisite, 5);
+        AddFamilyBufferHousehold(failedPrerequisite, deceasedCount: 3);
+        failedPrerequisite.Settlement.FoodStored = 0;
+        Assert.NotEqual(StructureType.Shelter, SelectSettlementDemand(failedPrerequisite));
+
+        var unchangedM4 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
+        AddCompletedShelters(unchangedM4, 5);
+        AddFamilyBufferHousehold(unchangedM4, deceasedCount: 3);
+        Assert.NotEqual(StructureType.Shelter, SelectSettlementDemand(unchangedM4));
+    }
+
+    [Fact]
     public void M5HousingExchangeRelocatesTheMinimalWholeGroupAndCreatesAnActualBirthSlot()
     {
         var setup = CreateFragmentedHousingExchangeEngine(restDonors: false);
@@ -395,8 +557,8 @@ public sealed class M5SocialCoreTests
         Assert.Equal(expected, RelationshipLabels.Derive(relationship, partner, family));
     }
 
-    private static SimulationPersistenceSnapshot Recreate(SimulationPersistenceSnapshot snapshot, IReadOnlyList<ScheduledEventSnapshot>? events = null, IReadOnlyList<Citizen>? citizens = null, SettlementState? settlement = null, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? contributions = null) =>
-        new(snapshot.Seed, snapshot.WorldMinute, snapshot.WorldSchemaVersion, snapshot.SimulationRulesVersion, snapshot.ApplicationVersion, snapshot.WorldConfiguration, snapshot.Counters, events ?? snapshot.ScheduledEvents, snapshot.World, citizens ?? snapshot.Citizens, snapshot.CitizenGenerationVersion, snapshot.ResourceStates, settlement ?? snapshot.Settlement, snapshot.SurvivalVersion, snapshot.SettlementVersion, structures ?? snapshot.Structures, contributions ?? snapshot.StructureContributions, snapshot.SocialVersion, snapshot.Relationships, snapshot.Households);
+    private static SimulationPersistenceSnapshot Recreate(SimulationPersistenceSnapshot snapshot, IReadOnlyList<ScheduledEventSnapshot>? events = null, IReadOnlyList<Citizen>? citizens = null, SettlementState? settlement = null, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? contributions = null, IReadOnlyList<RelationshipState>? relationships = null, IReadOnlyList<Household>? households = null, DeterministicCountersSnapshot? counters = null) =>
+        new(snapshot.Seed, snapshot.WorldMinute, snapshot.WorldSchemaVersion, snapshot.SimulationRulesVersion, snapshot.ApplicationVersion, snapshot.WorldConfiguration, counters ?? snapshot.Counters, events ?? snapshot.ScheduledEvents, snapshot.World, citizens ?? snapshot.Citizens, snapshot.CitizenGenerationVersion, snapshot.ResourceStates, settlement ?? snapshot.Settlement, snapshot.SurvivalVersion, snapshot.SettlementVersion, structures ?? snapshot.Structures, contributions ?? snapshot.StructureContributions, snapshot.SocialVersion, relationships ?? snapshot.Relationships, households ?? snapshot.Households);
 
     private static SimulationPersistenceSnapshot CreateM5SettlementSnapshot()
     {
@@ -409,6 +571,115 @@ public sealed class M5SocialCoreTests
         var contribution = new StructureContribution(structure.Id, source.Citizens[0].Id, woodDelivered: 1);
         return new SimulationPersistenceSnapshot(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, source.Counters with { NextEntityId = source.Counters.NextEntityId + 1 }, source.ScheduledEvents, source.World, source.Citizens, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, [structure], [contribution], source.SocialVersion, source.Relationships, source.Households);
     }
+
+    private static SimulationPersistenceSnapshot CreateM5Snapshot(WorldMinute initialMinute = default) =>
+        new SimulationEngine(new WorldSeed(42), initialMinute, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+
+    private static SimulationPersistenceSnapshot CreateM5SnapshotWithChild(WorldMinute initialMinute = default)
+    {
+        var source = CreateM5Snapshot(initialMinute);
+        var citizens = source.Citizens.ToArray();
+        var first = citizens[1];
+        var second = citizens[2];
+        var structureId = new StructureId(source.Counters.NextEntityId);
+        var householdId = new HouseholdId(source.Counters.NextEntityId + 1);
+        var childId = new CitizenId(source.Counters.NextEntityId + 2);
+        var site = source.World!.Tiles.First(tile => tile.Buildable && tile.Coordinate != source.World.StartingSite && source.World.GetResources(tile.Coordinate).Count == 0).Coordinate;
+        var shelter = new Structure(structureId, StructureType.Shelter, site, source.WorldMinute.Value, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork)
+        {
+            Status = StructureStatus.Complete,
+            CompletedMinute = source.WorldMinute.Value,
+            DeliveredWood = CitizenSimulationRules.ShelterRequiredWood,
+            DeliveredStone = CitizenSimulationRules.ShelterRequiredStone,
+            CompletedWork = CitizenSimulationRules.ShelterRequiredWork
+        };
+        var household = new Household(householdId, source.WorldMinute.Value) { DwellingStructureId = structureId };
+        first.PartnerId = second.Id;
+        second.PartnerId = first.Id;
+        first.HouseholdId = householdId;
+        second.HouseholdId = householdId;
+        first.HomeStructureId = structureId;
+        second.HomeStructureId = structureId;
+        var child = new Citizen(childId, null, "Child", first.FamilyName, source.WorldMinute.Value, first.Location, first.Traits, new CitizenSkills(0, 0, 0, 0, 0, 0))
+        {
+            ParentAId = first.Id,
+            ParentBId = second.Id,
+            HouseholdId = householdId,
+            HomeStructureId = structureId,
+            NeedsUpdatedMinute = source.WorldMinute.Value,
+            HealthUpdatedMinute = source.WorldMinute.Value
+        };
+        var nextSequence = source.Counters.NextScheduledEventSequence;
+        var childEvents = new[]
+        {
+            new ScheduledEventSnapshot(new ScheduledEventId(nextSequence), new ScheduledEventOrder(source.WorldMinute, CitizenEventNames.DecisionPriority, childId.Value, nextSequence), CitizenEventNames.Decision, $"{{\"citizenId\":\"{childId.Value}\",\"actionSequence\":0}}"),
+            new ScheduledEventSnapshot(new ScheduledEventId(nextSequence + 1), new ScheduledEventOrder(source.WorldMinute.Add(CitizenSimulationRules.SurvivalCheckIntervalMinutes), CitizenEventNames.SurvivalPriority, childId.Value, nextSequence + 1), CitizenEventNames.SurvivalCheck, $"{{\"citizenId\":\"{childId.Value}\"}}")
+        };
+        return new SimulationPersistenceSnapshot(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration,
+            source.Counters with { NextEntityId = childId.Value + 1, NextScheduledEventSequence = nextSequence + 2 }, source.ScheduledEvents.Concat(childEvents).ToArray(), source.World, citizens.Append(child).ToArray(), source.CitizenGenerationVersion,
+            source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, [shelter], [new StructureContribution(structureId, first.Id, shelter.CompletedWork, shelter.DeliveredWood, shelter.DeliveredStone)], source.SocialVersion,
+            [new RelationshipState(first.Id, second.Id, 10_000, 10_000, 10_000, 0, source.WorldMinute.Value, 1)], [household]);
+    }
+
+    private static Citizen ReplaceCitizen(Citizen source, long? birthMinute = null, long? needsUpdatedMinute = null, long? healthUpdatedMinute = null,
+        CitizenAction? currentAction = null, CitizenActionPhase? actionPhase = null, WorldMinute? actionStartedMinute = null, WorldMinute? actionCompletesMinute = null) => new(source.Id, source.FounderOrdinal, source.GivenName, source.FamilyName, birthMinute ?? source.BirthMinute, source.Location,
+        source.Traits, source.Skills, source.Needs)
+    {
+        Health = source.Health,
+        CurrentAction = currentAction ?? source.CurrentAction,
+        ActionPhase = actionPhase ?? source.ActionPhase,
+        ActionSequence = source.ActionSequence,
+        ActionStartedMinute = actionStartedMinute ?? source.ActionStartedMinute,
+        ActionCompletesMinute = actionCompletesMinute ?? source.ActionCompletesMinute,
+        ActionTarget = source.ActionTarget,
+        TargetResourceNodeId = source.TargetResourceNodeId,
+        TargetStructureId = source.TargetStructureId,
+        TargetCitizenId = source.TargetCitizenId,
+        CarriedResourceType = source.CarriedResourceType,
+        CarriedResourceQuantity = source.CarriedResourceQuantity,
+        NeedsUpdatedMinute = needsUpdatedMinute ?? source.NeedsUpdatedMinute,
+        HealthUpdatedMinute = healthUpdatedMinute ?? source.HealthUpdatedMinute,
+        LifetimeMovementSteps = source.LifetimeMovementSteps,
+        LifetimeMovementCost = source.LifetimeMovementCost,
+        LifetimeForagingMinutes = source.LifetimeForagingMinutes,
+        LifetimeWoodcuttingMinutes = source.LifetimeWoodcuttingMinutes,
+        LifetimeStoneworkingMinutes = source.LifetimeStoneworkingMinutes,
+        LifetimeConstructionMinutes = source.LifetimeConstructionMinutes,
+        LifetimeHaulingMinutes = source.LifetimeHaulingMinutes,
+        DeathMinute = source.DeathMinute,
+        DeathCause = source.DeathCause,
+        ParentAId = source.ParentAId,
+        ParentBId = source.ParentBId,
+        PartnerId = source.PartnerId,
+        HouseholdId = source.HouseholdId,
+        HomeStructureId = source.HomeStructureId
+    };
+
+    private static Citizen MakeDead(Citizen source)
+    {
+        source.Health = 0;
+        source.DeathCause = "natural";
+        source.CurrentAction = CitizenAction.Dead;
+        source.ActionPhase = CitizenActionPhase.None;
+        source.ActionTarget = null;
+        source.TargetResourceNodeId = null;
+        source.TargetStructureId = null;
+        source.TargetCitizenId = null;
+        source.ActionStartedMinute = null;
+        source.ActionCompletesMinute = null;
+        source.CarriedResourceType = null;
+        source.CarriedResourceQuantity = 0;
+        return source;
+    }
+
+    private static Structure CopyStructure(Structure source, StructureId id) => new(id, source.Type, source.Location, source.ConstructionStartedMinute, source.RequiredWood, source.RequiredStone, source.RequiredWork)
+    {
+        Status = source.Status,
+        CompletedMinute = source.CompletedMinute,
+        DeliveredWood = source.DeliveredWood,
+        DeliveredStone = source.DeliveredStone,
+        CompletedWork = source.CompletedWork
+    };
 
     private static Citizen NewCitizen() => new(new CitizenId(1), 0, "A", "B", -WorldCalendar.MinutesPerYear, new TileCoordinate(0, 0), new CitizenTraits(1, 2, 3, 4, 5, 6), new CitizenSkills(7, 8, 9, 10, 11, 12));
 
@@ -456,6 +727,29 @@ public sealed class M5SocialCoreTests
         Households(engine).Add(household.Id.Value, household);
         var pair = RelationshipState.Normalize(parents[0].Id, parents[1].Id);
         Relationships(engine).Add((pair.A.Value, pair.B.Value), new RelationshipState(pair.A, pair.B, 10_000, 10_000, 10_000, 0, engine.CurrentMinute.Value, 1));
+    }
+
+    private static void AddFamilyBufferHousehold(SimulationEngine engine, int deceasedCount)
+    {
+        var people = Citizens(engine);
+        foreach (var citizen in people.Values.OrderByDescending(citizen => citizen.Id.Value).Take(deceasedCount))
+        {
+            citizen.Health = 0;
+            citizen.DeathMinute = engine.CurrentMinute.Value;
+            citizen.DeathCause = "natural";
+            citizen.CurrentAction = CitizenAction.Dead;
+        }
+
+        var parents = people.Values.Where(citizen => citizen.IsAlive).OrderBy(citizen => citizen.Id.Value).Take(2).ToArray();
+        Assert.Equal(2, parents.Length);
+        var household = new Household(new HouseholdId(10_000 + deceasedCount), engine.CurrentMinute.Value);
+        parents[0].PartnerId = parents[1].Id;
+        parents[1].PartnerId = parents[0].Id;
+        parents[0].HouseholdId = household.Id;
+        parents[1].HouseholdId = household.Id;
+        Households(engine).Add(household.Id.Value, household);
+        var pair = RelationshipState.Normalize(parents[0].Id, parents[1].Id);
+        Relationships(engine)[(pair.A.Value, pair.B.Value)] = new RelationshipState(pair.A, pair.B, 10_000, 10_000, 10_000, 0, engine.CurrentMinute.Value, 1);
     }
 
     private static void AddCompletedShelters(SimulationEngine engine, int count)

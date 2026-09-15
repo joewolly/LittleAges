@@ -344,12 +344,21 @@ public sealed record SimulationPersistenceSnapshot
         foreach (var resourceState in resourceStates) resourceState.Validate(world.Resources.SingleOrDefault(x => x.Id == resourceState.ResourceNodeId) ?? throw new ArgumentException("M5 resource state references an unknown resource.", nameof(resourceStates)));
         var regeneration = events.Where(x => x.Name == CitizenEventNames.ResourceRegenerate).ToArray();
         if (regeneration.Length != 1 || regeneration[0].Order.Priority != CitizenEventNames.RegenerationPriority || regeneration[0].Order.EntitySortKey != 0 || regeneration[0].Order.DueWorldMinute != new WorldMinute(checked(((minute.Value / WorldCalendar.MinutesPerDay) + 1) * WorldCalendar.MinutesPerDay))) throw new ArgumentException("M5 regeneration event is not at the next strict day boundary.", nameof(events));
-        foreach (var citizen in citizens) citizen.Validate(world);
+        foreach (var citizen in citizens)
+        {
+            if (citizen.BirthMinute > minute.Value || citizen.NeedsUpdatedMinute > minute.Value || citizen.HealthUpdatedMinute > minute.Value || citizen.DeathMinute is < 0 || citizen.DeathMinute is { } death && (death > minute.Value || death < citizen.BirthMinute))
+                throw new ArgumentException("M5 citizen temporal state is invalid.", nameof(citizens));
+            if (citizen.IsAlive && citizen.CurrentAction != CitizenAction.None && (citizen.ActionStartedMinute is not { } started || citizen.ActionCompletesMinute is not { } completes || started.Value > minute.Value || completes.Value < minute.Value || completes.Value < started.Value))
+                throw new ArgumentException("M5 living citizen action timing is invalid.", nameof(citizens));
+            citizen.Validate(world);
+        }
         var founders = citizens.Where(x => x.FounderOrdinal is not null).Select(x => x.FounderOrdinal!.Value).OrderBy(x => x).ToArray();
         if (!founders.SequenceEqual(Enumerable.Range(0, CitizenGenerator.FounderCount))) throw new ArgumentException("M5 requires exactly the 20 founder ordinals.");
         var ids = citizens.Select(x => x.Id.Value).ToHashSet();
-        if (ids.Count != citizens.Count || structures.Any(x => ids.Contains(x.Id.Value)) || households.Any(x => ids.Contains(x.Id.Value) || structures.Any(s => s.Id.Value == x.Id.Value))) throw new ArgumentException("M5 entity IDs must be globally disjoint.");
-        var maximumId = new[] { ids.DefaultIfEmpty(0).Max(), structures.Select(x => x.Id.Value).DefaultIfEmpty(0).Max(), households.Select(x => x.Id.Value).DefaultIfEmpty(0).Max() }.Max();
+        var structureIds = structures.Select(x => x.Id.Value).ToHashSet();
+        var householdIds = households.Select(x => x.Id.Value).ToHashSet();
+        if (ids.Count != citizens.Count || structureIds.Count != structures.Count || householdIds.Count != households.Count || structureIds.Overlaps(ids) || householdIds.Overlaps(ids) || householdIds.Overlaps(structureIds)) throw new ArgumentException("M5 entity IDs must be unique within each collection and globally disjoint.");
+        var maximumId = new[] { ids.DefaultIfEmpty(0).Max(), structureIds.DefaultIfEmpty(0).Max(), householdIds.DefaultIfEmpty(0).Max() }.Max();
         if (counters.NextEntityId <= maximumId) throw new ArgumentException("M5 entity counter is stale.");
         foreach (var relationship in relationships)
         {
@@ -463,7 +472,8 @@ public sealed record SimulationPersistenceSnapshot
     private static void ValidateGlobalEvent(IReadOnlyList<ScheduledEventSnapshot> events, string name, int priority, WorldMinute minute)
     {
         var found = events.Where(x => x.Name == name).ToArray();
-        if (found.Length != 1 || found[0].Order.Priority != priority || found[0].Order.EntitySortKey != 0 || found[0].PayloadJson != "{\"version\":1}" || found[0].Order.DueWorldMinute.Value <= minute.Value || found[0].Order.DueWorldMinute.Value % WorldCalendar.MinutesPerDay != 0) throw new ArgumentException($"M5 requires one canonical {name} event.");
+        var expectedDue = new WorldMinute(checked(((minute.Value / WorldCalendar.MinutesPerDay) + 1) * WorldCalendar.MinutesPerDay));
+        if (found.Length != 1 || found[0].Order.Priority != priority || found[0].Order.EntitySortKey != 0 || found[0].PayloadJson != "{\"version\":1}" || found[0].Order.DueWorldMinute != expectedDue) throw new ArgumentException($"M5 requires one canonical {name} event.");
     }
 
     private static bool TryReadCitizenPayload(string json, out (long Id, long Sequence) payload)
@@ -1137,7 +1147,7 @@ public sealed class SimulationEngine
                 .FirstOrDefault();
             if (moves.Donor is null) continue;
 
-            foreach (var member in moves.Donor.Members) member.HomeStructureId = moves.Destination.Id;
+            foreach (var member in moves.Donor.Members) SetHomeStructure(member, moves.Destination.Id);
             if (moves.Donor.Household is not null) moves.Donor.Household.DwellingStructureId = moves.Destination.Id;
             usage[candidate.Home.Value] -= moves.Donor.Members.Length;
             usage[moves.Destination.Id.Value] += moves.Donor.Members.Length;
@@ -1194,6 +1204,25 @@ public sealed class SimulationEngine
             ScheduleCitizen(initiator, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority);
         }
     }
+    private void SetHomeStructure(Citizen citizen, StructureId? home)
+    {
+        var previousHome = citizen.HomeStructureId;
+        if (previousHome == home) return;
+
+        var resetRestTravel = SimulationRulesVersion == CurrentSimulationRulesVersion && citizen.IsAlive && citizen.CurrentAction == CitizenAction.Rest && citizen.ActionPhase == CitizenActionPhase.TravelToTarget && previousHome is not null && citizen.TargetStructureId == previousHome && _structures.TryGetValue(previousHome.Value.Value, out var previousStructure) && citizen.ActionTarget == previousStructure.Location;
+        if (resetRestTravel)
+        {
+            var actionEvents = _scheduledEvents.Where(item => item.Name == CitizenEventNames.MoveStep && IsReservedCitizenEventFor(item, citizen.Id.Value)).ToArray();
+            if (actionEvents.Length > 1) throw new InvalidDataException("A resting citizen has duplicate action-flow events.");
+            if (actionEvents.Length == 1) _scheduledEvents.Remove(actionEvents[0]);
+            _activePaths.Remove((citizen.Id.Value, citizen.ActionSequence));
+        }
+
+        citizen.HomeStructureId = home;
+        if (!resetRestTravel) return;
+        FinishAction(citizen);
+        ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority);
+    }
     private void ReconcileHouseholdsAndHousing()
     {
         foreach (var household in _households.Values.OrderBy(x => x.Id.Value))
@@ -1216,14 +1245,14 @@ public sealed class SimulationEngine
             if (group.Household.DwellingStructureId is not { } dwelling || !shelterIds.Contains(dwelling.Value) || group.Members.Length == 0 || group.Members.Any(c => c.HomeStructureId != dwelling) || usage[dwelling.Value] + group.Members.Length > CitizenSimulationRules.ShelterCapacityPerBuilding)
             {
                 group.Household.DwellingStructureId = null;
-                foreach (var member in group.Members) member.HomeStructureId = null;
+                foreach (var member in group.Members) SetHomeStructure(member, null);
                 continue;
             }
             usage[dwelling.Value] += group.Members.Length;
         }
         foreach (var citizen in _citizens.Values.Where(x => x.IsAlive && x.HouseholdId is null).OrderBy(x => x.Id.Value))
         {
-            if (citizen.HomeStructureId is not { } home || !shelterIds.Contains(home.Value) || usage[home.Value] >= CitizenSimulationRules.ShelterCapacityPerBuilding) { citizen.HomeStructureId = null; continue; }
+            if (citizen.HomeStructureId is not { } home || !shelterIds.Contains(home.Value) || usage[home.Value] >= CitizenSimulationRules.ShelterCapacityPerBuilding) { SetHomeStructure(citizen, null); continue; }
             usage[home.Value]++;
         }
         foreach (var group in activeHouseholds.Where(x => x.Household.DwellingStructureId is null).OrderByDescending(x => x.Members.Length).ThenBy(x => x.Household.Id.Value))
@@ -1231,14 +1260,14 @@ public sealed class SimulationEngine
             var dwelling = shelters.Where(x => CitizenSimulationRules.ShelterCapacityPerBuilding - usage[x.Id.Value] >= group.Members.Length).OrderBy(x => usage[x.Id.Value]).ThenBy(x => x.Id.Value).FirstOrDefault();
             group.Household.DwellingStructureId = dwelling?.Id;
             if (dwelling is null) continue;
-            foreach (var member in group.Members) member.HomeStructureId = dwelling.Id;
+            foreach (var member in group.Members) SetHomeStructure(member, dwelling.Id);
             usage[dwelling.Id.Value] += group.Members.Length;
         }
         foreach (var citizen in _citizens.Values.Where(x => x.IsAlive && x.HouseholdId is null && x.HomeStructureId is null).OrderBy(x => x.Id.Value))
         {
             var shelter = shelters.Where(x => usage[x.Id.Value] < CitizenSimulationRules.ShelterCapacityPerBuilding).OrderBy(x => usage[x.Id.Value]).ThenBy(x => x.Id.Value).FirstOrDefault();
             if (shelter is null) break;
-            citizen.HomeStructureId = shelter.Id; usage[shelter.Id.Value]++;
+            SetHomeStructure(citizen, shelter.Id); usage[shelter.Id.Value]++;
         }
     }
     private void Eat(Citizen citizen) { var consumed = Math.Min(CitizenSimulationRules.MealFoodUnits, Settlement.FoodStored); Settlement.FoodStored = checked(Settlement.FoodStored - consumed); var hungerReduction = checked((CitizenSimulationRules.FullHungerReduction * consumed) / CitizenSimulationRules.MealFoodUnits); citizen.Needs = new CitizenNeeds(Math.Max(0, citizen.Needs.Hunger - hungerReduction), citizen.Needs.Rest, citizen.Needs.Shelter, citizen.Needs.Social); }
@@ -1464,11 +1493,11 @@ public sealed class SimulationEngine
     private StructureType? SelectSettlementDemand()
     {
         if (ShelterCapacity < LivingPopulation) return StructureType.Shelter;
-        if (SimulationRulesVersion == CurrentSimulationRulesVersion && ShelterCapacity - LivingPopulation < CitizenSimulationRules.DesiredSpareShelterSlots && HasHousingBlockedReproductiveHousehold()) return StructureType.Shelter;
+        if (SimulationRulesVersion == CurrentSimulationRulesVersion && ShelterCapacity - LivingPopulation < CitizenSimulationRules.DesiredSpareShelterSlots && HasReproductionReadyHouseholdIgnoringHousing()) return StructureType.Shelter;
         if (Settlement.StorageUsed * 100 >= StorageCapacity * 80) return StructureType.Stockpile;
         return !_structures.Values.Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete) && _structures.Values.Count(x => x.Status == StructureStatus.Complete) >= 3 ? StructureType.Workshop : null;
     }
-    private bool HasHousingBlockedReproductiveHousehold() => _households.Values.Where(x => x.DissolvedMinute is null).OrderBy(x => x.Id.Value).Any(household => IsReproductionReady(household, requireDwellingCapacity: false, out _, out _) && !IsReproductionReady(household, requireDwellingCapacity: true, out _, out _));
+    private bool HasReproductionReadyHouseholdIgnoringHousing() => _households.Values.Where(x => x.DissolvedMinute is null).OrderBy(x => x.Id.Value).Any(household => IsReproductionReady(household, requireDwellingCapacity: false, out _, out _));
     private TileCoordinate? SelectConstructionSite()
     {
         var occupied = _structures.Values.Select(x => x.Location).ToHashSet(); var resources = World.Resources.Select(x => x.Coordinate).ToHashSet(); var costs = GetTravelCostsCached(World.StartingSite);
@@ -1482,8 +1511,8 @@ public sealed class SimulationEngine
     private void ReconcileShelterAssignments()
     {
         var shelters = _structures.Values.Where(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter).OrderBy(x => x.Id.Value).ToArray(); var usage = shelters.ToDictionary(x => x.Id.Value, _ => 0);
-        foreach (var citizen in _citizens.Values.Where(x => x.IsAlive).OrderBy(x => x.Id.Value)) if (citizen.HomeStructureId is { } home && usage.TryGetValue(home.Value, out var used) && used < CitizenSimulationRules.ShelterCapacityPerBuilding) usage[home.Value] = used + 1; else citizen.HomeStructureId = null;
-        foreach (var citizen in _citizens.Values.Where(x => x.IsAlive && x.HomeStructureId is null).OrderBy(x => x.Id.Value)) { var shelter = shelters.FirstOrDefault(x => usage[x.Id.Value] < CitizenSimulationRules.ShelterCapacityPerBuilding); if (shelter is null) break; citizen.HomeStructureId = shelter.Id; usage[shelter.Id.Value]++; }
+        foreach (var citizen in _citizens.Values.Where(x => x.IsAlive).OrderBy(x => x.Id.Value)) if (citizen.HomeStructureId is { } home && usage.TryGetValue(home.Value, out var used) && used < CitizenSimulationRules.ShelterCapacityPerBuilding) usage[home.Value] = used + 1; else SetHomeStructure(citizen, null);
+        foreach (var citizen in _citizens.Values.Where(x => x.IsAlive && x.HomeStructureId is null).OrderBy(x => x.Id.Value)) { var shelter = shelters.FirstOrDefault(x => usage[x.Id.Value] < CitizenSimulationRules.ShelterCapacityPerBuilding); if (shelter is null) break; SetHomeStructure(citizen, shelter.Id); usage[shelter.Id.Value]++; }
     }
     private void ApplySurvival(Citizen citizen)
     {
