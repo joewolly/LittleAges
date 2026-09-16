@@ -152,23 +152,28 @@ public sealed partial class SimulationEngine
     // not scan the complete world (or the historical stream) after every queued
     // event: routine movement, meals, gathering and decisions must remain cheap
     // and must not acquire retroactive meaning.
-    private void RecordHistoryTransitions(int foodBefore, int livingBefore)
+    private void RecordHistoryTransitions(int foodBefore)
     {
         if (_historyState is null) return;
         var foodDelta = Settlement.FoodStored - foodBefore;
         if (foodDelta > 0) _historyState.FoodProducedSinceSample = checked(_historyState.FoodProducedSinceSample + foodDelta);
         else if (foodDelta < 0) _historyState.FoodConsumedSinceSample = checked(_historyState.FoodConsumedSinceSample - foodDelta);
-        if (foodDelta != 0 || livingBefore != LivingPopulation) ReevaluateFoodShortage(false);
-        if (livingBefore != LivingPopulation) RecordPopulationMilestones();
+        // Population transitions are handled at the individual birth/death
+        // transition sites below. Keep this whole-event pass for food deltas
+        // only, so a multi-transition event cannot observe its final population.
+        if (foodDelta != 0) ReevaluateFoodShortage(false);
     }
 
     private void RecordBirthHistory(Citizen child)
     {
         if (_historyState is null || child.ParentAId is not { } parentA || child.ParentBId is not { } parentB) return;
+        if (child.HouseholdId is not { } householdId || !_households.ContainsKey(householdId.Value)) throw new InvalidDataException("A live birth must reference its canonical household.");
         if (HasSubjectEvent(HistoricalEventType.CitizenBorn, child.Id.Value)) return;
         EmitHistory(HistoricalEventType.CitizenBorn, HistoricalImportance.Notable, child.Location,
-            HistoricalEventPayloads.CitizenBorn(child.HouseholdId), [(child.Id, "subject"), (parentA, "parent"), (parentB, "parent")]);
+            HistoricalEventPayloads.CitizenBorn(householdId), [(child.Id, "subject"), (parentA, "parent"), (parentB, "parent")]);
         _historyState.BirthsSinceSample = checked(_historyState.BirthsSinceSample + 1);
+        RecordPopulationMilestones();
+        ReevaluateFoodShortage(false);
     }
 
     private void RecordDeathHistory(Citizen citizen)
@@ -179,6 +184,7 @@ public sealed partial class SimulationEngine
         EmitHistory(HistoricalEventType.CitizenDied, HistoricalImportance.Notable, citizen.Location,
             HistoricalEventPayloads.CitizenDied(citizen.DeathCause, citizen.AgeYears(historicalEventMinute)), [(citizen.Id, "subject")]);
         _historyState.DeathsSinceSample = checked(_historyState.DeathsSinceSample + 1);
+        ReevaluateFoodShortage(false);
     }
 
     private void RecordSocialInteractionHistory(RelationshipState? previous, RelationshipState next)

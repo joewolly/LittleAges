@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using LittleAges.Domain;
 using LittleAges.Simulation;
 using Xunit;
@@ -116,6 +117,72 @@ public sealed class M6HistoryAcceptanceTests
     }
 
     [Fact]
+    public void FreshM6RejectsNonzeroInitialMinuteButM5RetainsCompatibility()
+    {
+        Assert.Throws<ArgumentException>(() => new SimulationEngine(new WorldSeed(0), new WorldMinute(1), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion));
+
+        var m5 = new SimulationEngine(new WorldSeed(0), new WorldMinute(1), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
+        Assert.Equal(1, m5.CurrentMinute.Value);
+    }
+
+    [Fact]
+    public void SameMinuteBirthsEmitMilestoneBetweenIndividualBirthTransitions()
+    {
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var citizens = Citizens(engine);
+        for (var index = 0; index < 4; index++)
+        {
+            var extra = new Citizen(counters.AllocateCitizenId(), null, $"Extra{index}", "History", -WorldCalendar.MinutesPerYear, engine.World.StartingSite, new CitizenTraits(0, 0, 0, 0, 0, 0), new CitizenSkills(0, 0, 0, 0, 0, 0));
+            extra.NeedsUpdatedMinute = engine.CurrentMinute.Value;
+            extra.HealthUpdatedMinute = engine.CurrentMinute.Value;
+            citizens.Add(extra.Id.Value, extra);
+        }
+
+        var parents = citizens.Values.Where(x => x.FounderOrdinal is not null).OrderBy(x => x.Id.Value).Take(2).ToArray();
+        var household = new Household(counters.AllocateHouseholdId(), engine.CurrentMinute.Value);
+        Households(engine).Add(household.Id.Value, household);
+        InvokePrivate(engine, "CreateChild", parents[0], parents[1], household);
+        InvokePrivate(engine, "CreateChild", parents[0], parents[1], household);
+
+        var transitions = engine.HistoricalEvents.Where(x => x.EventType is HistoricalEventType.CitizenBorn or HistoricalEventType.PopulationMilestone).TakeLast(3).ToArray();
+        Assert.Equal([HistoricalEventType.CitizenBorn, HistoricalEventType.PopulationMilestone, HistoricalEventType.CitizenBorn], transitions.Select(x => x.EventType));
+        Assert.Equal("{\"population\":25}", transitions[1].PayloadJson);
+        Assert.Equal(25, engine.HistoryState!.PopulationMilestoneWatermark);
+    }
+
+    [Fact]
+    public void PopulationShortageUsesIndividualDeathPopulationBeforeGlobalEventSettles()
+    {
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var citizens = Citizens(engine);
+        for (var index = 0; index < 4; index++)
+        {
+            var extra = new Citizen(counters.AllocateCitizenId(), null, $"Extra{index}", "Shortage", -WorldCalendar.MinutesPerYear, engine.World.StartingSite, new CitizenTraits(0, 0, 0, 0, 0, 0), new CitizenSkills(0, 0, 0, 0, 0, 0));
+            extra.NeedsUpdatedMinute = engine.CurrentMinute.Value;
+            extra.HealthUpdatedMinute = engine.CurrentMinute.Value;
+            citizens.Add(extra.Id.Value, extra);
+        }
+
+        engine.Settlement.FoodStored = 199;
+        var deaths = citizens.Values.Where(x => x.FounderOrdinal is not null).OrderBy(x => x.Id.Value).Take(2).ToArray();
+        foreach (var citizen in deaths)
+        {
+            citizen.Health = 0;
+            citizen.DeathMinute = engine.CurrentMinute.Value;
+            citizen.DeathCause = "natural";
+            citizen.CurrentAction = CitizenAction.Dead;
+            InvokePrivate(engine, "RecordDeathHistory", citizen);
+        }
+
+        var shortage = Assert.Single(engine.HistoricalEvents, x => x.EventType == HistoricalEventType.ResourceShortageStarted);
+        using var payload = System.Text.Json.JsonDocument.Parse(shortage.PayloadJson);
+        Assert.Equal(23, payload.RootElement.GetProperty("livingPopulation").GetInt32());
+        Assert.Equal(22, engine.LivingPopulation);
+    }
+
+    [Fact]
     public void ExplicitM5RulesRetainNoHistoryAndTheLockedM5Golden()
     {
         var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
@@ -174,6 +241,10 @@ public sealed class M6HistoryAcceptanceTests
         engine.AdvanceUntil(new WorldMinute(checked(days * WorldCalendar.MinutesPerDay)));
         return engine;
     }
+
+    private static Dictionary<long, Citizen> Citizens(SimulationEngine engine) => Assert.IsType<Dictionary<long, Citizen>>(typeof(SimulationEngine).GetField("_citizens", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+    private static Dictionary<long, Household> Households(SimulationEngine engine) => Assert.IsType<Dictionary<long, Household>>(typeof(SimulationEngine).GetField("_households", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+    private static void InvokePrivate(SimulationEngine engine, string method, params object[] arguments) => typeof(SimulationEngine).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, arguments);
 
     private static string Golden(ulong seed, long days) => (seed, days) switch
     {

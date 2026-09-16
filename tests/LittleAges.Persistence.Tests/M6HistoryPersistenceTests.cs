@@ -2,6 +2,7 @@ using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection;
 using Xunit;
 
 namespace LittleAges.Persistence.Tests;
@@ -129,6 +130,71 @@ public sealed class M6HistoryPersistenceTests
     }
 
     [Fact]
+    public async Task M5ToM6BackfillOmitsCurrentHouseholdAfterDescendantFormsPartnership()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var currentMinute = 1L;
+            var source = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
+            source.AdvanceUntil(new WorldMinute(currentMinute));
+            var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(source));
+            var citizens = Citizens(source);
+            var households = Households(source);
+            var relationships = Relationships(source);
+            var birthMinute = 0L;
+            var eligible = citizens.Values.Where(x => x.FounderOrdinal is not null && x.AgeYears(new WorldMinute(birthMinute)) is >= 18 and <= 45).OrderBy(x => x.Id.Value).ToArray();
+            Assert.True(eligible.Length >= 3);
+            var parentA = eligible[0];
+            var parentB = eligible[1];
+            var partner = eligible[2];
+            var childId = counters.AllocateCitizenId();
+            var householdA = new Household(counters.AllocateHouseholdId(), birthMinute);
+            var householdB = new Household(counters.AllocateHouseholdId(), currentMinute);
+
+            parentA.PartnerId = parentB.Id;
+            parentA.HouseholdId = householdA.Id;
+            parentB.PartnerId = parentA.Id;
+            parentB.HouseholdId = householdA.Id;
+            partner.PartnerId = childId;
+            partner.HouseholdId = householdB.Id;
+            var child = new Citizen(childId, (int?)null, "MigrationChild", parentA.FamilyName, birthMinute, parentA.Location,
+                new CitizenTraits(0, 0, 0, 0, 0, 0), new CitizenSkills(0, 0, 0, 0, 0, 0))
+            {
+                ParentAId = parentA.Id,
+                ParentBId = parentB.Id,
+                PartnerId = partner.Id,
+                HouseholdId = householdB.Id,
+                NeedsUpdatedMinute = currentMinute,
+                HealthUpdatedMinute = currentMinute
+            };
+            citizens.Add(child.Id.Value, child);
+            households.Add(householdA.Id.Value, householdA);
+            households.Add(householdB.Id.Value, householdB);
+            relationships.Add((Math.Min(parentA.Id.Value, parentB.Id.Value), Math.Max(parentA.Id.Value, parentB.Id.Value)), PairRelationship(parentA.Id, parentB.Id, currentMinute));
+            relationships.Add((Math.Min(partner.Id.Value, child.Id.Value), Math.Max(partner.Id.Value, child.Id.Value)), PairRelationship(partner.Id, child.Id, currentMinute));
+            InvokePrivate(source, "ScheduleCitizen", child, CitizenEventNames.Decision, new WorldMinute(currentMinute), CitizenEventNames.DecisionPriority);
+            InvokePrivate(source, "ScheduleSurvival", child);
+            var m5 = source.CreatePersistenceSnapshot();
+
+            await using (var database = await WorldDatabase.OpenAsync(path))
+            {
+                var store = database.CreateCheckpointStore();
+                await store.CheckpointAsync(m5, new DateTime(2026, 9, 16, 3, 0, 0, DateTimeKind.Utc));
+                await store.UpgradeM5ToM6IfNeededAsync();
+                var upgraded = await store.LoadAsync();
+                Assert.Contains(upgraded.Citizens, item => item.Id == child.Id);
+                Assert.Equal(birthMinute, upgraded.Citizens.Single(item => item.Id == child.Id).BirthMinute);
+                var birth = Assert.Single(upgraded.HistoricalEvents, item => item.EventType == HistoricalEventType.CitizenBorn && upgraded.HistoricalEventCitizens.Any(link => link.HistoricalEventId == item.Id && link.CitizenId == child.Id && link.Role == "subject"));
+                Assert.Equal("{}", birth.PayloadJson);
+
+                var arbitraryCurrentHouseholdPayload = HistoricalEventPayloads.CitizenBorn(householdB.Id);
+                await database.Context.Database.ExecuteSqlInterpolatedAsync($"UPDATE historical_events SET payload_json = {arbitraryCurrentHouseholdPayload} WHERE id = {birth.Id.Value}");
+                await Assert.ThrowsAsync<InvalidDataException>(() => store.LoadAsync());
+            }
+        });
+    }
+
+    [Fact]
     public async Task M6LoadRejectsFutureHistoricalEventRowAndMalformedPayload()
     {
         await WithDatabaseAsync(async path =>
@@ -234,6 +300,16 @@ public sealed class M6HistoryPersistenceTests
         engine.AdvanceUntil(new WorldMinute(checked(days * WorldCalendar.MinutesPerDay)));
         return engine;
     }
+
+    private static RelationshipState PairRelationship(CitizenId first, CitizenId second, long minute)
+    {
+        var pair = RelationshipState.Normalize(first, second);
+        return new RelationshipState(pair.A, pair.B, 10_000, 10_000, 10_000, 0, minute, 1);
+    }
+    private static Dictionary<long, Citizen> Citizens(SimulationEngine engine) => Assert.IsType<Dictionary<long, Citizen>>(typeof(SimulationEngine).GetField("_citizens", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+    private static Dictionary<long, Household> Households(SimulationEngine engine) => Assert.IsType<Dictionary<long, Household>>(typeof(SimulationEngine).GetField("_households", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+    private static Dictionary<(long, long), RelationshipState> Relationships(SimulationEngine engine) => Assert.IsType<Dictionary<(long, long), RelationshipState>>(typeof(SimulationEngine).GetField("_relationships", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+    private static void InvokePrivate(SimulationEngine engine, string method, params object[] arguments) => typeof(SimulationEngine).GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, arguments);
 
     private static SimulationPersistenceSnapshot WithHistoricalCounter(SimulationPersistenceSnapshot snapshot, long nextHistoricalEventId) =>
         new(snapshot.Seed, snapshot.WorldMinute, snapshot.WorldSchemaVersion, snapshot.SimulationRulesVersion, snapshot.ApplicationVersion, snapshot.WorldConfiguration,

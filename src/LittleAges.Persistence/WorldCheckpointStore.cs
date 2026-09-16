@@ -320,9 +320,10 @@ public sealed class WorldCheckpointStore
             var links = new List<(CitizenId, string)> { (citizen.Id, "subject") };
             if (citizen.ParentAId is { } parentA) links.Add((parentA, "parent"));
             if (citizen.ParentBId is { } parentB) links.Add((parentB, "parent"));
-            // M5 stores the parental household on the child.  It is exact at birth
-            // for this schema, so preserve it when present and omit it otherwise.
-            candidates.Add(new HistoryBackfillCandidate(citizen.BirthMinute, 3, citizen.Id.Value, 0, HistoricalEventType.CitizenBorn, HistoricalImportance.Notable, null, HistoricalEventPayloads.CitizenBorn(citizen.HouseholdId), links, Array.Empty<(StructureId, string)>()));
+            // M5 persists only the child's current household. A child may have
+            // moved households after birth, so the migration cannot infer an
+            // exact birth household from this state alone.
+            candidates.Add(new HistoryBackfillCandidate(citizen.BirthMinute, 3, citizen.Id.Value, 0, HistoricalEventType.CitizenBorn, HistoricalImportance.Notable, null, HistoricalEventPayloads.CitizenBorn(null), links, Array.Empty<(StructureId, string)>()));
         }
 
         foreach (var citizen in m5.Citizens.Where(x => x.DeathMinute is { } death && death >= 0 && death <= minute).OrderBy(x => x.DeathMinute).ThenBy(x => x.Id.Value))
