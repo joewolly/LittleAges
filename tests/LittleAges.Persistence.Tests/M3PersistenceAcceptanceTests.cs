@@ -60,7 +60,7 @@ public sealed class M3PersistenceAcceptanceTests
             await using var context = new LittleAgesDbContext(options);
             await context.Database.OpenConnectionAsync();
             var migrator = context.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>();
-            await migrator.MigrateAsync();
+            await migrator.MigrateAsync("20260912030000_M3Survival");
             await migrator.MigrateAsync("20260912020000_M2Citizens");
             await using var command = context.Database.GetDbConnection().CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('resource_state', 'settlement_state');";
@@ -200,20 +200,26 @@ public sealed class M3PersistenceAcceptanceTests
         await WithDatabaseAsync(async path =>
         {
             await CreateActualM0DatabaseAsync(path);
-            await using (var database = await WorldDatabase.OpenAsync(path))
+            await using (var context = await OpenSchemaContextAsync(path))
             {
-                var snapshot = await database.CreateCheckpointStore().LoadAsync();
+                await context.Database.MigrateAsync();
+                var store = new WorldCheckpointStore(context);
+                Assert.True(await store.UpgradeLegacyM0IfNeededAsync());
+                Assert.True(await store.UpgradeM1ToM2IfNeededAsync());
+                Assert.True(await store.UpgradeM2ToM3IfNeededAsync());
+                Assert.True(await store.UpgradeM3ToM4IfNeededAsync());
+                var snapshot = await store.LoadAsync();
                 Assert.Equal(1, snapshot.SurvivalVersion); Assert.Equal(20, snapshot.Citizens.Count); Assert.Equal(snapshot.World!.Resources.Count, snapshot.ResourceStates.Count); Assert.Equal(400, snapshot.Settlement!.FoodStored);
-                Assert.Equal(22 + 20 + 1 + 1 + 2, snapshot.ScheduledEvents.Count);
+                Assert.Equal(22 + 20 + 1 + 1, snapshot.ScheduledEvents.Count);
                 Assert.Equal(1, snapshot.SettlementVersion);
                 Assert.Equal(CitizenSimulationRules.BaseStorageCapacity, snapshot.Settlement.BaseStorageCapacity);
                 Assert.Equal(snapshot.WorldMinute.Value, snapshot.Settlement.DemandUpdatedMinute);
                 Assert.Equal(snapshot.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, snapshot.Settlement.ExposureConsequencesStartMinute);
-                Assert.Equal(53, snapshot.Counters.NextScheduledEventSequence);
+                Assert.Equal(51, snapshot.Counters.NextScheduledEventSequence);
                 Assert.Contains(snapshot.ScheduledEvents, item => item.Name == CitizenEventNames.SettlementEvaluateDemand && item.PayloadJson == "{\"version\":1}");
             }
-            await using var reopened = await WorldDatabase.OpenAsync(path);
-            var second = await reopened.CreateCheckpointStore().LoadAsync();
+            await using var reopenedContext = await OpenSchemaContextAsync(path);
+            var second = await new WorldCheckpointStore(reopenedContext).LoadAsync();
             Assert.Equal(1, second.SurvivalVersion); Assert.Equal(400, second.Settlement!.FoodStored); Assert.Equal(20, second.Citizens.Count);
         });
     }
@@ -299,6 +305,15 @@ public sealed class M3PersistenceAcceptanceTests
         await context.Database.OpenConnectionAsync();
         await context.Database.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>().MigrateAsync("20260912000000_InitialM0");
         await using var command = context.Database.GetDbConnection().CreateCommand(); command.CommandText = "INSERT INTO world_meta (id, world_seed, world_minute, world_schema_version, simulation_rules_version, application_version, world_configuration_json, next_entity_id, next_historical_event_id, next_scheduled_event_sequence, created_utc, last_checkpoint_utc) VALUES (1, '42', 0, '0.1', 'm0-rng1', 'm0-test', '{\"calendar\":\"m0\"}', 256, 512, 9, $now, $now); INSERT INTO scheduled_events (id, due_world_minute, priority, entity_sort_key, sequence, event_name, event_payload_json) VALUES (7, 1250, 10, 0, 7, 'legacy.event.a', '{}'), (8, 1300, 11, 0, 8, 'legacy.event.b', '{}');"; command.Parameters.Add(new SqliteParameter("$now", DateTime.UtcNow)); await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<LittleAgesDbContext> OpenSchemaContextAsync(string path)
+    {
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false, ForeignKeys = true }.ToString();
+        var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+        var context = new LittleAgesDbContext(options);
+        await context.Database.OpenConnectionAsync();
+        return context;
     }
 
     private static async Task WithDatabaseAsync(Func<string, Task> test)

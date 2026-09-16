@@ -17,7 +17,7 @@ public sealed class M5PersistenceMatrixTests
         Directory.CreateDirectory(directory);
         try
         {
-            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
             var citizens = Citizens(engine);
             var first = citizens[1];
             var second = citizens[2];
@@ -88,7 +88,7 @@ public sealed class M5PersistenceMatrixTests
         Directory.CreateDirectory(directory);
         try
         {
-            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
             var citizens = Citizens(engine);
             var first = citizens[1];
             var second = citizens[2];
@@ -216,7 +216,7 @@ public sealed class M5PersistenceMatrixTests
     };
     private static SimulationEngine PrepareRestHomeScenario()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var citizens = Citizens(engine);
         var first = citizens[1];
         var second = citizens[2];

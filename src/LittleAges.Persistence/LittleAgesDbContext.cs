@@ -15,6 +15,12 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
     public DbSet<StructureContributionRow> StructureContributions => Set<StructureContributionRow>();
     public DbSet<RelationshipRow> Relationships => Set<RelationshipRow>();
     public DbSet<HouseholdRow> Households => Set<HouseholdRow>();
+    public DbSet<HistoricalEventRow> HistoricalEvents => Set<HistoricalEventRow>();
+    public DbSet<HistoricalEventCitizenLinkRow> HistoricalEventCitizens => Set<HistoricalEventCitizenLinkRow>();
+    public DbSet<HistoricalEventStructureLinkRow> HistoricalEventStructures => Set<HistoricalEventStructureLinkRow>();
+    public DbSet<HistoryStateRow> HistoryStates => Set<HistoryStateRow>();
+    public DbSet<StatisticsSampleRow> StatisticsSamples => Set<StatisticsSampleRow>();
+    public DbSet<CitizenMemoryRow> Memories => Set<CitizenMemoryRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,6 +32,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
                 table.HasCheckConstraint("CK_world_meta_survival_version", "survival_version IN (0, 1)");
                 table.HasCheckConstraint("CK_world_meta_settlement_version", "settlement_version IN (0, 1)");
                 table.HasCheckConstraint("CK_world_meta_social_version", "social_version IN (0, 1)");
+                table.HasCheckConstraint("CK_world_meta_history_version", "history_version IN (0, 1)");
             });
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
@@ -44,6 +51,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.SurvivalVersion).HasColumnName("survival_version").IsRequired();
             entity.Property(row => row.SettlementVersion).HasColumnName("settlement_version").IsRequired();
             entity.Property(row => row.SocialVersion).HasColumnName("social_version").IsRequired();
+            entity.Property(row => row.HistoryVersion).HasColumnName("history_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();
             entity.Property(row => row.NextScheduledEventSequence).HasColumnName("next_scheduled_event_sequence").IsRequired();
@@ -150,6 +158,105 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
         {
             entity.ToTable("households", table => table.HasCheckConstraint("CK_households_minutes", "id > 0 AND created_minute >= 0 AND (dissolved_minute IS NULL OR dissolved_minute >= created_minute) AND (dwelling_structure_id IS NULL OR dwelling_structure_id > 0)"));
             entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever(); entity.Property(row => row.CreatedMinute).HasColumnName("created_minute"); entity.Property(row => row.DissolvedMinute).HasColumnName("dissolved_minute"); entity.Property(row => row.DwellingStructureId).HasColumnName("dwelling_structure_id");
+        });
+
+        modelBuilder.Entity<HistoricalEventRow>(entity =>
+        {
+            entity.ToTable("historical_events", table =>
+            {
+                table.HasCheckConstraint("CK_historical_events_id", "id > 0");
+                table.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 15 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
+            });
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(row => row.WorldMinute).HasColumnName("world_minute").IsRequired();
+            entity.Property(row => row.EventType).HasColumnName("event_type").IsRequired();
+            entity.Property(row => row.Importance).HasColumnName("importance").IsRequired();
+            entity.Property(row => row.Origin).HasColumnName("origin").IsRequired();
+            entity.Property(row => row.LocationX).HasColumnName("location_x");
+            entity.Property(row => row.LocationY).HasColumnName("location_y");
+            entity.Property(row => row.PayloadJson).HasColumnName("payload_json").HasColumnType("TEXT").IsRequired();
+            entity.Property(row => row.SchemaVersion).HasColumnName("schema_version").IsRequired();
+            entity.HasIndex(row => new { row.WorldMinute, row.Id });
+            entity.HasIndex(row => row.EventType);
+            entity.HasIndex(row => row.Importance);
+        });
+
+        modelBuilder.Entity<HistoricalEventCitizenLinkRow>(entity =>
+        {
+            entity.ToTable("historical_event_citizens", table => table.HasCheckConstraint("CK_historical_event_citizens_values", "event_id > 0 AND citizen_id > 0 AND role IN ('subject','parent','partner','founder','participant','member','contributor')"));
+            entity.HasKey(row => new { row.EventId, row.CitizenId, row.Role });
+            entity.Property(row => row.EventId).HasColumnName("event_id");
+            entity.Property(row => row.CitizenId).HasColumnName("citizen_id");
+            entity.Property(row => row.Role).HasColumnName("role").HasColumnType("TEXT").IsRequired();
+            entity.HasOne<HistoricalEventRow>().WithMany().HasForeignKey(row => row.EventId).OnDelete(DeleteBehavior.Cascade).IsRequired();
+            entity.HasOne<CitizenRow>().WithMany().HasForeignKey(row => row.CitizenId).OnDelete(DeleteBehavior.Restrict).IsRequired();
+            entity.HasIndex(row => row.CitizenId);
+            entity.HasIndex(row => row.EventId);
+        });
+
+        modelBuilder.Entity<HistoricalEventStructureLinkRow>(entity =>
+        {
+            entity.ToTable("historical_event_structures", table => table.HasCheckConstraint("CK_historical_event_structures_values", "event_id > 0 AND structure_id > 0 AND role = 'subject'"));
+            entity.HasKey(row => new { row.EventId, row.StructureId, row.Role });
+            entity.Property(row => row.EventId).HasColumnName("event_id");
+            entity.Property(row => row.StructureId).HasColumnName("structure_id");
+            entity.Property(row => row.Role).HasColumnName("role").HasColumnType("TEXT").IsRequired();
+            entity.HasOne<HistoricalEventRow>().WithMany().HasForeignKey(row => row.EventId).OnDelete(DeleteBehavior.Cascade).IsRequired();
+            entity.HasOne<StructureRow>().WithMany().HasForeignKey(row => row.StructureId).OnDelete(DeleteBehavior.Restrict).IsRequired();
+            entity.HasIndex(row => row.StructureId);
+            entity.HasIndex(row => row.EventId);
+        });
+
+        modelBuilder.Entity<HistoryStateRow>(entity =>
+        {
+            entity.ToTable("history_state", table => table.HasCheckConstraint("CK_history_state_singleton", "id = 1"));
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(row => row.HistoryStartMinute).HasColumnName("history_start_minute").IsRequired();
+            entity.Property(row => row.HistoryStartEventId).HasColumnName("history_start_event_id").IsRequired();
+            entity.Property(row => row.PeriodStartMinute).HasColumnName("period_start_minute").IsRequired();
+            entity.Property(row => row.BirthsSinceSample).HasColumnName("births_since_sample").IsRequired();
+            entity.Property(row => row.DeathsSinceSample).HasColumnName("deaths_since_sample").IsRequired();
+            entity.Property(row => row.FoodProducedSinceSample).HasColumnName("food_produced_since_sample").IsRequired();
+            entity.Property(row => row.FoodConsumedSinceSample).HasColumnName("food_consumed_since_sample").IsRequired();
+            entity.Property(row => row.ActiveFoodShortage).HasColumnName("active_food_shortage").IsRequired();
+            entity.Property(row => row.PopulationMilestoneWatermark).HasColumnName("population_milestone_watermark").IsRequired();
+        });
+
+        modelBuilder.Entity<StatisticsSampleRow>(entity =>
+        {
+            entity.ToTable("statistics_samples", table => table.HasCheckConstraint("CK_statistics_samples_values", "world_minute >= 0 AND period_start_minute >= 0 AND period_start_minute <= world_minute AND population >= 0 AND births_period >= 0 AND deaths_period >= 0 AND food_stored >= 0 AND food_produced_period >= 0 AND food_consumed_period >= 0 AND wood_stored >= 0 AND stone_stored >= 0 AND shelter_capacity >= 0 AND average_health BETWEEN 0 AND 10000 AND average_hunger BETWEEN 0 AND 10000"));
+            entity.HasKey(row => row.WorldMinute);
+            entity.Property(row => row.WorldMinute).HasColumnName("world_minute").ValueGeneratedNever();
+            entity.Property(row => row.PeriodStartMinute).HasColumnName("period_start_minute").IsRequired();
+            entity.Property(row => row.Population).HasColumnName("population").IsRequired();
+            entity.Property(row => row.BirthsPeriod).HasColumnName("births_period").IsRequired();
+            entity.Property(row => row.DeathsPeriod).HasColumnName("deaths_period").IsRequired();
+            entity.Property(row => row.FoodStored).HasColumnName("food_stored").IsRequired();
+            entity.Property(row => row.FoodProducedPeriod).HasColumnName("food_produced_period").IsRequired();
+            entity.Property(row => row.FoodConsumedPeriod).HasColumnName("food_consumed_period").IsRequired();
+            entity.Property(row => row.WoodStored).HasColumnName("wood_stored").IsRequired();
+            entity.Property(row => row.StoneStored).HasColumnName("stone_stored").IsRequired();
+            entity.Property(row => row.ShelterCapacity).HasColumnName("shelter_capacity").IsRequired();
+            entity.Property(row => row.AverageHealth).HasColumnName("average_health").IsRequired();
+            entity.Property(row => row.AverageHunger).HasColumnName("average_hunger").IsRequired();
+            entity.HasIndex(row => row.WorldMinute);
+        });
+
+        modelBuilder.Entity<CitizenMemoryRow>(entity =>
+        {
+            entity.ToTable("memories", table => table.HasCheckConstraint("CK_memories_values", "citizen_id > 0 AND event_id > 0 AND memory_type BETWEEN 1 AND 6 AND importance BETWEEN 0 AND 5 AND emotional_valence BETWEEN -10000 AND 10000 AND created_minute >= 0"));
+            entity.HasKey(row => new { row.CitizenId, row.EventId, row.MemoryType });
+            entity.Property(row => row.CitizenId).HasColumnName("citizen_id");
+            entity.Property(row => row.EventId).HasColumnName("event_id");
+            entity.Property(row => row.MemoryType).HasColumnName("memory_type");
+            entity.Property(row => row.Importance).HasColumnName("importance");
+            entity.Property(row => row.EmotionalValence).HasColumnName("emotional_valence");
+            entity.Property(row => row.CreatedMinute).HasColumnName("created_minute");
+            entity.HasOne<HistoricalEventRow>().WithMany().HasForeignKey(row => row.EventId).OnDelete(DeleteBehavior.Cascade).IsRequired();
+            entity.HasOne<CitizenRow>().WithMany().HasForeignKey(row => row.CitizenId).OnDelete(DeleteBehavior.Restrict).IsRequired();
+            entity.HasIndex(row => row.CitizenId);
         });
 
         modelBuilder.Entity<ResourceStateRow>(entity =>

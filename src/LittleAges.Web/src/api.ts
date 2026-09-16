@@ -138,6 +138,95 @@ export type Structure = {
 
 export type Map = { width: number; height: number; terrain: number[]; startingSite: { x: number; y: number } }
 
+export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted'] as const
+export type HistoricalEventType = typeof HISTORICAL_EVENT_TYPES[number]
+export const HISTORICAL_IMPORTANCES = ['Debug', 'Routine', 'Personal', 'Notable', 'Major', 'Historic'] as const
+export type HistoricalImportance = typeof HISTORICAL_IMPORTANCES[number]
+export const HISTORICAL_ORIGINS = ['Live', 'MigrationBackfill'] as const
+export type HistoricalEventOrigin = typeof HISTORICAL_ORIGINS[number]
+export const MEMORY_TYPES = ['ChildBorn', 'PartnerDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'StructureCompleted'] as const
+export type MemoryType = typeof MEMORY_TYPES[number]
+
+export type HistoricalCitizenLink = { eventId: string; citizenId: string; role: string }
+export type HistoricalStructureLink = { eventId: string; structureId: string; role: string }
+export type HistoricalEvent = {
+  eventId: string
+  historicalEventId: string
+  worldMinute: number
+  eventType: HistoricalEventType
+  importance: HistoricalImportance
+  origin: HistoricalEventOrigin
+  location: { x: number; y: number } | null
+  payloadJson: string
+  schemaVersion: number
+  summary: string
+  citizenLinks: HistoricalCitizenLink[]
+  structureLinks: HistoricalStructureLink[]
+}
+
+export type HistoryState = {
+  historyStartMinute: number
+  historyStartEventId: string
+  periodStartMinute: number
+  birthsSinceSample: number
+  deathsSinceSample: number
+  foodProducedSinceSample: number
+  foodConsumedSinceSample: number
+  activeFoodShortage: boolean
+  populationMilestoneWatermark: number
+}
+
+export type StatisticsSample = {
+  worldMinute: number
+  periodStartMinute: number
+  population: number
+  birthsPeriod: number
+  deathsPeriod: number
+  foodStored: number
+  foodProducedPeriod: number
+  foodConsumedPeriod: number
+  woodStored: number
+  stoneStored: number
+  shelterCapacity: number
+  averageHealth: number
+  averageHunger: number
+}
+
+export type CitizenMemory = {
+  citizenId: string
+  eventId: string
+  memoryType: MemoryType
+  importance: HistoricalImportance
+  emotionalValence: number
+  createdMinute: number
+}
+
+export type CitizenBiography = {
+  citizen: Citizen
+  events: HistoricalEvent[]
+  memories: CitizenMemory[]
+  parentIds: string[]
+  partnerId: string | null
+  childrenIds: string[]
+  birthMinute: number | null
+  deathMinute: number | null
+  deathCause: string | null
+}
+
+export type HistoryQuery = {
+  fromMinute?: number
+  toMinute?: number
+  eventType?: HistoricalEventType
+  minimumImportance?: number
+  citizenId?: string
+  familyCitizenId?: string
+  structureId?: string
+  beforeEventId?: string
+  limit?: number
+}
+
+export type StatisticsQuery = Pick<HistoryQuery, 'fromMinute' | 'toMinute' | 'limit'>
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
@@ -179,6 +268,244 @@ async function get(path: string): Promise<unknown> {
 export async function fetchHealth(): Promise<Health> { return parseHealth(await get('/api/v1/health')) }
 export async function fetchStatus(): Promise<Status> { return parseStatus(await get('/api/v1/status')) }
 
+const HISTORICAL_CITIZEN_ROLES = ['subject', 'parent', 'partner', 'founder', 'participant', 'member', 'contributor'] as const
+const HISTORICAL_STRUCTURE_ROLES = ['subject'] as const
+
+function parseRequiredInteger(value: unknown, message: string, minimum = Number.MIN_SAFE_INTEGER, maximum = Number.MAX_SAFE_INTEGER): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum || value > maximum) throw new Error(message)
+  return value
+}
+
+function parseHistoryEnum<T extends readonly string[]>(value: unknown, values: T, message: string): T[number] {
+  if (typeof value !== 'string' || !values.includes(value)) throw new Error(message)
+  return value as T[number]
+}
+
+function parseCanonicalPayload(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') throw new Error('The server returned an invalid historical payload.')
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!isRecord(parsed) || Array.isArray(parsed)) throw new Error('not an object')
+    return value
+  } catch {
+    throw new Error('The server returned an invalid historical payload.')
+  }
+}
+
+function compareDecimalIds(first: string, second: string): number {
+  const a = BigInt(first)
+  const b = BigInt(second)
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+function parseHistoricalCitizenLink(value: unknown, eventId: string): HistoricalCitizenLink {
+  if (!isRecord(value) || value.eventId !== eventId || typeof value.role !== 'string' || !HISTORICAL_CITIZEN_ROLES.includes(value.role as typeof HISTORICAL_CITIZEN_ROLES[number])) throw new Error('The server returned an invalid historical citizen link.')
+  return { eventId, citizenId: parsePositiveDecimalId(value.citizenId, 'The server returned an invalid historical citizen link citizen ID.'), role: value.role }
+}
+
+function parseHistoricalStructureLink(value: unknown, eventId: string): HistoricalStructureLink {
+  if (!isRecord(value) || value.eventId !== eventId || typeof value.role !== 'string' || !HISTORICAL_STRUCTURE_ROLES.includes(value.role as typeof HISTORICAL_STRUCTURE_ROLES[number])) throw new Error('The server returned an invalid historical structure link.')
+  return { eventId, structureId: parsePositiveDecimalId(value.structureId, 'The server returned an invalid historical structure link structure ID.'), role: value.role }
+}
+
+export function parseHistoricalEvent(value: unknown): HistoricalEvent {
+  if (!isRecord(value) || typeof value.eventId !== 'string' || value.historicalEventId !== value.eventId || value.location === undefined || !Array.isArray(value.citizenLinks) || !Array.isArray(value.structureLinks) || typeof value.summary !== 'string') throw new Error('The server returned an invalid historical event.')
+  const eventId = parsePositiveDecimalId(value.eventId, 'The server returned an invalid historical event ID.')
+  const worldMinute = parseRequiredNonNegativeInteger(value.worldMinute, 'The server returned an invalid historical event minute.')
+  const eventType = parseHistoryEnum(value.eventType, HISTORICAL_EVENT_TYPES, 'The server returned an invalid historical event type.')
+  const importance = parseHistoryEnum(value.importance, HISTORICAL_IMPORTANCES, 'The server returned an invalid historical event importance.')
+  const origin = parseHistoryEnum(value.origin, HISTORICAL_ORIGINS, 'The server returned an invalid historical event origin.')
+  const location = value.location === null ? null : parseCoordinate(value.location, 'The server returned an invalid historical event location.')
+  const schemaVersion = parseRequiredNonNegativeInteger(value.schemaVersion, 'The server returned an invalid historical event schema version.')
+  if (schemaVersion !== 1) throw new Error('The server returned an unsupported historical event schema version.')
+  const citizenLinks = value.citizenLinks.map(link => parseHistoricalCitizenLink(link, eventId))
+  const structureLinks = value.structureLinks.map(link => parseHistoricalStructureLink(link, eventId))
+  for (let index = 1; index < citizenLinks.length; index += 1) {
+    const previous = citizenLinks[index - 1]
+    const current = citizenLinks[index]
+    if (compareDecimalIds(previous.citizenId, current.citizenId) >= 0 || (previous.citizenId === current.citizenId && previous.role >= current.role)) throw new Error('The server returned historical citizen links out of canonical order.')
+  }
+  for (let index = 1; index < structureLinks.length; index += 1) {
+    const previous = structureLinks[index - 1]
+    const current = structureLinks[index]
+    if (compareDecimalIds(previous.structureId, current.structureId) >= 0 || (previous.structureId === current.structureId && previous.role >= current.role)) throw new Error('The server returned historical structure links out of canonical order.')
+  }
+  return {
+    eventId,
+    historicalEventId: eventId,
+    worldMinute,
+    eventType,
+    importance,
+    origin,
+    location,
+    payloadJson: parseCanonicalPayload(value.payloadJson),
+    schemaVersion,
+    summary: value.summary,
+    citizenLinks,
+    structureLinks,
+  }
+}
+
+function parseHistoricalEventList(value: unknown): HistoricalEvent[] {
+  if (!Array.isArray(value)) throw new Error('The server returned an invalid historical event list.')
+  const events = value.map(parseHistoricalEvent)
+  const ids = new Set<string>()
+  for (const event of events) {
+    if (ids.has(event.eventId)) throw new Error('The server returned duplicate historical events.')
+    ids.add(event.eventId)
+  }
+  return events
+}
+
+export function parseHistory(value: unknown): HistoricalEvent[] {
+  const events = parseHistoricalEventList(value)
+  for (let index = 1; index < events.length; index += 1) {
+    const previous = events[index - 1]
+    const current = events[index]
+    if (previous.worldMinute < current.worldMinute || (previous.worldMinute === current.worldMinute && compareDecimalIds(previous.eventId, current.eventId) <= 0)) throw new Error('The server returned history out of canonical order.')
+  }
+  return events
+}
+
+function parseBiographyEvents(value: unknown): HistoricalEvent[] {
+  const events = parseHistoricalEventList(value)
+  for (let index = 1; index < events.length; index += 1) {
+    const previous = events[index - 1]
+    const current = events[index]
+    if (previous.worldMinute > current.worldMinute || (previous.worldMinute === current.worldMinute && compareDecimalIds(previous.eventId, current.eventId) >= 0)) throw new Error('The server returned biography events out of canonical order.')
+  }
+  return events
+}
+
+export function parseCitizenMemory(value: unknown): CitizenMemory {
+  if (!isRecord(value)) throw new Error('The server returned an invalid citizen memory.')
+  const citizenId = parsePositiveDecimalId(value.citizenId, 'The server returned an invalid citizen memory citizen ID.')
+  const eventId = parsePositiveDecimalId(value.eventId, 'The server returned an invalid citizen memory event ID.')
+  const memoryType = parseHistoryEnum(value.memoryType, MEMORY_TYPES, 'The server returned an invalid citizen memory type.')
+  const importance = parseHistoryEnum(value.importance, HISTORICAL_IMPORTANCES, 'The server returned an invalid citizen memory importance.')
+  const emotionalValence = parseRequiredInteger(value.emotionalValence, 'The server returned an invalid citizen memory valence.', -10000, 10000)
+  const createdMinute = parseRequiredNonNegativeInteger(value.createdMinute, 'The server returned an invalid citizen memory minute.')
+  return { citizenId, eventId, memoryType, importance, emotionalValence, createdMinute }
+}
+
+function parseCitizenMemories(value: unknown, citizenId?: string): CitizenMemory[] {
+  if (!Array.isArray(value)) throw new Error('The server returned an invalid citizen memory list.')
+  const memories = value.map(parseCitizenMemory)
+  const keys = new Set<string>()
+  for (const memory of memories) {
+    if (citizenId !== undefined && memory.citizenId !== citizenId) throw new Error('The server returned a memory for another citizen.')
+    const key = `${memory.citizenId}:${memory.eventId}:${memory.memoryType}`
+    if (keys.has(key)) throw new Error('The server returned duplicate citizen memories.')
+    keys.add(key)
+  }
+  return memories
+}
+
+export function parseBiography(value: unknown): CitizenBiography {
+  if (!isRecord(value) || value.citizen === undefined || value.events === undefined || value.memories === undefined || !Array.isArray(value.parentIds) || !Array.isArray(value.childrenIds)) throw new Error('The server returned an invalid citizen biography.')
+  const citizenList = parseCitizens([value.citizen])
+  if (citizenList.length !== 1) throw new Error('The server returned an invalid citizen biography citizen.')
+  const citizen = citizenList[0]
+  const parentIds = parseCanonicalIdList(value.parentIds, 'The server returned invalid biography parent IDs.')
+  const childrenIds = parseCanonicalIdList(value.childrenIds, 'The server returned invalid biography children IDs.')
+  const partnerId = parseNullablePositiveDecimalId(value.partnerId, 'The server returned an invalid biography partner ID.')
+  const birthMinute = parseNullableSignedInteger(value.birthMinute, 'The server returned an invalid biography birth minute.')
+  const deathMinute = parseNullableNonNegativeInteger(value.deathMinute, 'The server returned an invalid biography death minute.')
+  const deathCause = parseNullableString(value.deathCause, 'The server returned an invalid biography death cause.')
+  if (deathMinute !== null && birthMinute !== null && deathMinute < birthMinute) throw new Error('The server returned an incoherent biography timeline.')
+  const events = parseBiographyEvents(value.events)
+  const memories = parseCitizenMemories(value.memories, citizen.citizenId)
+  return { citizen, events, memories, parentIds, partnerId, childrenIds, birthMinute, deathMinute, deathCause }
+}
+
+export function parseStatistics(value: unknown): StatisticsSample[] {
+  if (!Array.isArray(value)) throw new Error('The server returned an invalid statistics list.')
+  const samples = value.map(item => {
+    if (!isRecord(item)) throw new Error('The server returned an invalid statistics sample.')
+    return {
+      worldMinute: parseRequiredNonNegativeInteger(item.worldMinute, 'The server returned an invalid statistics sample minute.'),
+      periodStartMinute: parseRequiredNonNegativeInteger(item.periodStartMinute, 'The server returned an invalid statistics period minute.'),
+      population: parseRequiredNonNegativeInteger(item.population, 'The server returned an invalid statistics population.'),
+      birthsPeriod: parseRequiredNonNegativeInteger(item.birthsPeriod, 'The server returned an invalid statistics births.'),
+      deathsPeriod: parseRequiredNonNegativeInteger(item.deathsPeriod, 'The server returned an invalid statistics deaths.'),
+      foodStored: parseRequiredNonNegativeInteger(item.foodStored, 'The server returned an invalid statistics food stock.'),
+      foodProducedPeriod: parseRequiredNonNegativeInteger(item.foodProducedPeriod, 'The server returned an invalid statistics food production.'),
+      foodConsumedPeriod: parseRequiredNonNegativeInteger(item.foodConsumedPeriod, 'The server returned an invalid statistics food consumption.'),
+      woodStored: parseRequiredNonNegativeInteger(item.woodStored, 'The server returned an invalid statistics wood stock.'),
+      stoneStored: parseRequiredNonNegativeInteger(item.stoneStored, 'The server returned an invalid statistics stone stock.'),
+      shelterCapacity: parseRequiredNonNegativeInteger(item.shelterCapacity, 'The server returned an invalid statistics shelter capacity.'),
+      averageHealth: parseRequiredInteger(item.averageHealth, 'The server returned an invalid statistics health.', 0, 10000),
+      averageHunger: parseRequiredInteger(item.averageHunger, 'The server returned an invalid statistics hunger.', 0, 10000),
+    }
+  })
+  const minutes = new Set<number>()
+  for (let index = 0; index < samples.length; index += 1) {
+    if (minutes.has(samples[index].worldMinute) || (index > 0 && samples[index - 1].worldMinute >= samples[index].worldMinute)) throw new Error('The server returned statistics out of canonical order.')
+    if (samples[index].periodStartMinute > samples[index].worldMinute) throw new Error('The server returned an incoherent statistics period.')
+    minutes.add(samples[index].worldMinute)
+  }
+  return samples
+}
+
+function queryInteger(value: number | undefined, name: string, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): string | undefined {
+  if (value === undefined) return undefined
+  return String(parseRequiredInteger(value, `Invalid ${name}.`, minimum, maximum))
+}
+
+function queryId(value: string | undefined, name: string): string | undefined {
+  return value === undefined ? undefined : parsePositiveDecimalId(value, `Invalid ${name}.`)
+}
+
+export function buildHistoryQuery(query: HistoryQuery = {}): string {
+  const params = new URLSearchParams()
+  const fromMinute = queryInteger(query.fromMinute, 'fromMinute')
+  const toMinute = queryInteger(query.toMinute, 'toMinute')
+  if (fromMinute !== undefined && toMinute !== undefined && Number(query.fromMinute) > Number(query.toMinute)) throw new Error('Invalid minute range.')
+  if (fromMinute !== undefined) params.set('fromMinute', fromMinute)
+  if (toMinute !== undefined) params.set('toMinute', toMinute)
+  if (query.eventType !== undefined) params.set('eventType', parseHistoryEnum(query.eventType, HISTORICAL_EVENT_TYPES, 'Invalid eventType.'))
+  params.set('minimumImportance', queryInteger(query.minimumImportance ?? 2, 'minimumImportance', 0, 5)!)
+  const citizenId = queryId(query.citizenId, 'citizenId')
+  const familyCitizenId = queryId(query.familyCitizenId, 'familyCitizenId')
+  const structureId = queryId(query.structureId, 'structureId')
+  const beforeEventId = queryId(query.beforeEventId, 'beforeEventId')
+  if (citizenId !== undefined) params.set('citizenId', citizenId)
+  if (familyCitizenId !== undefined) params.set('familyCitizenId', familyCitizenId)
+  if (structureId !== undefined) params.set('structureId', structureId)
+  if (beforeEventId !== undefined) params.set('beforeEventId', beforeEventId)
+  params.set('limit', queryInteger(query.limit ?? 50, 'limit', 1, 100)!)
+  return params.toString()
+}
+
+export function buildStatisticsQuery(query: StatisticsQuery = {}): string {
+  const params = new URLSearchParams()
+  const fromMinute = queryInteger(query.fromMinute, 'fromMinute')
+  const toMinute = queryInteger(query.toMinute, 'toMinute')
+  if (fromMinute !== undefined && toMinute !== undefined && Number(query.fromMinute) > Number(query.toMinute)) throw new Error('Invalid minute range.')
+  if (fromMinute !== undefined) params.set('fromMinute', fromMinute)
+  if (toMinute !== undefined) params.set('toMinute', toMinute)
+  params.set('limit', queryInteger(query.limit ?? 50, 'limit', 1, 100)!)
+  return params.toString()
+}
+
+export async function fetchHistory(query: HistoryQuery = {}): Promise<HistoricalEvent[]> {
+  const suffix = buildHistoryQuery(query)
+  return parseHistory(await get(`/api/v1/history?${suffix}`))
+}
+
+export async function fetchHistoryEvent(eventId: string): Promise<HistoricalEvent> {
+  return parseHistoricalEvent(await get(`/api/v1/history/${encodeURIComponent(parsePositiveDecimalId(eventId, 'Invalid historical event ID.'))}`))
+}
+
+export async function fetchBiography(citizenId: string): Promise<CitizenBiography> {
+  return parseBiography(await get(`/api/v1/citizens/${encodeURIComponent(parsePositiveDecimalId(citizenId, 'Invalid citizen ID.'))}/biography`))
+}
+
+export async function fetchStatistics(query: StatisticsQuery = {}): Promise<StatisticsSample[]> {
+  const suffix = buildStatisticsQuery(query)
+  return parseStatistics(await get(`/api/v1/statistics?${suffix}`))
+}
+
 const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize'] as const
 const ACTION_PHASES = ['None', 'TravelToTarget', 'Perform', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction', 'WaitingForStorage'] as const
 const RESOURCE_TYPES = ['Food', 'Wood', 'Stone'] as const
@@ -200,6 +527,11 @@ function parseRequiredNonNegativeInteger(value: unknown, message: string): numbe
 function parseNullableNonNegativeInteger(value: unknown, message: string): number | null {
   if (value === null || value === undefined) return null
   return parseRequiredNonNegativeInteger(value, message)
+}
+
+function parseNullableSignedInteger(value: unknown, message: string): number | null {
+  if (value === null || value === undefined) return null
+  return parseRequiredInteger(value, message)
 }
 
 function parseNullableString(value: unknown, message: string): string | null {

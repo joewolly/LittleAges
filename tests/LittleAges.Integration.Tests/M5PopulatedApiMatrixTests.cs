@@ -66,7 +66,7 @@ public sealed class M5PopulatedApiMatrixTests
 
     private static async Task WritePopulatedCheckpointAsync(string path)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var citizens = Citizens(engine);
         var first = citizens[1];
         var second = citizens[2];

@@ -22,6 +22,7 @@ public sealed class WorldMetaRow
     public int SurvivalVersion { get; set; }
     public int SettlementVersion { get; set; }
     public int SocialVersion { get; set; }
+    public int HistoryVersion { get; set; }
     public long NextEntityId { get; set; }
     public long NextHistoricalEventId { get; set; }
     public long NextScheduledEventSequence { get; set; }

@@ -217,7 +217,7 @@ public sealed class M5AcceptanceMatrixTests
     [Fact]
     public void M5ValidationRejectsRelationshipHouseholdAndFamilyGraphCorruption()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var people = source.Citizens.ToArray();
         Assert.Throws<ArgumentException>(() => new SimulationPersistenceSnapshot(source.Seed, source.WorldMinute, source.WorldSchemaVersion, source.SimulationRulesVersion, source.ApplicationVersion, source.WorldConfiguration, source.Counters, source.ScheduledEvents, source.World, people, source.CitizenGenerationVersion, source.ResourceStates, source.Settlement, source.SurvivalVersion, source.SettlementVersion, source.Structures, source.StructureContributions, source.SocialVersion, [new RelationshipState(people[1].Id, people[0].Id, 1, 0, 0, 0, 0, 1)], source.Households));
 
@@ -269,7 +269,7 @@ public sealed class M5AcceptanceMatrixTests
     [Fact]
     public void NaturalDeathDuringAnActualSocializeCancelsTargetAndLeavesOneDecisionFlow()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         Citizen? initiator = null;
         while (engine.NextScheduledEventMinute is { } due && due < new WorldMinute(14L * WorldCalendar.MinutesPerDay))
         {
@@ -437,16 +437,16 @@ public sealed class M5AcceptanceMatrixTests
     public void ChunkingReloadAndAggressiveObserverReadsAreSocialFingerprintIndependent()
     {
         var target = new WorldMinute(28L * WorldCalendar.MinutesPerDay);
-        var oneShot = Advance(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion), target, [target.Value]);
-        var fixedChunks = Advance(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion), target, Enumerable.Range(1, 28).Select(day => (long)day * WorldCalendar.MinutesPerDay));
-        var irregular = Advance(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion), target, [37L, 211L, 1_037L, 8_001L, target.Value]);
-        var reloaded = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var oneShot = Advance(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion), target, [target.Value]);
+        var fixedChunks = Advance(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion), target, Enumerable.Range(1, 28).Select(day => (long)day * WorldCalendar.MinutesPerDay));
+        var irregular = Advance(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion), target, [37L, 211L, 1_037L, 8_001L, target.Value]);
+        var reloaded = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         for (var day = 1; day <= 28; day++)
         {
             reloaded.AdvanceUntil(new WorldMinute(day * WorldCalendar.MinutesPerDay));
             reloaded = SimulationEngine.FromPersistenceSnapshot(reloaded.CreatePersistenceSnapshot());
         }
-        var observed = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var observed = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         while (observed.NextScheduledEventMinute is { } due && due <= target) { _ = observed.CreateReadSnapshot(); _ = observed.Citizens; _ = observed.Relationships; _ = observed.Households; observed.ProcessNextEvent(); }
         observed.AdvanceUntil(target);
 
@@ -462,7 +462,7 @@ public sealed class M5AcceptanceMatrixTests
     [InlineData(ulong.MaxValue, 7L)]
     public void M5SocialFingerprintGoldenVectorsRemainLocked(ulong seed, long days)
     {
-        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(days * WorldCalendar.MinutesPerDay));
         Assert.NotEmpty(engine.Relationships);
         Assert.Contains(engine.Relationships, relationship => RelationshipLabels.Derive(relationship, false, false) != RelationshipLabels.Stranger);
@@ -485,7 +485,7 @@ public sealed class M5AcceptanceMatrixTests
 
     private static SimulationEngine PrepareSocialEngine(ulong seed)
     {
-        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var people = Citizens(engine);
         people[1].Location = new TileCoordinate(20, 20);
         people[2].Location = new TileCoordinate(21, 20);
@@ -509,7 +509,7 @@ public sealed class M5AcceptanceMatrixTests
 
     private static TwoBirthSetup PrepareTwoBirthHouseholdEngine(ulong seed)
     {
-        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, captureFamilyCheckDiagnostics: true);
+        var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion, captureFamilyCheckDiagnostics: true);
         var people = Citizens(engine);
         var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
         var sites = engine.World.Tiles.Where(tile => tile.Buildable && tile.Coordinate != engine.World.StartingSite && engine.World.GetResources(tile.Coordinate).Count == 0).Select(tile => tile.Coordinate).Take(2).ToArray();
