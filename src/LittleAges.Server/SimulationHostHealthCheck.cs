@@ -10,6 +10,16 @@ public sealed class SimulationHostHealthCheck(SimulationHost simulationHost) : I
         _ = context;
         _ = cancellationToken;
         var status = simulationHost.Observation.Status;
+        if (status.PersistenceState == PersistenceState.Faulted)
+        {
+            return Task.FromResult(HealthCheckResult.Unhealthy(status.Error ?? "Simulation persistence is faulted."));
+        }
+
+        if (status.PersistenceState == PersistenceState.Degraded)
+        {
+            return Task.FromResult(HealthCheckResult.Degraded("Simulation persistence is degraded."));
+        }
+
         return Task.FromResult(status.State switch
         {
             SimulationHostState.Running => HealthCheckResult.Healthy("The simulation host is running."),

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Server;
@@ -395,7 +396,12 @@ public sealed class ServerIntegrationTests
         using var status = JsonDocument.Parse(await (await client.GetAsync("/api/v1/status")).Content.ReadAsStringAsync());
         using var citizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
         using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
-        return string.Concat(status.RootElement.GetRawText(), "|", citizens.RootElement.GetRawText(), "|", settlement.RootElement.GetRawText());
+        var canonicalStatus = JsonNode.Parse(status.RootElement.GetRawText())!.AsObject();
+        canonicalStatus.Remove("persistenceState");
+        canonicalStatus.Remove("lastSuccessfulCheckpointWorldMinute");
+        canonicalStatus.Remove("lastSuccessfulCheckpointUtc");
+        canonicalStatus.Remove("consecutiveCheckpointFailures");
+        return string.Concat(canonicalStatus.ToJsonString(), "|", citizens.RootElement.GetRawText(), "|", settlement.RootElement.GetRawText());
     }
 
     [Fact]
@@ -794,7 +800,7 @@ public sealed class ServerIntegrationTests
         throw new InvalidOperationException($"The simulation host did not reach {expectedState} state.");
     }
 
-    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world", double simulationMinutesPerSecond = 10)
+    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world", double simulationMinutesPerSecond = 10, int checkpointRetryCount = 0)
     {
         var builder = Host.CreateApplicationBuilder();
         var options = new ServerOptions
@@ -803,7 +809,8 @@ public sealed class ServerIntegrationTests
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(17),
             ListenUrls = ServerOptions.DefaultListenUrls,
-            SimulationMinutesPerSecond = simulationMinutesPerSecond
+            SimulationMinutesPerSecond = simulationMinutesPerSecond,
+            CheckpointRetryCount = checkpointRetryCount
         };
         builder.Services.Configure<HostOptions>(hostOptions => hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost);
         builder.Services.AddSingleton(options);

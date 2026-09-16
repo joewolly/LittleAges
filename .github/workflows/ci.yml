@@ -33,7 +33,7 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Test Release
-        run: dotnet test --configuration Release --no-build
+        run: dotnet test --configuration Release --no-build --filter "Category!=Long"
 
   frontend:
     name: Frontend

@@ -1,0 +1,18 @@
+{
+  "DataRoot": "C:\\ProgramData\\LittleAges\\worlds",
+  "ListenUrls": "http://127.0.0.1:5274",
+  "ActiveWorld": "default-world",
+  "WorldSeed": "0",
+  "SimulationMinutesPerSecond": 10,
+  "CheckpointSimulationMinutes": 360,
+  "CheckpointMinimumRealSeconds": 30,
+  "CheckpointRetryCount": 3,
+  "CheckpointRetryDelaySeconds": 2,
+  "BrowserUpdateIntervalMilliseconds": 500,
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  }
+}
