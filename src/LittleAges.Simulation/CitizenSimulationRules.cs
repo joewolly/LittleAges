@@ -6,7 +6,20 @@ namespace LittleAges.Simulation;
 public static class CitizenSimulationRules
 {
     public const int SettlementVersion = 1;
-    public const string CurrentRulesVersion = "m4-rng1-settlement1";
+    public const string CurrentRulesVersion = "m5-rng1-social1";
+    public const int SocialVersion = 1;
+    public const int SocializeDurationMinutes = 60;
+    public const int SocialRadius = 2;
+    // M5 compatibility data: a recent relationship is temporarily deprioritized so nearby
+    // candidates remain socially diverse without category-specific matchmaking rules.
+    public const int SocialRecentInteractionPenalty = 4000;
+    public const int SocialRecentInteractionPenaltyDecayMinutesPerPoint = 10;
+    public const int FamilyCheckPriority = 8;
+    public const int LifecycleCheckPriority = 17;
+    public const int MaximumPopulation = 2000;
+    public const int MaximumHouseholdSize = 4;
+    public const long BirthCooldownMinutes = 2L * WorldCalendar.MinutesPerYear;
+    public const int DesiredSpareShelterSlots = 4;
     public const int BaseStorageCapacity = 800;
     public const int StockpileStorageBonus = 800;
     public const int ShelterCapacityPerBuilding = 4;
@@ -55,6 +68,7 @@ public static class CitizenSimulationRules
     public const int FullHungerReduction = 5000;
     public const int RestNeedReduction = 4000;
     public const int FoodTarget = 400;
+    public const int FoodSecurityGatherContributionMaximum = 4000;
     public const int WoodTarget = 120;
     public const int StoneTarget = 100;
     public const int StarvationThreshold = 9000;

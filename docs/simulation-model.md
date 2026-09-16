@@ -172,7 +172,7 @@ Canonical Domain/Simulation behavior must not depend on:
 
 Wall-clock UTC is used only for operational checkpoint metadata and server lifecycle logging. The browser's refresh rate, connection state, and Vite proxy do not participate in canonical simulation state.
 
-M4 settlement structures/shelters are implemented below. Social/family/aging systems remain M5; historical gameplay facts and queries remain M6; server hardening/deployment is M7; and headless/MAX, scale, profiling, and 100-year validation are M8.
+M5 social/family/aging and the preceding settlement structures/shelters are implemented below. Historical gameplay facts and queries remain M6; server hardening/deployment is M7; and headless/MAX, scale, profiling, and 100-year validation are M8.
 
 ## M1 immutable world model
 
@@ -400,6 +400,16 @@ Settlement capacity is `baseStorageCapacity + completedStockpiles * 800`; stores
 
 The chosen site is the reachable eligible tile ordered by path cost from the starting site, then Manhattan distance, then row, then column. This makes demand, sites, and structure IDs independent of host timing and observer reads.
 
+## M5 social, family, and lifecycle model
+
+M5 adds `Socialize=12` without renumbering earlier actions. It is a local Perform action lasting 60 minutes and only succeeds while its living target remains within Chebyshev radius 2. Successful interactions update normalized relationship pairs using the Relationships RNG domain, satisfy initiator/target social needs, and may form partnerships. M5 tie order is Eat, Rest, GatherFood, Socialize, HaulConstruction, Build, GatherWood, GatherStone, Explore, Wander, Idle; social behavior is excluded when Hunger or Rest is critical.
+
+For every nearby candidate with a non-null relationship, social target score subtracts the compatibility term `max(0, 4000 - min(4000, (CurrentMinute - LastInteractionMinute) / 10))`. A null relationship has zero recency penalty. This applies equally to ordinary, family, partner, and rival edges; it does not inspect age, household, partnership eligibility, or interaction count. All candidates remain ranked by score descending, Chebyshev distance ascending, then citizen ID ascending.
+
+Children are created only from eligible partnered households at daily family checks, use a global citizen ID, nullable founder ordinal, canonical parent ordering, `BirthMinute = CurrentMinute`, and zero inherited skills. Given names and trait variation use `RandomDomain.Reproduction`; the founder catalog/keying is unchanged. Parent/child and living-sibling relations are initialized deterministically. Households pack as groups into completed shelters, capped at four living members; M5 demand includes a four-slot family-growth shelter buffer.
+
+Age stages are Young Child 0-5, Child 6-12, Adolescent 13-17, Adult 18-59, and Elder 60+. M5 productive output is age-scaled (0/5000/7500/10000/7500 basis points) before the existing workshop multiplier. The daily lifecycle event applies integer natural mortality by age, health, and resilience using `RandomDomain.Mortality`; natural death preserves permanent identity, relationship, family, partnership, household, home, and work history while clearing active gameplay events.
+
 ### Hauling, building, and action state
 
 M4 extends persisted actions and phases without renumbering M2/M3 values:
@@ -411,7 +421,7 @@ CitizenActionPhase: TravelToStockpile=4, TransportToConstruction=5, WaitingForSt
 
 A hauling citizen travels to the shared stockpile, takes only wood or stone still required after delivered and in-transit reservations, then travels to the active project. Carry capacity is `20 + min(20, HaulingSkill / 1000)`. Delivery is capped at the unreserved remaining material; it records a per-structure/per-citizen cumulative contribution, adds 15 Hauling XP, and increments hauling work time by actual action duration. A citizen with unsold gathered goods cannot exceed capacity: it enters `WaitingForStorage`, retains the remainder, and retries after exactly 60 minutes.
 
-A build shift is 180 minutes. Applied work is the remaining requirement capped at `100 + ConstructionSkill / 100`; if any completed workshop exists, it is multiplied with integer arithmetic by 12,500/10,000. Each completed shift grants 25 Construction XP and 180 Construction work minutes. When work reaches the fixed requirement, the structure becomes complete and housing is immediately reconciled. Construction contribution rows are canonical state, not a derived audit log.
+A build shift is 180 minutes. Applied work is the remaining requirement capped at `100 + ConstructionSkill / 1000`; if any completed workshop exists, it is multiplied with integer arithmetic by 12,500/10,000. Each completed shift grants 25 Construction XP and 180 Construction work minutes. When work reaches the fixed requirement, the structure becomes complete and housing is immediately reconciled. Construction contribution rows are canonical state, not a derived audit log.
 
 M4 decision ordering adds construction alternatives and defines ties as: Eat, Rest, GatherFood, HaulConstruction, Build, GatherWood, GatherStone, Explore, Wander, Idle. Existing needs/survival/gathering rules remain M3-compatible under M3 snapshots.
 

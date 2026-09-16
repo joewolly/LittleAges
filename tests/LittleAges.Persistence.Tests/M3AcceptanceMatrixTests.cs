@@ -138,7 +138,8 @@ public sealed class M3AcceptanceMatrixTests
             var adjusted = new SimulationPersistenceSnapshot(upgraded.Seed, upgraded.WorldMinute, upgraded.WorldSchemaVersion,
                 upgraded.SimulationRulesVersion, upgraded.ApplicationVersion, upgraded.WorldConfiguration, upgraded.Counters,
                 events, upgraded.World, upgraded.Citizens, upgraded.CitizenGenerationVersion, upgraded.ResourceStates,
-                upgraded.Settlement, upgraded.SurvivalVersion, upgraded.SettlementVersion, upgraded.Structures, upgraded.StructureContributions);
+                upgraded.Settlement, upgraded.SurvivalVersion, upgraded.SettlementVersion, upgraded.Structures, upgraded.StructureContributions,
+                upgraded.SocialVersion, upgraded.Relationships, upgraded.Households);
             await store.CheckpointAsync(adjusted, DateTime.UtcNow);
             var reloaded = await store.LoadAsync();
 

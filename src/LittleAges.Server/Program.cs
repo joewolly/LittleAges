@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using LittleAges.Server;
+using LittleAges.Domain;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Hosting;
 
@@ -38,6 +39,23 @@ app.MapGet("/api/v1/citizens/{id}", (string id, SimulationHost simulationHost) =
     var citizen = simulationHost.Observation.Citizens.FirstOrDefault(x => x.CitizenId == id);
     return citizen is null ? Results.NotFound() : Results.Ok(citizen);
 });
+app.MapGet("/api/v1/citizens/{id}/relationships", (string id, SimulationHost simulationHost) =>
+{
+    if (!long.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0 || value.ToString(System.Globalization.CultureInfo.InvariantCulture) != id) return Results.BadRequest();
+    var observation = simulationHost.Observation;
+    var citizen = observation.Citizens.FirstOrDefault(x => x.CitizenId == id);
+    if (citizen is null) return Results.NotFound();
+    var related = observation.Relationships.Where(x => x.CitizenAId.Value == value || x.CitizenBId.Value == value)
+        .Select(relationship =>
+        {
+            var otherId = relationship.CitizenAId.Value == value ? relationship.CitizenBId.Value : relationship.CitizenAId.Value;
+            var other = observation.Citizens.Single(x => x.CitizenId == otherId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var family = AreFamily(citizen, other, observation.Citizens);
+            var label = RelationshipLabels.Derive(relationship, citizen.PartnerId == other.CitizenId, family);
+            return new ServerRelationshipSnapshot(other.CitizenId, other.Name, relationship.Familiarity, relationship.Affinity, relationship.Trust, relationship.Conflict, relationship.LastInteractionMinute, relationship.InteractionCount, label);
+        }).OrderBy(x => long.Parse(x.OtherCitizenId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    return Results.Ok(related);
+});
 app.MapGet("/api/v1/settlement", (SimulationHost simulationHost) =>
 {
     var settlement = simulationHost.Observation.Settlement;
@@ -56,6 +74,45 @@ app.MapGet("/api/v1/structures/{id}", (string id, SimulationHost simulationHost)
     var structure = observation.Structures.FirstOrDefault(x => x.StructureId == id);
     return structure is null ? Results.NotFound() : Results.Ok(structure);
 });
+app.MapGet("/api/v1/households", (SimulationHost simulationHost) =>
+{
+    var observation = simulationHost.Observation;
+    return Results.Ok(observation.Households.Select(household => ToHouseholdSnapshot(household, observation.Citizens)).OrderBy(x => long.Parse(x.HouseholdId, System.Globalization.CultureInfo.InvariantCulture)).ToArray());
+});
+app.MapGet("/api/v1/households/{id}", (string id, SimulationHost simulationHost) =>
+{
+    if (!long.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0 || value.ToString(System.Globalization.CultureInfo.InvariantCulture) != id) return Results.BadRequest();
+    var observation = simulationHost.Observation;
+    var household = observation.Households.FirstOrDefault(x => x.Id.Value == value);
+    return household is null ? Results.NotFound() : Results.Ok(ToHouseholdSnapshot(household, observation.Citizens));
+});
+
+static ServerHouseholdSnapshot ToHouseholdSnapshot(Household household, IReadOnlyList<ServerCitizenSnapshot> citizens)
+{
+    var members = citizens.Where(x => x.HouseholdId == household.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)).OrderBy(x => long.Parse(x.CitizenId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    var partners = members.Where(x => x.PartnerId is not null && members.Any(y => y.CitizenId == x.PartnerId)).Select(x => x.CitizenId).OrderBy(x => long.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    var children = members.Where(x => x.ParentAId is not null || x.ParentBId is not null).Select(x => x.CitizenId).OrderBy(x => long.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    return new ServerHouseholdSnapshot(household.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), household.CreatedMinute, household.DissolvedMinute, household.DwellingStructureId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), Array.AsReadOnly(members.Select(x => x.CitizenId).ToArray()), Array.AsReadOnly(members.Where(x => x.IsAlive).Select(x => x.CitizenId).ToArray()), partners.Length == 2 ? Array.AsReadOnly(partners) : null, Array.AsReadOnly(children));
+}
+
+static bool AreFamily(ServerCitizenSnapshot first, ServerCitizenSnapshot second, IReadOnlyList<ServerCitizenSnapshot> citizens)
+{
+    static HashSet<string> Ancestors(string start, IReadOnlyList<ServerCitizenSnapshot> all)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>();
+        pending.Push(start);
+        while (pending.TryPop(out var id) && found.Add(id))
+        {
+            var citizen = all.FirstOrDefault(x => x.CitizenId == id);
+            if (citizen?.ParentAId is { } parentA) pending.Push(parentA);
+            if (citizen?.ParentBId is { } parentB) pending.Push(parentB);
+        }
+        return found;
+    }
+
+    return Ancestors(first.CitizenId, citizens).Overlaps(Ancestors(second.CitizenId, citizens));
+}
 
 app.Run();
 

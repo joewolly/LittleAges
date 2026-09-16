@@ -28,7 +28,7 @@ public sealed class SimulationEngineTests
     [Fact]
     public void SyntheticSchedulingRejectsReservedCitizenNamesWithoutMutation()
     {
-        var engine = new SimulationEngine(new WorldSeed(7), simulationRulesVersion: SimulationEngine.PreviousSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(7), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
         var before = engine.CounterSnapshot;
         var pending = engine.PendingEventCount;
         foreach (var name in new[] { CitizenEventNames.Decision, CitizenEventNames.MoveStep, CitizenEventNames.ActionComplete })

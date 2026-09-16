@@ -14,7 +14,8 @@ public enum CitizenAction : int
     GatherStone = 8,
     Dead = 9,
     HaulConstruction = 10,
-    Build = 11
+    Build = 11,
+    Socialize = 12
 }
 
 public enum CitizenActionPhase : int
@@ -101,6 +102,12 @@ public sealed class Citizen : IEquatable<Citizen>
 {
     public Citizen(CitizenId id, int founderOrdinal, string givenName, string familyName, long birthMinute,
         TileCoordinate location, CitizenTraits traits, CitizenSkills skills, CitizenNeeds? needs = null)
+        : this(id, (int?)founderOrdinal, givenName, familyName, birthMinute, location, traits, skills, needs)
+    {
+    }
+
+    public Citizen(CitizenId id, int? founderOrdinal, string givenName, string familyName, long birthMinute,
+        TileCoordinate location, CitizenTraits traits, CitizenSkills skills, CitizenNeeds? needs = null)
     {
         if (founderOrdinal is < 0 or > 19) throw new ArgumentOutOfRangeException(nameof(founderOrdinal));
         if (string.IsNullOrWhiteSpace(givenName) || string.IsNullOrWhiteSpace(familyName)) throw new ArgumentException("Citizen names are required.");
@@ -111,7 +118,7 @@ public sealed class Citizen : IEquatable<Citizen>
 
     public CitizenId Id { get; }
     public CitizenId CitizenId => Id;
-    public int FounderOrdinal { get; }
+    public int? FounderOrdinal { get; }
     public string GivenName { get; }
     public string FamilyName { get; }
     public string Name => $"{GivenName} {FamilyName}";
@@ -124,6 +131,8 @@ public sealed class Citizen : IEquatable<Citizen>
     public HouseholdId? HouseholdId { get; set; }
     public StructureId? HomeStructureId { get; set; }
     public StructureId? TargetStructureId { get; set; }
+    /// <summary>Only Socialize actions may retain a target citizen.</summary>
+    public CitizenId? TargetCitizenId { get; set; }
     public TileCoordinate Location { get; set; }
     public int Health { get; set; }
     public bool IsAlive => DeathMinute is null && CurrentAction != CitizenAction.Dead;
@@ -157,24 +166,33 @@ public sealed class Citizen : IEquatable<Citizen>
     }
     public int GetAgeYears(WorldMinute worldMinute) => AgeYears(worldMinute);
     public int AgeAt(WorldMinute worldMinute) => AgeYears(worldMinute);
-    public bool Equals(Citizen? other) => other is not null && Id == other.Id && FounderOrdinal == other.FounderOrdinal && GivenName == other.GivenName && FamilyName == other.FamilyName && BirthMinute == other.BirthMinute && Location == other.Location && Health == other.Health && Equals(Needs, other.Needs) && Equals(Traits, other.Traits) && Equals(Skills, other.Skills) && CurrentAction == other.CurrentAction && ActionPhase == other.ActionPhase && ActionSequence == other.ActionSequence && ActionStartedMinute == other.ActionStartedMinute && ActionCompletesMinute == other.ActionCompletesMinute && ActionTarget == other.ActionTarget && TargetResourceNodeId == other.TargetResourceNodeId && TargetStructureId == other.TargetStructureId && HomeStructureId == other.HomeStructureId && CarriedResourceType == other.CarriedResourceType && CarriedResourceQuantity == other.CarriedResourceQuantity && NeedsUpdatedMinute == other.NeedsUpdatedMinute && HealthUpdatedMinute == other.HealthUpdatedMinute && LifetimeForagingMinutes == other.LifetimeForagingMinutes && LifetimeWoodcuttingMinutes == other.LifetimeWoodcuttingMinutes && LifetimeStoneworkingMinutes == other.LifetimeStoneworkingMinutes && LifetimeConstructionMinutes == other.LifetimeConstructionMinutes && LifetimeHaulingMinutes == other.LifetimeHaulingMinutes && DeathMinute == other.DeathMinute && DeathCause == other.DeathCause;
+    public bool Equals(Citizen? other) => other is not null && Id == other.Id && FounderOrdinal == other.FounderOrdinal && GivenName == other.GivenName && FamilyName == other.FamilyName && BirthMinute == other.BirthMinute && ParentAId == other.ParentAId && ParentBId == other.ParentBId && PartnerId == other.PartnerId && HouseholdId == other.HouseholdId && Location == other.Location && Health == other.Health && Equals(Needs, other.Needs) && Equals(Traits, other.Traits) && Equals(Skills, other.Skills) && CurrentAction == other.CurrentAction && ActionPhase == other.ActionPhase && ActionSequence == other.ActionSequence && ActionStartedMinute == other.ActionStartedMinute && ActionCompletesMinute == other.ActionCompletesMinute && ActionTarget == other.ActionTarget && TargetResourceNodeId == other.TargetResourceNodeId && TargetStructureId == other.TargetStructureId && TargetCitizenId == other.TargetCitizenId && HomeStructureId == other.HomeStructureId && CarriedResourceType == other.CarriedResourceType && CarriedResourceQuantity == other.CarriedResourceQuantity && NeedsUpdatedMinute == other.NeedsUpdatedMinute && HealthUpdatedMinute == other.HealthUpdatedMinute && LifetimeMovementSteps == other.LifetimeMovementSteps && LifetimeMovementCost == other.LifetimeMovementCost && LifetimeForagingMinutes == other.LifetimeForagingMinutes && LifetimeWoodcuttingMinutes == other.LifetimeWoodcuttingMinutes && LifetimeStoneworkingMinutes == other.LifetimeStoneworkingMinutes && LifetimeConstructionMinutes == other.LifetimeConstructionMinutes && LifetimeHaulingMinutes == other.LifetimeHaulingMinutes && DeathMinute == other.DeathMinute && DeathCause == other.DeathCause;
     public override bool Equals(object? obj) => Equals(obj as Citizen);
-    public override int GetHashCode() => Id.GetHashCode();
-    public string LifeStage(WorldMinute worldMinute) => AgeYears(worldMinute) switch { < 13 => "Child", < 18 => "Adolescent", < 60 => "Adult", _ => "Elder" };
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Id); hash.Add(FounderOrdinal); hash.Add(GivenName); hash.Add(FamilyName); hash.Add(BirthMinute); hash.Add(ParentAId); hash.Add(ParentBId); hash.Add(PartnerId); hash.Add(HouseholdId); hash.Add(Location); hash.Add(Health); hash.Add(Needs); hash.Add(Traits); hash.Add(Skills); hash.Add(CurrentAction); hash.Add(ActionPhase); hash.Add(ActionSequence); hash.Add(ActionStartedMinute); hash.Add(ActionCompletesMinute); hash.Add(ActionTarget); hash.Add(TargetResourceNodeId); hash.Add(TargetStructureId); hash.Add(TargetCitizenId); hash.Add(HomeStructureId); hash.Add(CarriedResourceType); hash.Add(CarriedResourceQuantity); hash.Add(NeedsUpdatedMinute); hash.Add(HealthUpdatedMinute); hash.Add(LifetimeMovementSteps); hash.Add(LifetimeMovementCost); hash.Add(LifetimeForagingMinutes); hash.Add(LifetimeWoodcuttingMinutes); hash.Add(LifetimeStoneworkingMinutes); hash.Add(LifetimeConstructionMinutes); hash.Add(LifetimeHaulingMinutes); hash.Add(DeathMinute); hash.Add(DeathCause);
+        return hash.ToHashCode();
+    }
+    public string LifeStage(WorldMinute worldMinute) => AgeYears(worldMinute) switch { <= 5 => "Young Child", <= 12 => "Child", <= 17 => "Adolescent", <= 59 => "Adult", _ => "Elder" };
     public CitizenNeeds GetProjectedNeeds(WorldMinute worldMinute) => NeedsProjection.Project(Needs, NeedsUpdatedMinute, worldMinute);
     public Citizen Validate(WorldMap? world = null)
     {
-        if (Health is < 0 or > 10000 || (DeathMinute is null && Health < 1) || (DeathMinute is not null && Health != 0) || CurrentAction is < CitizenAction.None or > CitizenAction.Build || ActionPhase is < CitizenActionPhase.None or > CitizenActionPhase.WaitingForStorage || ActionSequence < 0 || NeedsUpdatedMinute < 0 || HealthUpdatedMinute < 0 || CarriedResourceQuantity < 0 || LifetimeForagingMinutes < 0 || LifetimeWoodcuttingMinutes < 0 || LifetimeStoneworkingMinutes < 0 || LifetimeConstructionMinutes < 0 || LifetimeHaulingMinutes < 0 || (CarriedResourceQuantity == 0 && CarriedResourceType is not null) || (CarriedResourceQuantity > 0 && CarriedResourceType is null)) throw new ArgumentException("Citizen canonical state is invalid.");
+        if (Health is < 0 or > 10000 || (DeathMinute is null && Health < 1) || (DeathMinute is not null && Health != 0) || CurrentAction is < CitizenAction.None or > CitizenAction.Socialize || ActionPhase is < CitizenActionPhase.None or > CitizenActionPhase.WaitingForStorage || ActionSequence < 0 || NeedsUpdatedMinute < 0 || HealthUpdatedMinute < 0 || CarriedResourceQuantity < 0 || LifetimeForagingMinutes < 0 || LifetimeWoodcuttingMinutes < 0 || LifetimeStoneworkingMinutes < 0 || LifetimeConstructionMinutes < 0 || LifetimeHaulingMinutes < 0 || (CarriedResourceQuantity == 0 && CarriedResourceType is not null) || (CarriedResourceQuantity > 0 && CarriedResourceType is null)) throw new ArgumentException("Citizen canonical state is invalid.");
         if (world is not null && (!world.GetTile(Location).Walkable || (ActionTarget is { } target && !world.GetTile(target).Walkable))) throw new ArgumentException("Citizen location or target is not walkable.");
         if (CurrentAction == CitizenAction.Dead && (DeathMinute is null || Health != 0 || string.IsNullOrWhiteSpace(DeathCause) || ActionPhase != CitizenActionPhase.None || ActionTarget is not null || ActionStartedMinute is not null || ActionCompletesMinute is not null || TargetResourceNodeId is not null || CarriedResourceQuantity != 0)) throw new ArgumentException("A dead citizen must have no active state.");
-        if (DeathMinute is not null && (Health != 0 || string.IsNullOrWhiteSpace(DeathCause) || DeathCause is not ("starvation" or "exhaustion" or "exposure" or "deprivation"))) throw new ArgumentException("A dead citizen must have zero health and a canonical death cause.");
+        if (DeathMinute is not null && (Health != 0 || string.IsNullOrWhiteSpace(DeathCause) || DeathCause is not ("starvation" or "exhaustion" or "exposure" or "deprivation" or "natural"))) throw new ArgumentException("A dead citizen must have zero health and a canonical death cause.");
         if (DeathMinute is not null && CurrentAction != CitizenAction.Dead) throw new ArgumentException("A citizen with a death minute must use the Dead action.");
         var gathering = CurrentAction is CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone;
         if (!gathering && TargetResourceNodeId is not null) throw new ArgumentException("Only gathering may target a resource node.");
         if (gathering && TargetResourceNodeId is null) throw new ArgumentException("A gathering citizen must target a resource node.");
         if (CarriedResourceQuantity > 0 && (ActionPhase is not (CitizenActionPhase.ReturnToStockpile or CitizenActionPhase.TransportToConstruction or CitizenActionPhase.WaitingForStorage) || (CurrentAction == CitizenAction.GatherFood && CarriedResourceType != ResourceType.Food) || (CurrentAction == CitizenAction.GatherWood && CarriedResourceType != ResourceType.Wood) || (CurrentAction == CitizenAction.GatherStone && CarriedResourceType != ResourceType.Stone))) throw new ArgumentException("Carried goods must match a returning, blocked, or construction transport phase.");
         if (CurrentAction == CitizenAction.None && (ActionPhase != CitizenActionPhase.None || ActionTarget is not null || ActionStartedMinute is not null || ActionCompletesMinute is not null)) throw new ArgumentException("An undecided citizen cannot have action timing or a target.");
-        if (CurrentAction is CitizenAction.Idle or CitizenAction.Rest && (ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.TravelToTarget or CitizenActionPhase.Perform) || (ActionPhase == CitizenActionPhase.Perform && ActionTarget is not null) || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("An active non-moving citizen requires timing and no target.");
+        if (CurrentAction == CitizenAction.Idle && (ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.Perform) || ActionTarget is not null || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("Idle cannot travel or retain a target.");
+        if (CurrentAction == CitizenAction.Rest && (ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.TravelToTarget or CitizenActionPhase.Perform) || (ActionPhase == CitizenActionPhase.TravelToTarget && (ActionTarget is null || TargetStructureId != HomeStructureId)) || (ActionPhase == CitizenActionPhase.Perform && ActionTarget is not null) || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("Rest phase state is invalid.");
+        if (TargetCitizenId is { } targetCitizenId && targetCitizenId.Value <= 0) throw new ArgumentException("A citizen target must be positive.");
+        if (CurrentAction == CitizenAction.Socialize && (ActionPhase != CitizenActionPhase.Perform || TargetCitizenId is null || ActionTarget is not null || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("Socialize requires a citizen target and perform timing.");
+        if (CurrentAction != CitizenAction.Socialize && TargetCitizenId is not null) throw new ArgumentException("Only Socialize may target a citizen.");
         if (CurrentAction is CitizenAction.Wander or CitizenAction.Explore && (ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.TravelToTarget) || ActionTarget is null || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("A moving citizen requires a target and timing.");
         if (CurrentAction == CitizenAction.Eat && (ActionPhase is not (CitizenActionPhase.TravelToTarget or CitizenActionPhase.Perform) || (ActionPhase == CitizenActionPhase.TravelToTarget && ActionTarget is null) || (ActionPhase == CitizenActionPhase.Perform && ActionTarget is not null) || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("Eating phase state is invalid.");
         if (CurrentAction is CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone)
