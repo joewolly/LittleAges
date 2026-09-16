@@ -56,6 +56,66 @@ app.MapGet("/api/v1/citizens/{id}/relationships", (string id, SimulationHost sim
         }).OrderBy(x => long.Parse(x.OtherCitizenId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
     return Results.Ok(related);
 });
+app.MapGet("/api/v1/history", (HttpRequest request, SimulationHost simulationHost) =>
+{
+    var history = simulationHost.Observation.History;
+    if (history is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    if (!TryParseBound(request.Query["limit"].ToString(), 50, 1, 100, out var limit) ||
+        !TryParseBound(request.Query["minimumImportance"].ToString(), 2, 0, 5, out var minimumImportance)) return Results.BadRequest();
+    HistoricalEventType? type = null;
+    HistoricalEventType parsedEventType = default;
+    var typeText = request.Query["eventType"].ToString();
+    if (!string.IsNullOrWhiteSpace(typeText) && (!Enum.TryParse<HistoricalEventType>(typeText, true, out parsedEventType) || !Enum.IsDefined(parsedEventType))) return Results.BadRequest();
+    if (!string.IsNullOrWhiteSpace(typeText)) type = parsedEventType;
+    var citizenId = ParsePositive(request.Query["citizenId"]);
+    var familyCitizenId = ParsePositive(request.Query["familyCitizenId"]);
+    var structureId = ParsePositive(request.Query["structureId"]);
+    var from = ParseNonNegative(request.Query["fromMinute"]);
+    var to = ParseNonNegative(request.Query["toMinute"]);
+    var beforeEventId = ParsePositive(request.Query["beforeEventId"]);
+    if ((request.Query.ContainsKey("citizenId") && citizenId is null) || (request.Query.ContainsKey("familyCitizenId") && familyCitizenId is null) || (request.Query.ContainsKey("structureId") && structureId is null) || (request.Query.ContainsKey("fromMinute") && from is null) || (request.Query.ContainsKey("toMinute") && to is null) || (request.Query.ContainsKey("beforeEventId") && beforeEventId is null)) return Results.BadRequest();
+    var familyIds = familyCitizenId is { } familyRoot ? FamilyClosureRules.Closure(familyRoot.ToString(System.Globalization.CultureInfo.InvariantCulture), simulationHost.Observation.Citizens) : null;
+    var events = history.Events.Where(x => (int)x.Importance >= minimumImportance && (type is null || x.EventType == type) && (from is null || x.WorldMinute >= from) && (to is null || x.WorldMinute <= to) && (beforeEventId is null || long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture) < beforeEventId) && (citizenId is null || x.CitizenLinks.Any(link => link.CitizenId == citizenId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))) && (familyIds is null || x.CitizenLinks.Any(link => familyIds.Contains(link.CitizenId))) && (structureId is null || x.StructureLinks.Any(link => link.StructureId == structureId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)))).OrderByDescending(x => x.WorldMinute).ThenByDescending(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).Take(limit).ToArray();
+    return Results.Ok(events);
+});
+app.MapGet("/api/v1/history/{eventId}", (string eventId, SimulationHost simulationHost) =>
+{
+    if (ParsePositive(eventId) is null) return Results.BadRequest();
+    var history = simulationHost.Observation.History;
+    if (history is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    var eventItem = history.Events.FirstOrDefault(x => x.EventId == eventId);
+    return eventItem is null ? Results.NotFound() : Results.Ok(eventItem);
+});
+app.MapGet("/api/v1/citizens/{id}/biography", (string id, SimulationHost simulationHost) =>
+{
+    if (ParsePositive(id) is not { } citizenId) return Results.BadRequest();
+    var observation = simulationHost.Observation;
+    var citizen = observation.Citizens.FirstOrDefault(x => x.CitizenId == id);
+    var history = observation.History;
+    if (citizen is null) return Results.NotFound();
+    if (history is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    var events = history.Events.Where(x => (int)x.Importance >= 2 && x.CitizenLinks.Any(link => link.CitizenId == id)).OrderBy(x => x.WorldMinute).ThenBy(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    var memories = history.Memories.Where(x => x.CitizenId == id).OrderBy(x => x.CreatedMinute).ThenBy(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    return Results.Ok(new ServerCitizenBiographySnapshot(citizen, events, memories, new[] { citizen.ParentAId, citizen.ParentBId }.Where(x => x is not null).Select(x => x!).ToArray(), citizen.PartnerId, citizen.ChildrenIds, citizen.BirthMinute, citizen.DeathMinute, citizen.DeathCause));
+});
+app.MapGet("/api/v1/citizens/{id}/memories", (string id, SimulationHost simulationHost) =>
+{
+    if (ParsePositive(id) is null) return Results.BadRequest();
+    if (simulationHost.Observation.Citizens.All(x => x.CitizenId != id)) return Results.NotFound();
+    var history = simulationHost.Observation.History;
+    if (history is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    return Results.Ok(history.Memories.Where(x => x.CitizenId == id).OrderByDescending(x => x.CreatedMinute).Take(100).ToArray());
+});
+app.MapGet("/api/v1/statistics", (HttpRequest request, SimulationHost simulationHost) =>
+{
+    var history = simulationHost.Observation.History;
+    if (history is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    if (!TryParseBound(request.Query["limit"].ToString(), 50, 1, 100, out var limit)) return Results.BadRequest();
+    var from = ParseNonNegative(request.Query["fromMinute"]);
+    var to = ParseNonNegative(request.Query["toMinute"]);
+    if ((request.Query.ContainsKey("fromMinute") && from is null) || (request.Query.ContainsKey("toMinute") && to is null)) return Results.BadRequest();
+    return Results.Ok(history.Statistics.Where(x => (from is null || x.WorldMinute >= from) && (to is null || x.WorldMinute <= to)).OrderBy(x => x.WorldMinute).Take(limit).ToArray());
+});
 app.MapGet("/api/v1/settlement", (SimulationHost simulationHost) =>
 {
     var settlement = simulationHost.Observation.Settlement;
@@ -116,6 +176,58 @@ static bool AreFamily(ServerCitizenSnapshot first, ServerCitizenSnapshot second,
 
 app.Run();
 
+static bool TryParseBound(string? value, int fallback, int minimum, int maximum, out int result)
+{
+    if (string.IsNullOrWhiteSpace(value)) { result = fallback; return true; }
+    if (!int.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) { result = fallback; return false; }
+    result = Math.Clamp(parsed, minimum, maximum);
+    return true;
+}
+static long? ParsePositive(string? value) => long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed) && parsed > 0 && parsed.ToString(System.Globalization.CultureInfo.InvariantCulture) == value ? parsed : null;
+static long? ParseNonNegative(string? value) => long.TryParse(value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed) && parsed >= 0 && parsed.ToString(System.Globalization.CultureInfo.InvariantCulture) == value ? parsed : null;
+
 public partial class Program
 {
+}
+
+internal static class FamilyClosureRules
+{
+    public static HashSet<string> Closure(string rootId, IReadOnlyList<ServerCitizenSnapshot> citizens)
+    {
+        var byId = citizens.ToDictionary(x => x.CitizenId, StringComparer.Ordinal);
+        if (!byId.TryGetValue(rootId, out var root)) return new HashSet<string>(StringComparer.Ordinal);
+        var result = new HashSet<string>(StringComparer.Ordinal) { rootId };
+
+        void AddIfKnown(string? id)
+        {
+            if (id is not null && byId.ContainsKey(id)) result.Add(id);
+        }
+
+        void AddAncestors(ServerCitizenSnapshot citizen)
+        {
+            foreach (var parentId in new[] { citizen.ParentAId, citizen.ParentBId }.Where(x => x is not null).Select(x => x!))
+            {
+                if (!byId.TryGetValue(parentId, out var parent) || !result.Add(parentId)) continue;
+                AddAncestors(parent);
+            }
+        }
+
+        void AddDescendants(string parentId)
+        {
+            foreach (var child in citizens.Where(x => x.ParentAId == parentId || x.ParentBId == parentId))
+            {
+                if (!result.Add(child.CitizenId)) continue;
+                AddDescendants(child.CitizenId);
+            }
+        }
+
+        // Traverse only the root's direct sibling group. Ancestor siblings and
+        // sibling partners/children are intentionally outside this closure.
+        var rootParentIds = new[] { root.ParentAId, root.ParentBId }.Where(x => x is not null).Select(x => x!).ToArray();
+        foreach (var sibling in citizens.Where(x => rootParentIds.Any(parentId => x.ParentAId == parentId || x.ParentBId == parentId))) result.Add(sibling.CitizenId);
+        AddAncestors(root);
+        AddDescendants(rootId);
+        AddIfKnown(root.PartnerId);
+        return result;
+    }
 }

@@ -213,7 +213,7 @@ They support:
 - timelines;
 - biographies;
 - historical queries;
-- future AI narration.
+- structured observer timelines and biographies. M6 does not implement AI narration or generated prose.
 
 They are **not** used as the only mechanism for reconstructing the live world.
 
@@ -433,6 +433,8 @@ world_configuration_json
 next_entity_id
 next_historical_event_id
 next_scheduled_event_sequence
+social_version
+history_version
 created_utc            # metadata only; not canonical simulation input
 last_checkpoint_utc    # metadata only; not canonical simulation input
 ```
@@ -594,6 +596,7 @@ id
 world_minute
 event_type
 importance
+origin
 location_x
 location_y
 payload_json
@@ -607,7 +610,7 @@ Queryable many-to-many index:
 ```text
 historical_event_id
 citizen_id
-role            # actor, subject, parent, partner, etc.
+role            # subject, parent, partner, founder, participant, member, contributor
 ```
 
 ### `historical_event_structures`
@@ -622,6 +625,7 @@ role
 
 ```text
 world_minute
+period_start_minute
 population
 births_period
 deaths_period
@@ -843,11 +847,15 @@ Structure links with semantic roles
 Typed/versioned payload
 ```
 
+M6's persisted vocabulary is `HistoricalEventType`: `WorldCreated=1`, `SettlementFounded=2`, `CitizenBorn=3`, `CitizenDied=4`, `PartnershipFormed=5`, `FriendshipFormed=6`, `RivalryFormed=7`, `HouseholdCreated=8`, `StructureStarted=9`, `StructureCompleted=10`, `PopulationMilestone=11`, `ResourceShortageStarted=12`, `ResourceShortageEnded=13`, `CitizenSpecializationChanged=14`, and `SeasonStarted=15`. Importance values are `Debug=0`, `Routine=1`, `Personal=2`, `Notable=3`, `Major=4`, `Historic=5`; origin is `Live=1` or `MigrationBackfill=2`. Citizen roles are the fixed vocabulary `subject`, `parent`, `partner`, `founder`, `participant`, `member`, and `contributor`; structure links use `subject`. Entity IDs are invariant decimal strings in payloads and read DTOs.
+
 Prefer typed payload records in C# serialized to JSON at the persistence boundary.
 
-Do not build historical prose inside the simulation.
+Do not build historical prose inside the simulation. The canonical payload is schema-controlled JSON with stable property order and no wall-clock values; summaries are derived presentation text only.
 
-The UI formats events from structured values. Future AI receives the same structured values through read-only queries.
+The UI formats events from structured values. M6 has no AI historian, fictional summary, or mutation route.
+
+History is separate from event sourcing: canonical snapshot state plus the deterministic scheduled-event queue remain authoritative. M6 events are append-only facts. Checkpoint/load validates the persisted prefix, appends only a new tail, and writes links, statistics, and memories transactionally; conflict is corruption, not a repair opportunity. The history scheduler is `history.statistics-sample.v1` at priority 19 on exact 43,200-minute boundaries. M5→M6 backfill is direct and atomic, starts at the existing historical counter, and includes only exact world/settlement/season/descendant birth/death/partnership/household/structure/milestone facts. It intentionally excludes friendship, rivalry, specialization, founder pre-world births, and pre-M6 statistics.
 
 ---
 
@@ -880,6 +888,8 @@ GET    /api/v1/statistics
 ```
 
 The exact DTOs should be presentation-safe read models rather than EF entities or mutable simulation objects.
+
+Implemented M6 read routes are `GET /api/v1/history`, `GET /api/v1/history/{eventId}`, `GET /api/v1/citizens/{id}/biography`, `GET /api/v1/citizens/{id}/memories`, and `GET /api/v1/statistics`. History defaults to `minimumImportance=2`, `limit=50`, newest-first `(WorldMinute, EventId)` and bounds `limit` at 100. It accepts minute range, event type, importance, citizen, family root, structure, and `beforeEventId` cursor filters. Statistics returns bounded samples ascending by minute. Malformed canonical IDs return 400 and unknown IDs return 404. All M6 routes are immutable GET reads from the host's atomically published observation.
 
 SignalR hub, conceptually:
 
@@ -925,6 +935,8 @@ Principles:
 - renderer and React share stable read-model IDs, not mutable simulation objects.
 
 Mobile browsers need not receive a specialized UI in v0.1, but the layout should remain usable for basic inspection on an iPhone/iPad.
+
+The implemented observer uses strict TypeScript DTO parsers, retains decimal IDs as strings, and makes bounded requests. It renders a factual newest-first history feed with citizen/family/type/importance/structure/time filters and cursor pagination, a selected-citizen biography timeline and structured memories, and a bounded monthly statistics table with a lightweight population trend. Requests are stale-response/unmount protected and GET-only; no router or chart dependency is required.
 
 ---
 
@@ -1391,6 +1403,8 @@ Add:
 - timeline filters;
 - statistics sampling;
 - UI history/biography surfaces.
+
+Implemented contract: `HistoryVersion=1`, `m6-rng1-history1`, and `HistoricalEventSchemaVersion=1`. Historical events use the stable 15-value event enum, five-level importance, live/backfill origin, canonical structured payloads, separate historical IDs, immutable citizen/structure links, and append-only prefix-validated checkpointing. M6 emits important transitions only (not every movement, meal, gather, decision, or construction shift), generates bounded structured memories, and samples monthly statistics at exact 43,200-minute boundaries through priority-19 `history.statistics-sample.v1`. The direct M5→M6 migration backfills only exact facts and does not invent friendship, rivalry, specialization, founder pre-world births, or pre-M6 aggregates. Read APIs are bounded and immutable; the React observer parses DTOs strictly, keeps IDs as strings, filters/paginates history, and exposes factual biography/memory and statistics surfaces. M6 does not add AI narration, event sourcing, SignalR, reconnect hardening, or scale/tuning work.
 
 Gate: important outcomes can be explained from structured facts without reading debug logs.
 

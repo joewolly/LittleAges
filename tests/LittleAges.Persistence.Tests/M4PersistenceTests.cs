@@ -96,7 +96,8 @@ public sealed class M4PersistenceTests
                 await context.SaveChangesAsync();
             }
 
-            await Assert.ThrowsAsync<InvalidDataException>(() => WorldDatabase.OpenAsync(path));
+            await using var upgradeContext = await OpenSchemaContextAsync(path);
+            await Assert.ThrowsAsync<InvalidDataException>(() => new WorldCheckpointStore(upgradeContext).UpgradeM4ToM5IfNeededAsync());
         });
     }
 
@@ -133,7 +134,10 @@ public sealed class M4PersistenceTests
                 await new WorldCheckpointStore(context).CheckpointAsync(source, DateTime.UtcNow);
             }
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(M5UpgradeFailurePoint: M5UpgradeFailurePoint.AfterRowsWritten)));
+            await using (var upgradeContext = await OpenSchemaContextAsync(path))
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() => new WorldCheckpointStore(upgradeContext).UpgradeM4ToM5IfNeededAsync(M5UpgradeFailurePoint.AfterRowsWritten));
+            }
             await using (var rollback = new SqliteConnection(connectionString))
             {
                 await rollback.OpenAsync();
@@ -147,14 +151,16 @@ public sealed class M4PersistenceTests
                 Assert.Equal(0L, reader.GetInt64(3));
             }
 
-            await using var upgraded = await WorldDatabase.OpenAsync(path);
-            var snapshot = await upgraded.CreateCheckpointStore().LoadAsync();
-            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
+            await using var upgradedContext = await OpenSchemaContextAsync(path);
+            var upgradedStore = new WorldCheckpointStore(upgradedContext);
+            Assert.True(await upgradedStore.UpgradeM4ToM5IfNeededAsync());
+            var snapshot = await upgradedStore.LoadAsync();
+            Assert.Equal(SimulationEngine.M5SimulationRulesVersion, snapshot.SimulationRulesVersion);
             Assert.Equal(987_654, snapshot.Counters.NextHistoricalEventId);
             Assert.Single(snapshot.ScheduledEvents, x => x.Name == CitizenEventNames.FamilyCheck);
             Assert.Single(snapshot.ScheduledEvents, x => x.Name == CitizenEventNames.LifecycleCheck);
-            await upgraded.CreateCheckpointStore().UpgradeM4ToM5IfNeededAsync();
-            var idempotent = await upgraded.CreateCheckpointStore().LoadAsync();
+            Assert.False(await upgradedStore.UpgradeM4ToM5IfNeededAsync());
+            var idempotent = await upgradedStore.LoadAsync();
             Assert.Equal(snapshot.Counters, idempotent.Counters);
             Assert.Equal(snapshot.ScheduledEvents, idempotent.ScheduledEvents);
         });
@@ -227,9 +233,11 @@ public sealed class M4PersistenceTests
                 await context.Database.MigrateAsync();
                 await new WorldCheckpointStore(context).CheckpointAsync(m3, DateTime.UtcNow);
             }
-            await using var database = await WorldDatabase.OpenAsync(path);
-            var loaded = await database.CreateCheckpointStore().LoadAsync();
-            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, loaded.SimulationRulesVersion);
+            await using var upgradeContext = await OpenSchemaContextAsync(path);
+            var upgradeStore = new WorldCheckpointStore(upgradeContext);
+            Assert.True(await upgradeStore.UpgradeM3ToM4IfNeededAsync());
+            var loaded = await upgradeStore.LoadAsync();
+            Assert.Equal(SimulationEngine.M4SimulationRulesVersion, loaded.SimulationRulesVersion);
             Assert.Equal(1, loaded.SettlementVersion);
             Assert.Equal(900, loaded.Settlement!.BaseStorageCapacity);
             var demand = Assert.Single(loaded.ScheduledEvents, x => x.Name == CitizenEventNames.SettlementEvaluateDemand);
@@ -237,8 +245,7 @@ public sealed class M4PersistenceTests
             Assert.Equal(CitizenEventNames.SettlementDemandPriority, demand.Order.Priority);
             Assert.Equal(0, demand.Order.EntitySortKey);
             Assert.Equal("{\"version\":1}", demand.PayloadJson);
-            Assert.Single(loaded.ScheduledEvents, x => x.Name == CitizenEventNames.FamilyCheck);
-            Assert.Single(loaded.ScheduledEvents, x => x.Name == CitizenEventNames.LifecycleCheck);
+            Assert.DoesNotContain(loaded.ScheduledEvents, x => x.Name is CitizenEventNames.FamilyCheck or CitizenEventNames.LifecycleCheck);
         });
     }
 
@@ -258,7 +265,10 @@ public sealed class M4PersistenceTests
                 await new WorldCheckpointStore(context).CheckpointAsync(m3, DateTime.UtcNow);
             }
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(null, null, null, null, M4UpgradeFailurePoint.AfterRowsWritten)));
+            await using (var upgradeContext = await OpenSchemaContextAsync(path))
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() => new WorldCheckpointStore(upgradeContext).UpgradeM3ToM4IfNeededAsync(M4UpgradeFailurePoint.AfterRowsWritten));
+            }
             await using (var check = new SqliteConnection(connectionString))
             {
                 await check.OpenAsync();
@@ -272,8 +282,10 @@ public sealed class M4PersistenceTests
                 Assert.Equal(0L, reader.GetInt64(3));
             }
 
-            await using var retried = await WorldDatabase.OpenAsync(path);
-            var upgraded = await retried.CreateCheckpointStore().LoadAsync();
+            await using var retriedContext = await OpenSchemaContextAsync(path);
+            var retriedStore = new WorldCheckpointStore(retriedContext);
+            Assert.True(await retriedStore.UpgradeM3ToM4IfNeededAsync());
+            var upgraded = await retriedStore.LoadAsync();
             Assert.Equal(m3.Seed, upgraded.Seed);
             Assert.Equal(m3.WorldMinute, upgraded.WorldMinute);
             Assert.Equal(m3.World!.Fingerprint, upgraded.World!.Fingerprint);
@@ -284,7 +296,7 @@ public sealed class M4PersistenceTests
             Assert.Equal(Math.Max(CitizenSimulationRules.BaseStorageCapacity, 917), upgraded.Settlement.BaseStorageCapacity);
             Assert.Equal(m3.WorldMinute.Value, upgraded.Settlement.DemandUpdatedMinute);
             Assert.Equal(m3.WorldMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value, upgraded.Settlement.ExposureConsequencesStartMinute);
-            Assert.Equal(m3.Counters.NextScheduledEventSequence + 3, upgraded.Counters.NextScheduledEventSequence);
+            Assert.Equal(m3.Counters.NextScheduledEventSequence + 1, upgraded.Counters.NextScheduledEventSequence);
             Assert.Equal(m3.ScheduledEvents.OrderBy(x => x.Order), upgraded.ScheduledEvents.Where(x => x.Name is not (CitizenEventNames.SettlementEvaluateDemand or CitizenEventNames.FamilyCheck or CitizenEventNames.LifecycleCheck)).OrderBy(x => x.Order));
             Assert.Single(upgraded.ScheduledEvents, x => x.Name == CitizenEventNames.SettlementEvaluateDemand);
         });
@@ -312,12 +324,14 @@ public sealed class M4PersistenceTests
                 await new WorldCheckpointStore(context).CheckpointAsync(m3, DateTime.UtcNow);
             }
 
-            await using var database = await WorldDatabase.OpenAsync(path);
-            var upgraded = await database.CreateCheckpointStore().LoadAsync();
+            await using var upgradeContext = await OpenSchemaContextAsync(path);
+            var upgradeStore = new WorldCheckpointStore(upgradeContext);
+            Assert.True(await upgradeStore.UpgradeM3ToM4IfNeededAsync());
+            var upgraded = await upgradeStore.LoadAsync();
             var actualCitizen = upgraded.Citizens.Single(item => item.Id.Value == 1);
             Assert.Equal(ActionKey(expectedCitizen), ActionKey(actualCitizen));
             Assert.Equal(expectedEvent, upgraded.ScheduledEvents.Single(item => item.Id == expectedEvent.Id));
-            Assert.Equal(m3.Counters.NextScheduledEventSequence + 3, upgraded.Counters.NextScheduledEventSequence);
+            Assert.Equal(m3.Counters.NextScheduledEventSequence + 1, upgraded.Counters.NextScheduledEventSequence);
         });
     }
 
@@ -447,6 +461,15 @@ public sealed class M4PersistenceTests
     private static string ContributionKey(StructureContribution value) => $"{value.StructureId.Value}:{value.CitizenId.Value}:{value.ConstructionWork}:{value.WoodDelivered}:{value.StoneDelivered}";
     private static string CitizenM4Key(Citizen citizen) => $"{citizen.Id.Value}:{citizen.HomeStructureId?.Value}:{citizen.TargetStructureId?.Value}:{citizen.LifetimeForagingMinutes}:{citizen.LifetimeWoodcuttingMinutes}:{citizen.LifetimeStoneworkingMinutes}:{citizen.LifetimeConstructionMinutes}:{citizen.LifetimeHaulingMinutes}";
     private static string ActionKey(Citizen citizen) => $"{citizen.Id.Value}:{(int)citizen.CurrentAction}:{(int)citizen.ActionPhase}:{citizen.ActionSequence}:{citizen.ActionStartedMinute?.Value}:{citizen.ActionCompletesMinute?.Value}:{citizen.ActionTarget?.X},{citizen.ActionTarget?.Y}:{citizen.TargetResourceNodeId?.Value}:{citizen.TargetStructureId?.Value}:{citizen.CarriedResourceType}:{citizen.CarriedResourceQuantity}";
+
+    private static async Task<LittleAgesDbContext> OpenSchemaContextAsync(string path)
+    {
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false, ForeignKeys = true }.ToString();
+        var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+        var context = new LittleAgesDbContext(options);
+        await context.Database.OpenConnectionAsync();
+        return context;
+    }
 
     private static async Task WithDatabaseAsync(Func<string, Task> test)
     {

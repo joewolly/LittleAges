@@ -115,8 +115,13 @@ public sealed class M3AcceptanceMatrixTests
         await WithDatabaseAsync(async path =>
         {
             await CreateActualM0WithCollidingEventAsync(path);
-            await using var database = await WorldDatabase.OpenAsync(path);
-            var store = database.CreateCheckpointStore();
+            await using var context = await OpenSchemaContextAsync(path);
+            await context.Database.MigrateAsync();
+            var store = new WorldCheckpointStore(context);
+            Assert.True(await store.UpgradeLegacyM0IfNeededAsync());
+            Assert.True(await store.UpgradeM1ToM2IfNeededAsync());
+            Assert.True(await store.UpgradeM2ToM3IfNeededAsync());
+            Assert.True(await store.UpgradeM3ToM4IfNeededAsync());
             var upgraded = await store.LoadAsync();
             var legacy = upgraded.ScheduledEvents.Single(item => item.Name == "legacy.m0.colliding");
             var dead = upgraded.Citizens.OrderBy(item => item.Id.Value).First();
@@ -277,6 +282,15 @@ public sealed class M3AcceptanceMatrixTests
         var cost = 0L;
         for (var index = 1; index < path.Count; index++) cost = checked(cost + StepCost(path[index - 1], path[index], world));
         return cost;
+    }
+
+    private static async Task<LittleAgesDbContext> OpenSchemaContextAsync(string path)
+    {
+        var connectionString = new SqliteConnectionStringBuilder { DataSource = path, Pooling = false, ForeignKeys = true }.ToString();
+        var options = new DbContextOptionsBuilder<LittleAgesDbContext>().UseSqlite(connectionString, sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name)).Options;
+        var context = new LittleAgesDbContext(options);
+        await context.Database.OpenConnectionAsync();
+        return context;
     }
 
     private static async Task WithDatabaseAsync(Func<string, Task> test)

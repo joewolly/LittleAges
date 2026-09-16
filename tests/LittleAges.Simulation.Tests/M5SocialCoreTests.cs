@@ -11,7 +11,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void FreshM5StateHasCanonicalGlobalEventsAndInvariantFingerprint()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var snapshot = engine.CreatePersistenceSnapshot();
 
         Assert.Equal(SimulationEngine.SocialVersion, snapshot.SocialVersion);
@@ -37,7 +37,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void M5FamilyAndLifecycleEventsRequireTheExactNextStrictDayBoundary()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var expected = new WorldMinute(WorldCalendar.MinutesPerDay);
 
         foreach (var name in new[] { CitizenEventNames.FamilyCheck, CitizenEventNames.LifecycleCheck })
@@ -98,7 +98,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void M5SnapshotRejectsMissingPerCitizenActionFlow()
     {
-        var snapshot = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var snapshot = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var missingAction = snapshot.ScheduledEvents.Where(x => !(x.Name == CitizenEventNames.Decision && x.Order.EntitySortKey == 1)).ToArray();
 
         Assert.Throws<ArgumentException>(() => Recreate(snapshot, missingAction));
@@ -261,7 +261,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void PopulatedRelationshipAndHouseholdSnapshotRoundTrips()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var citizens = source.Citizens.ToArray();
         var first = citizens[0];
         var second = citizens[1];
@@ -315,7 +315,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void M5FourteenDayCheckpointRoundTripsWithCanonicalGameplayEvents()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(14 * WorldCalendar.MinutesPerDay));
         var snapshot = source.CreatePersistenceSnapshot();
         var reloaded = SimulationEngine.FromPersistenceSnapshot(snapshot);
@@ -328,7 +328,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void BirthRequiresAFreeSlotInTheHouseholdDwelling()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var parents = source.Citizens.Take(2).ToArray();
         var shelterId = new StructureId(source.Counters.NextEntityId);
         var household = new Household(new HouseholdId(source.Counters.NextEntityId + 1), source.WorldMinute.Value) { DwellingStructureId = shelterId };
@@ -362,7 +362,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void StrictM5SpareShelterDemandDoesNotTriggerAtTheEqualityBoundary()
     {
-        var m5 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var m5 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         AddCompletedShelters(m5, 5);
         AddPackedEligibleHouseholds(m5);
 
@@ -379,19 +379,19 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void M5FamilyBufferShelterDemandRequiresThreeSpareSlotsAndAllNonHousingPrerequisites()
     {
-        var threeSpare = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var threeSpare = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         AddCompletedShelters(threeSpare, 5);
         AddFamilyBufferHousehold(threeSpare, deceasedCount: 3);
         Assert.Equal(3, threeSpare.ShelterCapacity - threeSpare.LivingPopulation);
         Assert.Equal(StructureType.Shelter, SelectSettlementDemand(threeSpare));
 
-        var fourSpare = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var fourSpare = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         AddCompletedShelters(fourSpare, 5);
         AddFamilyBufferHousehold(fourSpare, deceasedCount: 4);
         Assert.Equal(4, fourSpare.ShelterCapacity - fourSpare.LivingPopulation);
         Assert.NotEqual(StructureType.Shelter, SelectSettlementDemand(fourSpare));
 
-        var failedPrerequisite = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var failedPrerequisite = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         AddCompletedShelters(failedPrerequisite, 5);
         AddFamilyBufferHousehold(failedPrerequisite, deceasedCount: 3);
         failedPrerequisite.Settlement.FoodStored = 0;
@@ -495,7 +495,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void PartnershipEligibilityAndScoringRemainIndependentOfSocialRecency()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var citizens = Citizens(engine);
         var first = citizens[1];
         var second = citizens[2];
@@ -513,7 +513,7 @@ public sealed class M5SocialCoreTests
     [Fact]
     public void SocialFingerprintIsInvariantUnderCustomNegativeSignCultureAndIncludesRelationshipAndHouseholdState()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var first = source.Citizens[0];
         var second = source.Citizens[1];
         var household = new Household(new HouseholdId(source.Counters.NextEntityId), source.WorldMinute.Value);
@@ -562,7 +562,7 @@ public sealed class M5SocialCoreTests
 
     private static SimulationPersistenceSnapshot CreateM5SettlementSnapshot()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
         var site = source.World!.Tiles.First(tile => tile.Buildable && tile.Coordinate != source.World.StartingSite && source.World.GetResources(tile.Coordinate).Count == 0).Coordinate;
         var structure = new Structure(new StructureId(source.Counters.NextEntityId), StructureType.Shelter, site, source.WorldMinute.Value, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork)
         {
@@ -573,7 +573,7 @@ public sealed class M5SocialCoreTests
     }
 
     private static SimulationPersistenceSnapshot CreateM5Snapshot(WorldMinute initialMinute = default) =>
-        new SimulationEngine(new WorldSeed(42), initialMinute, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot();
+        new SimulationEngine(new WorldSeed(42), initialMinute, simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion).CreatePersistenceSnapshot();
 
     private static SimulationPersistenceSnapshot CreateM5SnapshotWithChild(WorldMinute initialMinute = default)
     {
@@ -685,7 +685,7 @@ public sealed class M5SocialCoreTests
 
     private static CitizenId SelectTargetWithFamilyRelationship(long currentMinute)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), new WorldMinute(currentMinute), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), new WorldMinute(currentMinute), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var citizens = Citizens(engine);
         var initiator = citizens[1];
         var family = citizens[2];
@@ -800,7 +800,7 @@ public sealed class M5SocialCoreTests
 
     private static ExchangeSetup CreateFragmentedHousingExchangeEngine(bool restDonors)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         foreach (var founder in Citizens(engine).Values)
         {
             founder.Health = 0;

@@ -1,6 +1,6 @@
-# Little Ages M0-M4 Simulation Model
+# Little Ages M0-M6 Simulation Model
 
-This is the exact deterministic model implemented by M0 through M4. M1 adds immutable deterministic geography/resource definitions, M2 adds founders and movement, M3 adds the survival loop over mutable resource quantities, stockpile, needs, gathering, health, and mortality, and M4 adds deterministic settlement/construction.
+This is the exact deterministic model implemented by M0 through M6. M1 adds immutable deterministic geography/resource definitions, M2 adds founders and movement, M3 adds the survival loop over mutable resource quantities, stockpile, needs, gathering, health, and mortality, M4 adds deterministic settlement/construction, M5 adds social/family/lifecycle systems, and M6 adds append-only factual history, structured memories, biographies, and monthly statistics.
 
 ## World minute and calendar
 
@@ -59,11 +59,15 @@ The current compatibility values are:
 
 ```text
 WorldSchemaVersion:        0.1
-SimulationRulesVersion:    m4-rng1-settlement1
+SimulationRulesVersion:    m6-rng1-history1
+M4 rules version:          m4-rng1-settlement1
 M3 rules version:          m3-rng1-survival1
 M2 rules version:          m2-rng1-citizen1
 SurvivalVersion:            1
 SettlementVersion:          1
+SocialVersion:              1
+HistoryVersion:             1
+HistoricalEventSchemaVersion: 1
 Deterministic RNG version: 1
 Default application version: 0.1.0
 ```
@@ -172,7 +176,7 @@ Canonical Domain/Simulation behavior must not depend on:
 
 Wall-clock UTC is used only for operational checkpoint metadata and server lifecycle logging. The browser's refresh rate, connection state, and Vite proxy do not participate in canonical simulation state.
 
-M5 social/family/aging and the preceding settlement structures/shelters are implemented below. Historical gameplay facts and queries remain M6; server hardening/deployment is M7; and headless/MAX, scale, profiling, and 100-year validation are M8.
+M5 social/family/aging and M6 historical gameplay are implemented below. Server hardening/deployment and reconnect behavior remain M7; headless/MAX, scale, profiling, tuning, and 100-year validation remain M8.
 
 ## M1 immutable world model
 
@@ -371,7 +375,7 @@ M3 non-goals are structures/shelters (M4), social/family/aging (M5), history (M6
 
 ## M4 settlement and construction contract
 
-M4 is the current deterministic compatibility boundary: `SimulationRulesVersion = m4-rng1-settlement1` and `SettlementVersion = 1`. The retained M3 predecessor is `m3-rng1-survival1`; M2 remains `m2-rng1-citizen1`. World, RNG, and founder generation versions are unchanged. A fresh M4 engine starts with 20 founders, settlement stores `Food=400`, `Wood=0`, `Stone=0`, base storage capacity `800`, and exposure consequences beginning exactly `7 * 1440 = 10080` minutes after its creation minute.
+M4 is the settlement compatibility layer: `SimulationRulesVersion = m4-rng1-settlement1` and `SettlementVersion = 1`. M6 is the current deterministic boundary (`m6-rng1-history1`). The retained M3 predecessor is `m3-rng1-survival1`; M2 remains `m2-rng1-citizen1`. World, RNG, and founder generation versions are unchanged. A fresh M4 engine starts with 20 founders, settlement stores `Food=400`, `Wood=0`, `Stone=0`, base storage capacity `800`, and exposure consequences beginning exactly `7 * 1440 = 10080` minutes after its creation minute.
 
 ### Structures, capacity, and demand
 
@@ -441,4 +445,68 @@ The M4 settlement fingerprint remains SHA-256 over length-prefixed UTF-8 canonic
 
 `SimulationStatusSnapshot` deep-copies sorted structures and contributions alongside other read state. The host projects a single immutable observation; `/api/v1/structures` and its canonical-ID detail route expose copied, ID-sorted structures with sorted occupants/contributions, while `/api/v1/map` exposes row-major terrain and starting site. Citizens and settlement observations include the M4 fields. The read-only browser fetches the map once and serially polls dynamic observations; its canvas is an observer, never a canonical simulation owner.
 
-M4 deliberately does not begin M5 relationships, households, reproduction, aging, or families, nor M6 historical gameplay events, biographies, statistics, or queries. It also adds no player mutation API, map mutation, trade system, SignalR hub, or PixiJS renderer.
+At the M4 boundary, M5 relationships, households, reproduction, aging, and families, plus M6 historical gameplay events, biographies, statistics, and queries, were not yet enabled. Those compatibility layers are described below. M4 adds no player mutation API, map mutation, trade system, SignalR hub, or PixiJS renderer.
+
+## M6 history and statistics contract
+
+M6 is the current rules boundary: `SimulationRulesVersion = m6-rng1-history1`, `HistoryVersion = 1`, and `HistoricalEventSchemaVersion = 1`. Explicit predecessor values remain stable and selectable: `M2SimulationRulesVersion = m2-rng1-citizen1`, `M3SimulationRulesVersion = m3-rng1-survival1`, `M4SimulationRulesVersion = m4-rng1-settlement1`, and `M5SimulationRulesVersion = m5-rng1-social1`. M5 behavior is enabled for M5 and M6 snapshots; history behavior is enabled only for M6. Unknown versions reject.
+
+### Historical event vocabulary and schema
+
+Historical event type values are persisted compatibility data and must never be renumbered:
+
+```text
+WorldCreated=1                  SettlementFounded=2
+CitizenBorn=3                   CitizenDied=4
+PartnershipFormed=5             FriendshipFormed=6
+RivalryFormed=7                 HouseholdCreated=8
+StructureStarted=9              StructureCompleted=10
+PopulationMilestone=11          ResourceShortageStarted=12
+ResourceShortageEnded=13        CitizenSpecializationChanged=14
+SeasonStarted=15
+```
+
+Importance is `Debug=0`, `Routine=1`, `Personal=2`, `Notable=3`, `Major=4`, `Historic=5`. The canonical importance is world/settlement 5, birth/death/partnership/completion/shortage 3, friendship/rivalry/household/structure-start/specialization 2, population milestone 4, and season 1. The normal observer timeline requests importance `>=2`; routine events remain queryable. Origin is `Live=1` or `MigrationBackfill=2`.
+
+An event is an immutable record of `HistoricalEventId`, non-negative `WorldMinute`, type, importance, origin, optional `TileCoordinate`, canonical `PayloadJson`, and schema version. Citizen links contain `(HistoricalEventId, CitizenId, Role)`; roles are exactly `subject`, `parent`, `partner`, `founder`, `participant`, `member`, or `contributor`. Structure links contain `(HistoricalEventId, StructureId, Role)` with `subject`. Links reference real persistent entities, allow dead citizens/completed structures, and are composite-unique. IDs are invariant decimal strings at the API boundary and are never converted to JavaScript numbers.
+
+Payload builders/parsers are event-specific and schema-controlled. They use invariant numeric formatting, stable property order, decimal-string entity IDs, and no prose, wall-clock timestamp, or arbitrary fields. Display summaries are derived templates using only event type, structured payload, and linked names/types; they never infer motive, dialogue, emotion, or unrecorded achievement. Routine meals, gathering, movement, decisions, and construction shifts emit no historical event.
+
+### Live emission and ordering
+
+Fresh M6 state immediately emits `WorldCreated`, `SettlementFounded`, and `SeasonStarted(Spring/Year 0)` at minute 0. Live births emit `CitizenBorn` with child subject and both parent links, household payload, and birth location; population milestones are emitted after the birth event in threshold order. Every survival/natural death path emits one `CitizenDied` with subject link, exact cause/age payload, and persistent death location. Partnership emits `PartnershipFormed` then `HouseholdCreated` at the same minute, with partner/member links. A social interaction emits one `FriendshipFormed` or `RivalryFormed` only when the ordinary relationship label newly crosses the threshold and no formation event exists for that pair; a pair may legitimately have both over time. Occupation updates compare the derived label before/after work and emit `CitizenSpecializationChanged` only on an actual change.
+
+Demand creation emits `StructureStarted` once with subject structure link and canonical type/cost/work payload. Completion emits `StructureCompleted` with structure subject plus non-zero contributor links in ascending citizen-ID order; individual build shifts have no history. Food shortage history uses hysteresis: start when `FoodStored < living population × 10`, end when `FoodStored >= living population × 20`, and inactive when living population is zero. Emit only transitions, including a single `preexistingAtHistoryStart=true` start at M5→M6 upgrade when already below threshold. `SeasonStarted` uses exact calendar boundaries and shares its minute with the monthly sample.
+
+### Statistics scheduler and state
+
+The reserved `history.statistics-sample.v1` scheduled event has priority 19, after lifecycle 17 and survival 18 but before decisions 20. It samples every exact 43,200 minutes (30 simulated days) at `((WorldMinute / 43200) + 1) * 43200`, then schedules `current + 43200` without drift. At a season boundary it emits `SeasonStarted` before/alongside the sample. Sampling observes living population, births/deaths since the period start, stored Food/Wood/Stone, Food produced/consumed, shelter capacity, floor average health, and floor projected average hunger; with no living citizens both averages are zero. It does not materialize projected needs. Counters then reset and `PeriodStartMinute` becomes the sample minute.
+
+`HistoryState` is one persisted singleton:
+
+```text
+HistoryStartMinute, HistoryStartEventId
+PeriodStartMinute, BirthsSinceSample, DeathsSinceSample
+FoodProducedSinceSample, FoodConsumedSinceSample
+ActiveFoodShortage, PopulationMilestoneWatermark
+```
+
+`StatisticsSample` is keyed by `WorldMinute` and stores `PeriodStartMinute`, population, births/deaths, Food stored/produced/consumed, Wood, Stone, shelter capacity, average health, and average hunger. Food production counts only the amount accepted into shared storage; consumption counts the amount removed. The historical counter is independent from entity and scheduled-event counters; only scheduling the statistics event consumes an ordinary scheduled sequence.
+
+### Structured memories and biography
+
+`CitizenMemory` is keyed by `(CitizenId, HistoricalEventId, MemoryType)` and stores `MemoryType`, `Importance`, `EmotionalValence`, and `CreatedMinute`. Stable memory values are `ChildBorn=1`, `PartnerDied=2`, `PartnershipFormed=3`, `FriendshipFormed=4`, `RivalryFormed=5`, and `StructureCompleted=6`. Parent memories for a child birth use valence +8000; partner death -9000; partnership +8000; friendship +6000; rivalry -7000; and structure completion +4000, all clamped to -10000..10000. Memories are observational and never influence decisions. ChildBorn, PartnerDied, and PartnershipFormed memories are permanent. Friendship, rivalry, and structure-completion memories are capped at 64 per citizen, retaining importance descending, created minute descending, and event ID descending; pruning never removes the historical event.
+
+Biography is a deterministic read model of citizen identity/name, birth/death and cause/age, life stage, parents, partner, children, household, derived occupation, linked notable events (`importance >= 2`, minute/ID ascending), and important structured memories. It remains available after death. No logs, AI, inferred dialogue, speculative motive, or fictional prose are inputs.
+
+### M5→M6 migration and fingerprints
+
+The direct upgrade requires a complete M5 snapshot with `SimulationRulesVersion=m5-rng1-social1`, `SocialVersion=1`, `HistoryVersion=0`, and no history rows, links, memories, statistics, `HistoryState`, or statistics scheduler. It initializes history exactly once at the pre-M6 `NextHistoricalEventId`; it does not reset the counter. Backfill candidates are built before allocation and sorted by world minute, canonical event rank, primary entity ID, then secondary ID. Exact backfills are world creation, settlement founding, mathematically exact seasons through the snapshot minute, descendant births with `BirthMinute >= 0`, deaths, partnerships/households, structures, and reconstructible population milestones. Founder births (negative minutes), friendship, rivalry, specialization, and pre-M6 aggregate statistics are intentionally excluded because their exact historical transition/value is unknowable. Missing optional fields remain omitted; no later location is substituted for a backfilled birth location. Upgrade and ordinary checkpoint writes are atomic, append-only, prefix-validating, and idempotent; any conflict rejects rather than repairs.
+
+`HistoryFingerprint` extends the M5 canonical fingerprint with HistoryVersion, HistoryState, historical events (ID ascending, raw payload JSON), citizen/structure links, samples (minute ascending), and memories sorted by citizen ID/event ID/memory type. It excludes summaries, UI filters, pagination, and wall-clock metadata and uses invariant formatting. M0→M6 follows the real M1→M2→M3→M4→M5→M6 chain, preserving seed/world/founders and initializing/backfilling only once. History is alongside canonical snapshot state and the deterministic scheduled queue, never an event-sourced replacement.
+
+### Immutable query/API boundary and observer UI
+
+The host atomically publishes an immutable history observation from the simulation; HTTP never reads the mutable engine or latest SQLite checkpoint directly. `GET /api/v1/history` defaults to `minimumImportance=2`, `limit=50`, and descending `WorldMinute`/event ID ordering. It accepts bounded `fromMinute`, `toMinute`, `eventType`, `minimumImportance`, `citizenId`, `familyCitizenId`, `structureId`, `beforeEventId`, and `limit` (maximum 100). Family closure is root, ancestors, descendants, siblings sharing a parent, and persistent partner. Detail, biography, and memory routes validate canonical positive decimal IDs; malformed IDs are 400 and unknown IDs 404. `GET /api/v1/statistics` accepts bounded minute ranges and limit and returns samples ascending by minute. Every route is read-only.
+
+The React observer uses strict DTO parsers, retains decimal IDs as strings, limits requests to server pagination, and protects state from stale responses/unmounts. It provides a newest-first factual history feed with citizen/family/type/importance/structure/time filters and older-page loading; selected citizen biography facts, notable timeline, and structured memories; and a bounded monthly statistics table plus lightweight population trend. It sends GET requests only. M7 owns persistent-host/reconnect/service hardening; M8 owns scale, performance tuning, long-run profiling, and 100-year acceptance. M6 does not add AI narration, full-text search, replay/event sourcing, user accounts, cloud sync, SignalR, mutation controls, or population retuning.

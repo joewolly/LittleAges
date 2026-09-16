@@ -1,7 +1,6 @@
 using System.Data.Common;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace LittleAges.Persistence;
 
@@ -13,7 +12,8 @@ internal sealed record WorldDatabaseOpenOptions(
     M2UpgradeFailurePoint? M2UpgradeFailurePoint = null,
     M3UpgradeFailurePoint? M3UpgradeFailurePoint = null,
     M4UpgradeFailurePoint? M4UpgradeFailurePoint = null,
-    M5UpgradeFailurePoint? M5UpgradeFailurePoint = null);
+    M5UpgradeFailurePoint? M5UpgradeFailurePoint = null,
+    M6UpgradeFailurePoint? M6UpgradeFailurePoint = null);
 
 /// <summary>Opens one world database, applies migrations, and configures connection-level SQLite safety.</summary>
 public sealed class WorldDatabase : IAsyncDisposable
@@ -62,7 +62,6 @@ public sealed class WorldDatabase : IAsyncDisposable
             .UseSqlite(
                 connectionString,
                 sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name))
-            .ConfigureWarnings(warnings => warnings.Ignore(RelationalEventId.PendingModelChangesWarning))
             .Options;
         var context = new LittleAgesDbContext(dbOptions);
         var database = new WorldDatabase(fullPath, context);
@@ -82,6 +81,7 @@ public sealed class WorldDatabase : IAsyncDisposable
             await database.CreateCheckpointStore().UpgradeM2ToM3IfNeededAsync(m3FailurePoint, cancellationToken);
             await database.CreateCheckpointStore().UpgradeM3ToM4IfNeededAsync(openOptions?.M4UpgradeFailurePoint, cancellationToken);
             await database.CreateCheckpointStore().UpgradeM4ToM5IfNeededAsync(openOptions?.M5UpgradeFailurePoint, cancellationToken);
+            await database.CreateCheckpointStore().UpgradeM5ToM6IfNeededAsync(openOptions?.M6UpgradeFailurePoint, cancellationToken);
             return database;
         }
         catch

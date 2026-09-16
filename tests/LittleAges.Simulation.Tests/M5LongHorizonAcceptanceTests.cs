@@ -16,7 +16,7 @@ public sealed class M5LongHorizonAcceptanceTests
     [Fact]
     public void Seed42FirstBirthTraceFindsABirthWithinTenYears()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, captureFamilyCheckDiagnostics: true);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion, captureFamilyCheckDiagnostics: true);
         var limit = new WorldMinute(10L * WorldCalendar.MinutesPerYear);
         while (engine.NextScheduledEventMinute is { } due && due <= limit && engine.Citizens.All(citizen => citizen.FounderOrdinal is not null)) Assert.True(engine.ProcessNextEvent());
 
@@ -29,7 +29,7 @@ public sealed class M5LongHorizonAcceptanceTests
     [Fact]
     public void Seed42DailyFamilyCheckCounterfactualAuditIsStateNeutralThroughTenYears()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, captureFamilyCheckDiagnostics: true);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion, captureFamilyCheckDiagnostics: true);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var limit = new WorldMinute(10L * WorldCalendar.MinutesPerYear);
         while (engine.NextScheduledEventMinute is { } due && due <= limit)
@@ -70,7 +70,7 @@ public sealed class M5LongHorizonAcceptanceTests
     [Fact]
     public void Seed42NaturalM5RunProducesAnAutonomousThirdGeneration()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var thirtyYears = new WorldMinute(30L * WorldCalendar.MinutesPerYear);
         var peakPopulation = engine.LivingPopulation;

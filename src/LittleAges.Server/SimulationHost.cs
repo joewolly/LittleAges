@@ -98,6 +98,7 @@ public sealed record ServerCitizenSnapshot
         HouseholdId = snapshot.HouseholdId?.Value.ToString(CultureInfo.InvariantCulture);
         ChildrenIds = Array.AsReadOnly((snapshot.ChildrenIds ?? Array.Empty<string>()).OrderBy(static value => long.Parse(value, CultureInfo.InvariantCulture)).ToArray());
         TargetCitizenId = snapshot.TargetCitizenId?.Value.ToString(CultureInfo.InvariantCulture);
+        BirthMinute = snapshot.BirthMinute;
     }
 
     public string CitizenId { get; }
@@ -140,6 +141,7 @@ public sealed record ServerCitizenSnapshot
     public string? HouseholdId { get; }
     public IReadOnlyList<string> ChildrenIds { get; }
     public string? TargetCitizenId { get; }
+    public long BirthMinute { get; }
 }
 
 public sealed record ServerRelationshipSnapshot(string OtherCitizenId, string OtherCitizenName, int Familiarity, int Affinity, int Trust, int Conflict, long LastInteractionMinute, long InteractionCount, string Label);
@@ -330,7 +332,7 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         Status = status;
@@ -340,6 +342,7 @@ public sealed record ServerObservationSnapshot
         Map = map;
         Relationships = Array.AsReadOnly((relationships ?? Array.Empty<RelationshipState>()).OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray());
         Households = Array.AsReadOnly((households ?? Array.Empty<Household>()).OrderBy(x => x.Id.Value).Select(x => new Household(x.Id, x.CreatedMinute) { DissolvedMinute = x.DissolvedMinute, DwellingStructureId = x.DwellingStructureId }).ToArray());
+        History = history is null ? null : new ServerHistorySnapshot(history, Citizens, Structures);
     }
 
     public ServerStatusSnapshot Status { get; }
@@ -349,6 +352,7 @@ public sealed record ServerObservationSnapshot
     public ServerMapSnapshot? Map { get; }
     public IReadOnlyList<RelationshipState> Relationships { get; }
     public IReadOnlyList<Household> Households { get; }
+    public ServerHistorySnapshot? History { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -659,7 +663,7 @@ public sealed partial class SimulationHost : BackgroundService
             citizenSnapshots.Length,
             livingPopulation,
             deadPopulation);
-        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households));
+        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History));
         if (state == SimulationHostState.Running)
         {
             _runningForTesting.TrySetResult(true);

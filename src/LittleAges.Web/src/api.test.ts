@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { parseCitizens, parseHealth, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseStatus, parseStructures } from './api'
+import { describe, expect, it, vi } from 'vitest'
+import { buildHistoryQuery, buildStatisticsQuery, fetchBiography, fetchHistory, fetchStatistics, parseBiography, parseCitizens, parseHealth, parseHistory, parseHistoricalEvent, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseStatistics, parseStatus, parseStructures } from './api'
 
 const citizen = {
   citizenId: '9223372036854775807',
@@ -39,6 +39,39 @@ const structure = {
   structureId: '9223372036854775807', type: 'Shelter', status: 'UnderConstruction', location: { x: 1, y: 2 }, startedMinute: 20, completedMinute: null,
   requiredWood: 12, deliveredWood: 5, requiredStone: 4, deliveredStone: 2, requiredWork: 30, completedWork: 9, condition: 0,
   capacity: 4, storageBonus: null, constructionMultiplierBasisPoints: null, currentOccupantIds: [], contributions: [{ citizenId: citizen.citizenId, constructionWork: 9, woodDelivered: 5, stoneDelivered: 2 }],
+}
+
+function historicalEvent(eventId = '9223372036854775806', worldMinute = 720) {
+  return {
+    eventId,
+    historicalEventId: eventId,
+    worldMinute,
+    eventType: 'CitizenBorn',
+    importance: 'Personal',
+    origin: 'Live',
+    location: { x: 1, y: 2 },
+    payloadJson: `{"citizenId":"${citizen.citizenId}"}`,
+    schemaVersion: 1,
+    summary: 'Elara Venn was born.',
+    citizenLinks: [{ eventId, citizenId: citizen.citizenId, role: 'subject' }],
+    structureLinks: [],
+  }
+}
+
+const statisticsSample = {
+  worldMinute: 43200,
+  periodStartMinute: 0,
+  population: 25,
+  birthsPeriod: 5,
+  deathsPeriod: 1,
+  foodStored: 400,
+  foodProducedPeriod: 100,
+  foodConsumedPeriod: 80,
+  woodStored: 120,
+  stoneStored: 30,
+  shelterCapacity: 24,
+  averageHealth: 9800,
+  averageHunger: 1200,
 }
 
 describe('API response parsing', () => {
@@ -175,5 +208,119 @@ describe('API response parsing', () => {
     { foodStored: 400, woodStored: 120, stoneStored: 30, livingPopulation: 20, deadPopulation: 0, resources: [{ resourceNodeId: '01', resourceType: 'Food', currentQuantity: 1 }] },
   ])('rejects malformed settlement fields', value => {
     expect(() => parseSettlement(value)).toThrow()
+  })
+
+  it('parses canonical historical events while preserving decimal IDs as strings', () => {
+    const parsed = parseHistoricalEvent(historicalEvent())
+    expect(parsed.eventId).toBe('9223372036854775806')
+    expect(parsed.citizenLinks[0].citizenId).toBe(citizen.citizenId)
+    expect(parsed.origin).toBe('Live')
+  })
+
+  it.each([
+    { eventId: 2 },
+    { historicalEventId: '7' },
+    { eventType: 'Unknown' },
+    { importance: 'Historic-ish' },
+    { origin: 'Imported' },
+    { schemaVersion: 2 },
+    { payloadJson: '{broken' },
+    { location: { x: -1, y: 1 } },
+    { citizenLinks: [{ eventId: '9223372036854775806', citizenId: citizen.citizenId, role: 'Subject' }] },
+  ])('rejects malformed historical event DTOs', change => {
+    expect(() => parseHistoricalEvent({ ...historicalEvent(), ...change })).toThrow()
+  })
+
+  it('enforces descending event history and ascending biography timelines', () => {
+    const newest = historicalEvent('10', 720)
+    const older = historicalEvent('9', 720)
+    expect(parseHistory([newest, older]).map(event => event.eventId)).toEqual(['10', '9'])
+    expect(() => parseHistory([older, newest])).toThrow()
+
+    const biography = parseBiography({
+      citizen,
+      events: [historicalEvent('9', 10), historicalEvent('10', 20)],
+      memories: [],
+      parentIds: [],
+      partnerId: null,
+      childrenIds: [],
+      birthMinute: 10,
+      deathMinute: null,
+      deathCause: null,
+    })
+    expect(biography.events.map(event => event.worldMinute)).toEqual([10, 20])
+  })
+
+  it('parses biography relationships and citizen-owned structured memories', () => {
+    const biography = parseBiography({
+      citizen,
+      events: [],
+      memories: [{ citizenId: citizen.citizenId, eventId: '9223372036854775806', memoryType: 'FriendshipFormed', importance: 'Notable', emotionalValence: 1200, createdMinute: 720 }],
+      parentIds: ['2', '3'],
+      partnerId: '4',
+      childrenIds: ['5'],
+      birthMinute: 0,
+      deathMinute: 100,
+      deathCause: 'old age',
+    })
+    expect(biography.parentIds).toEqual(['2', '3'])
+    expect(biography.memories[0]).toMatchObject({ memoryType: 'FriendshipFormed', emotionalValence: 1200 })
+    expect(() => parseBiography({ citizen, events: [], memories: [{ citizenId: '2', eventId: '7', memoryType: 'FriendshipFormed', importance: 'Notable', emotionalValence: 0, createdMinute: 1 }], parentIds: [], childrenIds: [] })).toThrow()
+  })
+
+  it('accepts safe signed biography birth minutes for pre-world founders', () => {
+    const biography = parseBiography({ citizen, events: [], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: -1_000, deathMinute: null, deathCause: null })
+    expect(biography.birthMinute).toBe(-1_000)
+  })
+
+  it('parses bounded ascending historical statistics', () => {
+    expect(parseStatistics([statisticsSample])[0]).toMatchObject({ worldMinute: 43200, population: 25, averageHealth: 9800 })
+    expect(() => parseStatistics([{ ...statisticsSample, averageHunger: 10001 }])).toThrow()
+    expect(() => parseStatistics([statisticsSample, { ...statisticsSample, worldMinute: 43200 }])).toThrow()
+  })
+
+  it('constructs bounded history and statistics filters with the M6 defaults', () => {
+    const defaults = new URLSearchParams(buildHistoryQuery())
+    expect(defaults.get('minimumImportance')).toBe('2')
+    expect(defaults.get('limit')).toBe('50')
+
+    const history = new URLSearchParams(buildHistoryQuery({ fromMinute: 10, toMinute: 20, eventType: 'CitizenDied', minimumImportance: 4, citizenId: citizen.citizenId, familyCitizenId: '2', structureId: '7', beforeEventId: '8', limit: 25 }))
+    expect(history.get('fromMinute')).toBe('10')
+    expect(history.get('toMinute')).toBe('20')
+    expect(history.get('eventType')).toBe('CitizenDied')
+    expect(history.get('minimumImportance')).toBe('4')
+    expect(history.get('citizenId')).toBe(citizen.citizenId)
+    expect(history.get('familyCitizenId')).toBe('2')
+    expect(history.get('structureId')).toBe('7')
+    expect(history.get('beforeEventId')).toBe('8')
+    expect(history.get('limit')).toBe('25')
+    expect(new URLSearchParams(buildStatisticsQuery({ fromMinute: 0, toMinute: 43200, limit: 100 })).get('limit')).toBe('100')
+  })
+
+  it.each([
+    () => buildHistoryQuery({ limit: 101 }),
+    () => buildHistoryQuery({ minimumImportance: 6 }),
+    () => buildHistoryQuery({ citizenId: '01' }),
+    () => buildHistoryQuery({ fromMinute: 20, toMinute: 10 }),
+    () => buildStatisticsQuery({ limit: 0 }),
+  ])('rejects invalid history query bounds', build => expect(build).toThrow())
+
+  it('uses GET history, biography, and statistics fetchers with strict response parsers', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/history?')) return new Response(JSON.stringify([historicalEvent()]))
+      if (path.includes('/biography')) return new Response(JSON.stringify({ citizen, events: [], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 0, deathMinute: null, deathCause: null }))
+      return new Response(JSON.stringify([statisticsSample]))
+    })
+    await fetchHistory({ limit: 1 })
+    await fetchBiography(citizen.citizenId)
+    await fetchStatistics({ limit: 1 })
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      `/api/v1/history?minimumImportance=2&limit=1`,
+      `/api/v1/citizens/${citizen.citizenId}/biography`,
+      '/api/v1/statistics?limit=1',
+    ])
+    expect(fetchMock.mock.calls.every(([, init]) => init === undefined)).toBe(true)
+    fetchMock.mockRestore()
   })
 })

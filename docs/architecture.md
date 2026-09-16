@@ -1,6 +1,6 @@
-# Little Ages M0-M4 Architecture
+# Little Ages M0-M6 Architecture
 
-This document describes the implementation that exists through M4. The product design and implementation plan remain preserved separately; this is an implementation record, not a promise that later-milestone systems already exist.
+This document describes the implementation that exists through M6. The product design and implementation plan remain preserved separately; this is an implementation record, not a promise that later-milestone systems already exist.
 
 ## Project and reference graph
 
@@ -18,15 +18,15 @@ LittleAges.Server      ──> LittleAges.Domain
 The arrows indicate project references:
 
 - `LittleAges.Domain` has no project or infrastructure package references. It contains value types, typed IDs, counters, calendar rules, RNG contracts/implementation, and the immutable M1 world-map value model.
-- `LittleAges.Simulation` references `LittleAges.Domain` only. It contains the canonical engine, queue, snapshots, synthetic data events, deterministic M1 `WorldGenerator`, M2 founder/movement rules, M3 survival, and M4 settlement/construction rules.
-- `LittleAges.Persistence` references Domain and Simulation. It owns EF Core SQLite, migrations, database opening, and snapshot checkpoint/load.
-- `LittleAges.Server` references Domain, Simulation, and Persistence. It owns ASP.NET Core hosting, configuration, the hosted owner, health, and HTTP endpoints.
+- `LittleAges.Simulation` references `LittleAges.Domain` only. It contains the canonical engine, queue, snapshots, synthetic data events, deterministic M1 `WorldGenerator`, M2 founder/movement rules, M3 survival, M4 settlement/construction, M5 social/family/lifecycle systems, and M6 historical read model/emission rules.
+- `LittleAges.Persistence` references Domain and Simulation. It owns EF Core SQLite, migrations, database opening, snapshot checkpoint/load, append-only history, statistics, and structured memories.
+- `LittleAges.Server` references Domain, Simulation, and Persistence. It owns ASP.NET Core hosting, configuration, the hosted owner, health, immutable observations, and HTTP endpoints.
 - The four test projects reference the production project under test; integration tests reference Server and exercise the real host and SQLite files.
 - `LittleAges.Web` is a separate React/TypeScript/Vite application and is not a .NET project or simulation dependency.
 
-There is no SignalR hub, PixiJS renderer, static frontend serving, or mutation endpoint. M5 social/family/aging and the preceding settlement/construction systems are implemented in the canonical simulation engine; historical gameplay (M6) is not implemented.
+There is no SignalR hub, PixiJS renderer, static frontend serving, or mutation endpoint. M5 social/family/aging and M6 history are implemented in the canonical simulation engine; M7 persistent-host/reconnect hardening and M8 scale/tuning remain deferred.
 
-M1 adds deterministic geography and immutable resource definitions to Domain/Simulation. M2 adds the founder roster and movement. M3 adds mutable resource quantities, a singleton stockpile, gathering, needs, health, and mortality. M4 adds bounded settlement storage, structures, material hauling, construction, housing and exposure, and derived occupations. The generated `WorldMap` remains immutable and is held by `SimulationEngine`; it is included in read and persistence snapshots. Persistence checkpoints and restores the map rows directly, so loading does not regenerate from seed/configuration.
+M1 adds deterministic geography and immutable resource definitions to Domain/Simulation. M2 adds the founder roster and movement. M3 adds mutable resource quantities, a singleton stockpile, gathering, needs, health, and mortality. M4 adds bounded settlement storage, structures, material hauling, construction, housing and exposure, and derived occupations. M5 adds relationships, partnerships, households, reproduction, aging, and lifecycle. M6 adds an append-only factual history stream, statistics, structured memories, biographies, and bounded history queries. The generated `WorldMap` remains immutable and is held by `SimulationEngine`; it is included in read and persistence snapshots. Persistence checkpoints and restores the map rows directly, so loading does not regenerate from seed/configuration.
 
 ## Canonical ownership and request flow
 
@@ -58,13 +58,13 @@ The status presentation contract exposes `WorldSeed` as an invariant decimal str
 
 The canonical M0 snapshot consists of the seed, non-negative world minute, schema/rules/application version strings, world configuration JSON, deterministic counters, and the pending synthetic scheduled-event list. It is the input to restoration and deterministic continuation.
 
-The M1 simulation snapshot additionally carries the generated immutable `WorldMap`. M2 adds citizens and scheduled movement state. M3 adds `survival_version`, mutable resource states, settlement stock, health/need boundaries, carrying state, and survival events. M4 adds `settlement_version`, bounded-storage and demand boundaries, structures, per-citizen contributions, home/target structure IDs, work counters, construction action state, and settlement events. Its seed, generation version/attempt, canonical configuration, tiles, resource nodes, starting coordinate, and fingerprint are canonical world state; operational timestamps and database paths remain excluded.
+The M1 simulation snapshot additionally carries the generated immutable `WorldMap`. M2 adds citizens and scheduled movement state. M3 adds `survival_version`, mutable resource states, settlement stock, health/need boundaries, carrying state, and survival events. M4 adds `settlement_version`, bounded-storage and demand boundaries, structures, per-citizen contributions, home/target structure IDs, work counters, construction action state, and settlement events. M5 adds social/lifecycle state. M6 adds `history_version`, `HistoryState`, historical events and links, monthly statistics, and structured memories. Historical data is canonical and append-only, but it is not the source of live state reconstruction. Its seed, generation version/attempt, canonical configuration, tiles, resource nodes, starting coordinate, and fingerprint are canonical world state; operational timestamps and database paths remain excluded.
 
-Operational data is deliberately separate: database path, listen URL, host state/error, log records, `CreatedUtc`, and `LastCheckpointUtc`. UTC checkpoint timestamps are metadata only and never enter simulation decisions. M0 is snapshot-based, not event-sourced; it has no historical gameplay event store.
+Operational data is deliberately separate: database path, listen URL, host state/error, log records, `CreatedUtc`, and `LastCheckpointUtc`. UTC checkpoint timestamps are metadata only and never enter simulation decisions. Little Ages remains snapshot-based, not event-sourced: the authoritative world is canonical snapshot state plus the deterministic scheduled-event queue; history describes important transitions alongside it.
 
 ## Persistence
 
-`WorldDatabase.OpenAsync` creates the parent directory, opens one SQLite file, enables connection-level foreign keys, sets a 5,000 ms busy timeout, enables WAL, applies EF migrations, and verifies those settings. It uses a non-shared-cache connection. The M0 migration creates `world_meta` and `scheduled_events`; M1 extends `world_meta` and creates immutable `world_tiles`/`resource_nodes`; M2 adds the founder table; M3 adds survival metadata/state and constraints; M4 adds settlement metadata, construction-state columns, `structures`, and `structure_contributions`.
+`WorldDatabase.OpenAsync` creates the parent directory, opens one SQLite file, enables connection-level foreign keys, sets a 5,000 ms busy timeout, enables WAL, applies EF migrations, and verifies those settings. It uses a non-shared-cache connection. The M0 migration creates `world_meta` and `scheduled_events`; M1 extends `world_meta` and creates immutable `world_tiles`/`resource_nodes`; M2 adds the founder table; M3 adds survival metadata/state and constraints; M4 adds settlement metadata, construction-state columns, `structures`, and `structure_contributions`; M5 adds social/lifecycle state; M6 adds history events/links, `history_state`, `statistics_samples`, and `memories`.
 
 ### `world_meta`
 
@@ -77,10 +77,11 @@ One row is required, with `id = 1` enforced by a check constraint. It stores:
 - `generation_version`, `generation_attempt`, and `starting_x`/`starting_y`;
 - `world_fingerprint` as the stored canonical SHA-256 fingerprint;
 - `citizen_generation_version`, `survival_version`, and `settlement_version` compatibility sentinels;
+- `social_version` and `history_version` compatibility sentinels;
 - `next_entity_id`, `next_historical_event_id`, and `next_scheduled_event_sequence`;
 - operational `created_utc` and `last_checkpoint_utc`.
 
-SQLite `INTEGER` is signed `Int64`, while a `WorldSeed` is the complete `UInt64` range. Therefore the seed is encoded and decoded as invariant, lossless decimal text rather than a SQLite integer. M4 requires `survival_version = 1`, `settlement_version = 1`, and current rules `m4-rng1-settlement1`; pre-M4 rows use `settlement_version = 0`.
+SQLite `INTEGER` is signed `Int64`, while a `WorldSeed` is the complete `UInt64` range. Therefore the seed is encoded and decoded as invariant, lossless decimal text rather than a SQLite integer. M6 requires `survival_version = 1`, `settlement_version = 1`, `social_version = 1`, `history_version = 1`, and current rules `m6-rng1-history1`; pre-M6 rows use `history_version = 0` and are accepted only by the direct M5→M6 upgrade sentinel.
 
 ### M3 and M4 mutable state
 
@@ -90,7 +91,7 @@ The `citizens` row retains the M2 fields and adds explicit survival and M4 state
 
 ### `scheduled_events`
 
-Each row stores `id`, `due_world_minute`, `priority`, `entity_sort_key`, `sequence`, `event_name`, and `event_payload_json`. `id` is the primary key, `sequence` has a unique index, and a check constraint enforces `id = sequence`.
+Each row stores `id`, `due_world_minute`, `priority`, `entity_sort_key`, `sequence`, `event_name`, and `event_payload_json`. `id` is the primary key, `sequence` has a unique index, and a check constraint enforces `id = sequence`. Scheduled events are instructions for future simulation work (including `history.statistics-sample.v1` at priority 19); historical events are immutable facts already observed and never replace the queue.
 
 A checkpoint runs in one explicit transaction. It validates the complete snapshot and map, removes old resource/tile/event/metadata rows, writes all canonical rows (including M4 settlement, structures, contributions, and construction state), retains existing `created_utc`, and commits. Any failure rolls back and clears tracked state, leaving the previous committed checkpoint intact. Load requires exactly one metadata row, a complete `width * height` row-major tile set, valid resource references and IDs, a valid immutable `WorldMap`, a matching stored fingerprint, complete resource state, exactly one settlement row, coherent M4 structure/contribution/home/action state, and the exact reserved events. It rejects orphaned rows, missing/duplicate/out-of-range or semantically invalid rows, malformed configuration, unsupported compatibility versions, fingerprint mismatches, partial M4 state, and invalid event data. Loaded rows are used directly; generation is not repeated.
 
@@ -104,6 +105,14 @@ The complete compatibility chain is transactional and idempotent: M0→M1 create
 
 `world_tiles` stores row-major `tile_index`, coordinates, terrain, normalized fields, walkability, and movement cost. `resource_nodes` stores deterministic ID, row-major tile reference and coordinates, resource type, quantities, and regeneration potential, with foreign-key cascade from its tile. SQLite check constraints enforce persisted enum/range/walkability invariants; application validation enforces completeness, coordinate/index agreement, ecology, deterministic resource IDs, map viability, and fingerprint integrity.
 
+### M6 append-only history
+
+`historical_events` stores `id`, `world_minute`, `event_type`, `importance`, `origin`, optional location, canonical payload JSON, and schema version. `historical_event_citizens` and `historical_event_structures` are indexed link tables with explicit role vocabularies. `statistics_samples` is keyed by sample `world_minute`; `history_state` is a singleton containing the history start, period counters, food-shortage state, and population milestone watermark. `memories` is keyed by `(citizen_id, historical_event_id, memory_type)` and contains only structured references, importance, valence, and created minute.
+
+History uses the separate monotonic `NextHistoricalEventId` stream and never consumes citizen, structure, household, or ordinary scheduled-event IDs. A checkpoint validates the persisted event prefix against the in-memory canonical prefix, then appends only a new tail and its links in the same transaction. It never deletes and recreates committed history. Conflicting IDs, future minutes, invalid payloads, links, roles, ordering, or counters reject load/checkpoint as corruption. Repeated checkpoints are idempotent.
+
+M5→M6 is a direct, transactional upgrade. It preserves the pre-M6 historical counter as `HistoryStartEventId` and backfills only exact facts: world creation, settlement founding, mathematically exact seasons, descendant births, deaths, partnerships/households, structures, and reconstructible population milestones. It does not fabricate friendship, rivalry, or specialization transitions whose threshold minute M5 did not retain, and it creates no retroactive statistics. A preexisting food shortage is marked at the upgrade boundary rather than assigned an invented onset. Upgrade failure leaves the complete M5 checkpoint unchanged.
+
 ## Server lifecycle, health, and failure semantics
 
 Configuration keys are `DataRoot`, `ListenUrls`, `ActiveWorld`, and `WorldSeed`. Defaults are a data directory below the application base directory, `default-world`, seed `0`, and `http://127.0.0.1:5274`. The active world database is `<DataRoot>\<ActiveWorld>.db` (with platform path separators).
@@ -112,7 +121,7 @@ On startup the host opens/migrates the database. It loads a valid checkpoint, or
 
 The host states are `Starting`, `Running`, `Stopping`, and `Faulted`. Health maps Running to Healthy, Starting/Stopping to Degraded, and Faulted to Unhealthy. Startup errors, malformed JSON, unsupported schema/rules versions, orphaned rows, command-loop failures, and checkpoint failures are not swallowed: the host records Faulted, stops the host under the configured `StopHost` policy, and preserves the last valid checkpoint where one exists.
 
-The server exposes immutable `GET /api/v1/world` alongside `/api/v1/health`, `/api/v1/status`, `/api/v1/citizens`, `/api/v1/citizens/{id}`, `/api/v1/settlement`, `/api/v1/structures`, `/api/v1/structures/{id}`, and `/api/v1/map`. The world response contains the seed as a decimal string, dimensions and tile count, generation version/attempt, starting coordinate, terrain counts, resource counts, and the canonical fingerprint. Citizen responses are copied, ID-sorted published observations with action/phase, health, needs, carrying, target/home structure IDs, occupation, work counters, and death fields. Settlement responses add capacity/used storage, shelter capacity and housing counts, completed structure counts, exposure grace, and the active project. Structure responses are ID sorted and include canonical progress, derived condition/type capability, sorted occupants, and contributions; map responses are immutable row-major terrain with the starting site. Canonical decimal IDs are required (malformed `400`, missing `404`); unavailable read models return `503` where applicable.
+The server exposes immutable `GET /api/v1/world` alongside `/api/v1/health`, `/api/v1/status`, `/api/v1/citizens`, `/api/v1/citizens/{id}`, `/api/v1/settlement`, `/api/v1/structures`, `/api/v1/structures/{id}`, and `/api/v1/map`. M6 adds `GET /api/v1/history`, `GET /api/v1/history/{eventId}`, `GET /api/v1/citizens/{id}/biography`, `GET /api/v1/citizens/{id}/memories`, and `GET /api/v1/statistics`. History accepts bounded `fromMinute`, `toMinute`, `eventType`, `minimumImportance`, `citizenId`, `familyCitizenId`, `structureId`, `beforeEventId`, and `limit` filters; it defaults to importance ≥2 and 50 rows, with a maximum of 100, newest first. Statistics accepts bounded minute ranges and limit and returns samples ascending by minute. The world response contains the seed as a decimal string, dimensions and tile count, generation version/attempt, starting coordinate, terrain counts, resource counts, and the canonical fingerprint. Citizen responses are copied, ID-sorted published observations with action/phase, health, needs, carrying, target/home structure IDs, occupation, work counters, and death fields. Settlement responses add capacity/used storage, shelter capacity and housing counts, completed structure counts, exposure grace, and the active project. Structure responses are ID sorted and include canonical progress, derived condition/type capability, sorted occupants, and contributions; map responses are immutable row-major terrain with the starting site. Canonical decimal IDs are required (malformed `400`, missing `404`); unavailable read models return `503` where applicable.
 
 Normal shutdown closes the command writer, drains pending commands, performs a final checkpoint, and disposes the database. A final-checkpoint or cleanup failure is terminal and is rethrown after cleanup. A faulted host remains Faulted rather than being overwritten by Stopping. Browser disconnects have no effect on simulation state.
 
@@ -120,7 +129,7 @@ The `Microsoft.Extensions.Hosting.WindowsServices` package is referenced and `Ad
 
 ## Frontend observer boundary
 
-The web application is a small read-only React page. It fetches relative health/status/citizen/settlement/structure read models, fetches the immutable map once, parses safe string IDs and enum values, and displays connection/host state, world minute, settlement capacity/construction, structure progress/contributions, citizen action/phase/occupation/work, needs, health, carrying, and death information. A simple canvas paints terrain, the starting site, structures, and current citizens. Dynamic reads are serialized polling; the browser owns no canonical state, controls, mutation endpoint, or gameplay write path. Published observer fields are copies; browser refreshes cannot mutate simulation state.
+The web application is a small read-only React page. It fetches relative health/status/citizen/settlement/structure read models, fetches the immutable map once, and uses strict typed parsers for history, biography, memory, and statistics DTOs. Decimal IDs remain strings (including values beyond JavaScript's safe integer range). The page displays connection/host state, world minute, settlement capacity/construction, structure progress, citizen action/phase/occupation/work, needs, health, carrying, and death information, plus a bounded newest-first history feed, citizen/family/type/importance/structure/time filters, older-page loading, a factual biography timeline, structured memories, and a bounded monthly statistics table with a population trend. Summaries are derived factual server read-model text; no AI or prose is persisted. Requests are GET-only, bounded, and protected against stale responses/unmount updates. The browser owns no canonical state, controls, mutation endpoint, or gameplay write path. Published observer fields are copies; browser refreshes cannot mutate simulation state.
 
 Vite proxies `/api` to `http://127.0.0.1:5274` during development. The browser is therefore an optional observer and never a prerequisite for the server's world ownership.
 
@@ -137,7 +146,7 @@ The workflow remains configured for Ubuntu/Windows backend and Ubuntu frontend j
 
 ## Implemented and deferred milestones
 
-M0 foundations, M1 generation/persistence, M2 citizens/movement, M3 survival, and M4 settlement/construction are implemented. The current rules version is `m4-rng1-settlement1`.
+M0 foundations, M1 generation/persistence, M2 citizens/movement, M3 survival, M4 settlement/construction, M5 social/lifecycle, and M6 history are implemented. The current rules version is `m6-rng1-history1`.
 
 M2 adds a canonical `Citizen` collection owned by `SimulationEngine`. Twenty founders are
 generated from `WorldSeed`, `CitizenGenerationVersion = 1`, and founder ordinal, then placed
@@ -146,8 +155,8 @@ ID-sorted snapshots. Citizen events use `citizen.decision.v1`, `citizen.move-ste
 `citizen.action-complete.v1`; payload IDs are invariant decimal strings. The M2 compatibility
 rules value is `m2-rng1-citizen1`; `m0-rng1` snapshots are upgraded once without regenerating
 their map. M3 extends this preserved M2 state with the survival events and mutable state described above.
-- **M5:** relationships, households, reproduction, aging, and family systems.
-- **M6:** historical gameplay events, biographies, statistics, and historical queries.
+- **M5:** relationships, households, reproduction, aging, and family systems (implemented).
+- **M6:** historical gameplay events, biographies, statistics, structured memories, append-only persistence, and historical queries (implemented).
 - **M7:** persistent-server hardening, service installation, LAN/firewall/deployment guidance, reconnect behavior, and production publishing.
 - **M8:** headless/MAX operation, canonical fingerprints, long-run determinism evidence, profiling, tuning, and the 100-year acceptance run.
 
@@ -155,7 +164,7 @@ their map. M3 extends this preserved M2 state with the survival events and mutab
 
 M3 is the retained survival foundation. `SurvivalVersion = 1` and its preserved rules value is `m3-rng1-survival1`; M4's current rules version is `m4-rng1-settlement1` with `SettlementVersion = 1`. World generation and founder generation remain version `1`.
 
-M4 implements structures/shelters; social/family/aging and historical gameplay remain deferred to M5 and M6 respectively.
+M4 implements structures/shelters; M5 social/family/aging and M6 historical gameplay are retained in later sections as implemented compatibility layers.
 
 The four persisted action phases are `None=0`, `TravelToTarget=1`, `Perform=2`, and `ReturnToStockpile=3`. Actions retain M2 values and add `Eat=5`, `GatherFood=6`, `GatherWood=7`, `GatherStone=8`, and `Dead=9` (all values 0..9 are reserved compatibility data). Decisions evaluate Eat, Rest, food/wood/stone gathering, Explore, Wander, and Idle. Eat uses the starting-site stockpile; gathering travels to a selected reachable node, performs, carries the actual yield home, deposits it, and then returns to a decision boundary. Carried goods are deliberately lost when a citizen dies.
 
@@ -203,7 +212,7 @@ M4 persists target/home structure IDs, the five lifetime work counters (foraging
 
 M3→M4 is a single transactional upgrade. It accepts only the exact untouched M3 sentinel (`settlement_version=0`, M3 rules, no structure rows/contributions/demand event/M4 citizen fields), creates no structure, raises base capacity to at least `800` without invalidating existing stores, initializes the M4 boundaries, changes rules and sentinel, and schedules the first demand evaluation. Any partial sentinel or failed write rejects or rolls back atomically; a retry is idempotent. This is a schema/state upgrade, not map or founder regeneration.
 
-M4 read APIs remain immutable observations: map data is copied row-major, citizens/structures/contributions are sorted and copied, and the host publishes one coherent atomically replaced observation. There is still no public gameplay mutation route. M4 non-goals are M5 relationships, households, reproduction, aging, and families, plus M6 historical gameplay events, biographies, statistics, and historical queries.
+M4 read APIs remain immutable observations: map data is copied row-major, citizens/structures/contributions are sorted and copied, and the host publishes one coherent atomically replaced observation. There is still no public gameplay mutation route. At the M4 boundary, relationships, households, reproduction, aging, and families were still future work; M5 and M6 now provide those layers without changing the M4 contracts.
 
 ## M5 social-life contract
 
@@ -213,7 +222,21 @@ M5 introduces local sixty-minute Socialize actions, daily family and lifecycle e
 
 Social target desirability retains the M5 base, sociability, relationship, partner, family, rival, and deterministic-variation components. Every non-null relationship additionally subtracts `max(0, 4000 - min(4000, (CurrentMinute - LastInteractionMinute) / 10))`; a null edge has no penalty. The term applies uniformly to ordinary, family, partner, and rival edges, retains score-descending/distance-ascending/citizen-ID-ascending ranking, and is M5 compatibility data rather than partnership matchmaking.
 
-The observer remains immutable. Citizens expose family/household fields, relationships are available from `/api/v1/citizens/{id}/relationships`, and household collection/detail endpoints return derived member/partner/child IDs. Settlement summaries expose current social counts only. There are no mutation endpoints and no M6 biography/history/statistics implementation.
+The observer remains immutable. Citizens expose family/household fields, relationships are available from `/api/v1/citizens/{id}/relationships`, and household collection/detail endpoints return derived member/partner/child IDs. Settlement summaries expose current social counts only. M6 adds history, biography, memory, and statistics reads on the same immutable host publication boundary; there are still no mutation endpoints.
+
+## M6 history, biographies, and statistics
+
+M6 is the current compatibility boundary: `CurrentSimulationRulesVersion = m6-rng1-history1`, `HistoryVersion = 1`, and `HistoricalEventSchemaVersion = 1`. The complete persisted event vocabulary is `WorldCreated=1`, `SettlementFounded=2`, `CitizenBorn=3`, `CitizenDied=4`, `PartnershipFormed=5`, `FriendshipFormed=6`, `RivalryFormed=7`, `HouseholdCreated=8`, `StructureStarted=9`, `StructureCompleted=10`, `PopulationMilestone=11`, `ResourceShortageStarted=12`, `ResourceShortageEnded=13`, `CitizenSpecializationChanged=14`, and `SeasonStarted=15`. Importance values are `Debug=0`, `Routine=1`, `Personal=2`, `Notable=3`, `Major=4`, and `Historic=5`; origin values are `Live=1` and `MigrationBackfill=2`.
+
+Each immutable historical event stores a positive historical ID, non-negative world minute, type, importance, origin, optional tile location, schema-versioned canonical JSON payload, and links to persistent citizens/structures. Citizen link roles are the fixed vocabulary `subject`, `parent`, `partner`, `founder`, `participant`, `member`, and `contributor`; structure links use `subject`. Entity IDs in payloads and wire DTOs are invariant decimal strings. Payloads contain facts only; display summaries are derived from event type, payload, and links. Routine movement, meals, gathering, decisions, and construction shifts do not emit history.
+
+Live emission is placed at canonical transition points: the initial world/settlement/season at minute 0; births before population milestones; deaths on every supported death path; friendship/rivalry only on the first threshold crossing; partnership before household creation; structure start/completion (completion includes ascending contributor links); specialization only when the derived occupation label changes; shortage start/end using Food `< living population × 10` and Food `≥ living population × 20`; and season boundaries alongside monthly sampling. The statistics scheduler is `history.statistics-sample.v1`, priority 19, at the next strict 43,200-minute boundary. Samples reset period counters after observing living population, resource stores, shelter capacity, average health, and projected average hunger without mutating needs.
+
+Structured memories reference `(citizen, historical event, memory type)` and contain importance, clamped emotional valence, and created minute. `ChildBorn`, `PartnerDied`, and `PartnershipFormed` memories are permanent; friendship, rivalry, and structure-completion memories are capped at 64 per citizen with deterministic importance/time/event-ID pruning. Memories do not influence simulation decisions. A biography is a factual read model assembled from a citizen snapshot, event links, parent/partner/children IDs, and memories, and remains queryable after death.
+
+M5→M6 upgrade is a direct atomic migration guarded by `SimulationRulesVersion=m5-rng1-social1`, `SocialVersion=1`, `HistoryVersion=0`, and an otherwise complete M5 snapshot with no partial history rows/state/scheduler. It begins at the pre-M6 historical counter and deterministically orders backfill candidates by minute, event rank, and entity IDs. It backfills world, settlement, exact seasons, descendant births, deaths, partnerships/households, structures, and reconstructible population milestones. It does not invent friendship, rivalry, specialization, founder births before minute 0, or pre-M6 aggregate statistics; a preexisting shortage is recorded at the upgrade boundary. Reopening is idempotent and failed upgrade/checkpoint transactions roll back all rows and counters.
+
+`HistoryFingerprint` extends the M5 canonical fingerprint with history state, event payloads/IDs, links, samples, and memories in explicit sorted order. It excludes summaries, filters, pagination, and wall-clock metadata and uses invariant numeric formatting. The host atomically publishes an immutable history observation alongside status/citizens/structures; HTTP queries never access mutable engine state or SQLite directly. `/api/v1/history` defaults to importance ≥2, limit 50, descending minute/ID order and supports bounded citizen, family, type, importance, structure, minute, and cursor filters; detail and biography IDs reject malformed values with 400 and unknown values with 404. `/api/v1/statistics` returns bounded samples ascending by minute. All M6 routes are GET-only.
 
 ## M2 compatibility boundary
 
