@@ -1,149 +1,230 @@
 # Windows Service deployment and operation
 
-M7 supports the same `LittleAges.Server` executable in an interactive console and as a Windows Service. The service owns the simulation and SQLite writer; a browser is optional. These procedures assume an elevated 64-bit PowerShell prompt for installation, ACL, and firewall commands.
+The supported v0.1 deployment is a self-contained `win-x64` directory plus a
+Windows Service. The release ZIP contains the application, static site,
+installer, uninstaller, and this workflow's equivalent package contents. The
+target host does not need Git, Node.js, the .NET SDK, or a .NET runtime.
 
-## Publish one deployable directory
+## Recommended release installation
 
-From the repository root, with the .NET SDK 10.0.100-compatible toolchain and Node.js 22/npm available, run:
+Download and extract `LittleAges-v0.1.0-win-x64.zip`, open an Administrator
+PowerShell in the extracted folder, and run:
+
+```powershell
+.\install.ps1 -EnableLan
+```
+
+The installer validates `LittleAges.Server.exe` and `wwwroot\index.html` before
+stopping an existing service. It creates:
+
+```text
+C:\Program Files\LittleAges
+C:\ProgramData\LittleAges\worlds
+```
+
+The application is installed as `Little Ages`, starts automatically as
+`NT AUTHORITY\LocalService`, and receives Modify access only to the world-data
+directory. The installer writes `appsettings.json` in the application folder
+with the current server defaults, an active `default-world`, seed `0`, a
+10-minute-per-second operational speed, and the selected listener.
+
+Without `-EnableLan`, the listener is loopback-only:
+
+```text
+http://127.0.0.1:5274
+```
+
+With `-EnableLan`, it listens on `http://0.0.0.0:5274` and the installer owns
+one inbound Windows Firewall rule for TCP 5274 on the `Private` profile, scoped
+to `LocalSubnet`. The installer prints a private IPv4 address for convenience;
+that address is display-only and is not the security boundary. LAN mode is for
+a trusted local network only. Little Ages v0.1 has no built-in authentication
+or TLS and must not be exposed to the public Internet.
+
+The installer starts the service and waits for both:
+
+```text
+GET http://127.0.0.1:5274/api/v1/health
+GET http://127.0.0.1:5274/api/v1/status
+```
+
+to report a running, healthy host before reporting success.
+
+## Upgrade and data safety
+
+Extract the new ZIP and run the installer again from that folder:
+
+```powershell
+.\install.ps1 -EnableLan
+```
+
+The package is validated first. The existing service is stopped and waited on,
+the old application directory is moved to a temporary rollback backup, and the
+new directory is installed. If copying, service startup, or health verification
+fails, the old application and service are restored and restarted when they
+were previously running. A failed upgrade never regenerates or repairs a
+world. The temporary application backup is removed only after successful
+health/status verification.
+
+World data is never under Program Files. The installer preserves the configured
+`DataRoot`, `ActiveWorld`, `WorldSeed`, operational speed, checkpoint settings,
+browser update interval, and user-owned configuration such as logging when
+upgrading. Installer arguments explicitly supplied on the command line take
+precedence. The normal installer mode is loopback; pass `-EnableLan` on an
+upgrade when LAN access is wanted.
+
+If the data directory already contains a world, the installer reports it as
+preserved and lets the server validate/open it normally. It never deletes,
+initializes, or regenerates existing world files. SQLite `*.db`, `*.db-wal`, and
+`*.db-shm` files remain in the separate data directory.
+
+Useful supported installer parameters are:
+
+```text
+-EnableLan
+-Port <1..65535>
+-InstallDirectory <path>
+-DataDirectory <path>
+-ServiceName <name>
+-ActiveWorld <name>
+-WorldSeed <integer>
+-SimulationMinutesPerSecond <0..1000>
+```
+
+The installer does not expose simulation rules as an option. Fresh worlds use
+the current `m8-rng1-balance1` rules boundary; M6 remains a compatibility
+boundary for existing persisted worlds.
+
+## Uninstall
+
+Run from an Administrator PowerShell in the extracted package (or use a copy
+of the uninstaller):
+
+```powershell
+.\uninstall.ps1
+```
+
+This stops and removes the `Little Ages` service, removes the application
+files, and removes only the installer-owned private-LAN firewall rule. World
+data is preserved and the script prints:
+
+```text
+World data preserved at: C:\ProgramData\LittleAges\worlds
+```
+
+Deleting world data is never part of normal uninstall. It requires both
+explicit switches:
+
+```powershell
+.\uninstall.ps1 -DeleteWorldData -ConfirmWorldDeletion
+```
+
+The uninstaller rejects `-DeleteWorldData` without the second confirmation.
+
+## Build and package a candidate
+
+The build machine needs .NET SDK `10.0.100`, Node.js 22, and npm. From the
+repository root, build the exact release shape with:
+
+```powershell
+.\scripts\package-windows.ps1 -Version 0.1.0
+```
+
+This invokes the shared publish script, runs the frontend build, publishes a
+self-contained `win-x64` directory (without single-file, trimming, or
+NativeAOT), adds `install.ps1`, `uninstall.ps1`, and `README-install.txt`, and
+writes:
+
+```text
+artifacts\LittleAges-v0.1.0-win-x64.zip
+```
+
+The ZIP has this root layout:
+
+```text
+LittleAges-v0.1.0-win-x64\
+├── LittleAges.Server.exe
+├── required self-contained runtime/application files
+├── wwwroot\
+├── install.ps1
+├── uninstall.ps1
+└── README-install.txt
+```
+
+The manual `workflow_dispatch` workflow `.github/workflows/windows-package.yml`
+uses the exact SDK and Node 22, runs this same package script, and uploads the
+ZIP as a workflow artifact. It does not publish a GitHub Release and is not part
+of normal pull-request CI.
+
+## Advanced/manual service operation
+
+The commands below are for diagnostics or a hand-built deployment. The release
+installer is preferred for normal installation.
+
+### Publish one deployable directory
 
 ```powershell
 .\scripts\publish-windows.ps1 -OutputDirectory .\artifacts\windows-publish
 ```
 
-The script verifies `dotnet`, `node`, and `npm`; runs `npm ci` and `npm run build` in `src\LittleAges.Web`; restores the server project in locked mode for `win-x64`; and runs a Release, framework-dependent `dotnet publish` for `src\LittleAges.Server\LittleAges.Server.csproj`. It then copies the Vite `dist` contents into the published `wwwroot` and replaces only the dedicated output directory with one clean deployment. Do not copy a source checkout or a separate `dist` directory into production.
+The script verifies `dotnet`, `node`, and `npm`, runs `npm ci` and `npm run
+build` in `src\LittleAges.Web`, restores the server project for `win-x64`, and
+runs a Release self-contained directory publish for
+`src\LittleAges.Server\LittleAges.Server.csproj`. It then copies the Vite
+`dist` contents into the published `wwwroot`. It does not enable single-file
+publishing, trimming, or NativeAOT.
 
-The publish is framework-dependent, so install the matching .NET 10 runtime on the service host. The output includes the server executable and all of its published assemblies; the frontend is served by the server's static-file middleware.
-
-## Deployment and data folders
-
-Use a read-only deployment folder and a separate writable world-data folder:
+### Manual service registration
 
 ```powershell
 $deployDir = Join-Path $env:ProgramFiles 'LittleAges'
 $dataDir = 'C:\ProgramData\LittleAges\worlds'
-$publishDir = (Resolve-Path -LiteralPath '.\artifacts\windows-publish').Path
-
-New-Item -ItemType Directory -Path $deployDir -Force | Out-Null
-New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-Get-ChildItem -LiteralPath $publishDir -Force | Copy-Item -Destination $deployDir -Recurse -Force
-```
-
-The active database is `$dataDir\default-world.db` when `ActiveWorld` is `default-world`. Keep the deployment and data folders separate so an application update cannot overwrite world state. SQLite may create `-wal` and `-shm` sidecars beside the database; follow [`backup-and-recovery.md`](backup-and-recovery.md) before copying or restoring them.
-
-## Configuration
-
-The complete example is [`windows-service.example.json`](windows-service.example.json). Copy it to the deployment directory as `appsettings.json`, or provide equivalent command-line settings in the service `BinaryPathName`:
-
-```powershell
-Copy-Item -LiteralPath '.\docs\windows-service.example.json' -Destination (Join-Path $deployDir 'appsettings.json') -Force
-```
-
-The example uses the safe loopback default `http://127.0.0.1:5274`. Its operational defaults are:
-
-| Key | Default |
-| --- | ---: |
-| `SimulationMinutesPerSecond` | `10` |
-| `CheckpointSimulationMinutes` | `360` simulated minutes |
-| `CheckpointMinimumRealSeconds` | `30` seconds |
-| `CheckpointRetryCount` | `3` retries after the initial attempt |
-| `CheckpointRetryDelaySeconds` | `2` seconds |
-| `BrowserUpdateIntervalMilliseconds` | `500` milliseconds |
-| `Logging:LogLevel:Default` | `Information` |
-
-`DataRoot`, `ActiveWorld`, `WorldSeed`, and `ListenUrls` are also required configuration concepts; the server defaults to a data directory below its application base directory, `default-world`, seed `0`, and `http://127.0.0.1:5274` when they are not supplied. Setting `SimulationMinutesPerSecond` to `0` disables operational advancement. The rules version remains `m6-rng1-history1`.
-
-## Install as LocalService and start automatically
-
-The following uses the service name `Little Ages`, matching the hosting configuration. It first creates the service with `New-Service`, then sets the built-in `LocalService` account and automatic startup explicitly with `sc.exe`:
-
-```powershell
 $serviceName = 'Little Ages'
 $serviceExe = Join-Path $deployDir 'LittleAges.Server.exe'
 
 New-Service -Name $serviceName `
-    -DisplayName $serviceName `
-    -Description 'Persistent Little Ages simulation host' `
-    -BinaryPathName ('"{0}"' -f $serviceExe) `
-    -StartupType Automatic
+  -DisplayName $serviceName `
+  -Description 'Persistent Little Ages simulation host' `
+  -BinaryPathName ('"{0}"' -f $serviceExe) `
+  -StartupType Automatic
 
-sc.exe config $serviceName obj= 'NT AUTHORITY\LocalService' password= '' start= auto
-sc.exe qc $serviceName
+sc.exe config $serviceName binPath= ('"{0}"' -f $serviceExe) start= auto `
+  obj= 'NT AUTHORITY\LocalService' password= ''
+icacls.exe $dataDir /grant:r 'NT AUTHORITY\LOCAL SERVICE:(OI)(CI)M' /T /C
 ```
 
-Grant the service account Modify access only to the world-data folder. Do not grant it write access to the deployment folder:
+Use `Start-Service`, `Stop-Service`, `Get-Service`, and the health/status URLs
+above for bounded operational checks. Do not grant the LocalService account
+write access to the application directory and do not broaden a firewall rule
+to `Any` or the Public profile.
 
-```powershell
-icacls $dataDir /grant 'NT AUTHORITY\LOCAL SERVICE:(OI)(CI)M' /T
+### Configuration reference
+
+The generated configuration contains:
+
+```text
+DataRoot
+ActiveWorld
+WorldSeed
+ListenUrls
+SimulationMinutesPerSecond
+CheckpointSimulationMinutes
+CheckpointMinimumRealSeconds
+CheckpointRetryCount
+CheckpointRetryDelaySeconds
+BrowserUpdateIntervalMilliseconds
 ```
 
-The ACL is required because `LocalService` must create/open the SQLite database and its WAL sidecars. Confirm the service executable and data path before starting.
+Current defaults are `10` simulation minutes per second, checkpoints every
+`360` simulated minutes subject to `30` real seconds, three retries with a
+two-second delay, and observer invalidation every `500` milliseconds. These are
+operational values, not simulation-rule controls.
 
-## Loopback and trusted-LAN access
+### Logs and troubleshooting
 
-Keep `ListenUrls` at `http://127.0.0.1:5274` unless remote observers are required. For a trusted private LAN, explicitly change it to:
-
-```json
-"ListenUrls": "http://0.0.0.0:5274"
-```
-
-Binding `0.0.0.0` is not an access-control policy. If remote access is needed, add a separately reviewed Windows Firewall rule on the `Private` profile and replace the example subnet with the actual remote subnet:
-
-```powershell
-$remoteSubnet = '192.168.50.0/24'
-New-NetFirewallRule -DisplayName 'Little Ages (Private TCP 5274)' `
-    -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5274 `
-    -Profile Private -RemoteAddress $remoteSubnet
-```
-
-Do not use `-RemoteAddress Any` for this service. The application does not create or alter firewall rules. Little Ages has no built-in authentication or TLS and is not designed for public Internet exposure; treat a LAN binding as trusted-network-only.
-
-## Start, stop, and restart
-
-```powershell
-Start-Service -Name 'Little Ages'
-Get-Service -Name 'Little Ages'
-Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:5274/api/v1/health'
-
-Stop-Service -Name 'Little Ages'
-Get-Service -Name 'Little Ages'
-
-Restart-Service -Name 'Little Ages'
-```
-
-An ordinary stop drains queued commands and attempts a final checkpoint before closing SQLite. Treat a stop as complete only after the service reports `Stopped` and the logs show a successful final checkpoint. A crash, forced termination, or power loss cannot provide that final-checkpoint guarantee; on restart the host validates and resumes the last committed checkpoint. Suspension and downtime do not produce wall-time catch-up.
-
-## Logs and troubleshooting
-
-The server emits structured JSON console logs for startup, world open/resume, checkpoint attempts/completions/failures, host state, and cleanup. When diagnosing interactively, stop the service and run the same executable in a console so the JSON records remain visible:
-
-```powershell
-& $serviceExe --DataRoot $dataDir --ListenUrls 'http://127.0.0.1:5274' --ActiveWorld 'default-world' --WorldSeed '0'
-```
-
-When installed as a service, inspect the Windows Application event log if the host environment is configured to capture service logs, and use the service manager plus the health endpoint as the primary liveness checks. `/api/v1/status` reports `State`, `PersistenceState`, `LastSuccessfulCheckpointWorldMinute`, `LastSuccessfulCheckpointUtc`, and `ConsecutiveCheckpointFailures`.
-
-Common checks:
-
-- `Starting`/`Stopping` health is Degraded, `Running` is Healthy, and `Faulted` is Unhealthy. A fault is retained and is not silently rewritten as a normal stop.
-- If startup fails, check JSON syntax, the absolute `DataRoot`, the `LocalService` ACL, the selected `ActiveWorld`, and whether another process owns the database.
-- If the port is unavailable, inspect `Get-NetTCPConnection -State Listen -LocalPort 5274` and the configured `ListenUrls`; do not broaden the firewall rule as a diagnostic shortcut.
-- Periodic checkpointing requires both `360` simulation minutes and `30` real seconds. A failed attempt marks persistence Degraded, waits the configured two seconds between bounded retries, and becomes Faulted after the configured three retries are exhausted.
-- Browser or SignalR disconnects do not stop simulation. Reconnect the observer and refetch authoritative `GET /api/v1/*` REST reads; `/hubs/world` is only a coalesced `worldChanged` invalidation channel.
-- Do not delete WAL files, run repair/vacuum commands, or regenerate a database to clear an error. Preserve the current files and follow the approved backup/restore procedure.
-
-## Uninstall
-
-Stop the service normally first so it can attempt its final checkpoint, then remove the service registration. Preserve the data folder unless deletion is explicitly intended:
-
-```powershell
-Stop-Service -Name 'Little Ages'
-sc.exe delete 'Little Ages'
-
-# Only if this exact rule was created for Little Ages:
-Remove-NetFirewallRule -DisplayName 'Little Ages (Private TCP 5274)'
-
-# Remove the deployment directory only after retaining the world data:
-Remove-Item -LiteralPath $deployDir -Recurse -Force
-```
-
-`C:\ProgramData\LittleAges\worlds` is not removed by uninstall. Archive it using the backup runbook before any intentional cleanup.
+The server emits structured JSON console logs for startup, world open/resume,
+checkpoints, host state, and cleanup. If startup fails, inspect the JSON
+configuration, absolute `DataRoot`, LocalService ACL, selected world, and port
+ownership. Do not delete WAL files, regenerate a database, or broaden the
+firewall as a diagnostic shortcut. Preserve the current world files and follow
+[`backup-and-recovery.md`](backup-and-recovery.md) for approved backup/restore.

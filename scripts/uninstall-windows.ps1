@@ -1,0 +1,167 @@
+[CmdletBinding()]
+param(
+    [Parameter()]
+    [string] $InstallDirectory = (Join-Path -Path $(if ($env:ProgramFiles) { $env:ProgramFiles } else { 'C:\Program Files' }) -ChildPath 'LittleAges'),
+
+    [Parameter()]
+    [string] $DataDirectory = (Join-Path -Path $(if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }) -ChildPath 'LittleAges\worlds'),
+
+    [Parameter()]
+    [string] $ServiceName = 'Little Ages',
+
+    [Parameter()]
+    [switch] $DeleteWorldData,
+
+    [Parameter()]
+    [switch] $ConfirmWorldDeletion
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
+
+$script:ManagedFirewallDisplayPrefix = 'Little Ages (Private TCP '
+$script:ManagedFirewallGroup = 'Little Ages'
+$script:ManagedFirewallName = 'LittleAges-Private-LAN'
+$script:ServiceWaitSeconds = 60
+
+function Assert-Administrator {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        $isAdministrator = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch {
+        throw 'Little Ages uninstall requires an Administrator PowerShell window.'
+    }
+    if (-not $isAdministrator) {
+        throw 'Little Ages uninstall requires an Administrator PowerShell window. Right-click PowerShell and choose "Run as administrator", then run uninstall.ps1 again.'
+    }
+}
+
+function Assert-SafeDirectoryPath {
+    param([Parameter(Mandatory)] [string] $Path, [Parameter(Mandatory)] [string] $Name)
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw "$Name cannot be empty." }
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($fullPath)
+    if ([string]::Equals($fullPath.TrimEnd('\', '/'), $root.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Name must be a dedicated directory, not a filesystem root: $fullPath"
+    }
+    return $fullPath.TrimEnd('\', '/')
+}
+
+function Resolve-InstalledDataDirectory {
+    param(
+        [Parameter(Mandatory)] [string] $DefaultPath,
+        [Parameter(Mandatory)] [string] $ApplicationPath
+    )
+
+    $configurationPath = Join-Path -Path $ApplicationPath -ChildPath 'appsettings.json'
+    if (-not (Test-Path -LiteralPath $configurationPath -PathType Leaf)) {
+        return $DefaultPath
+    }
+
+    try {
+        $configuration = (Get-Content -LiteralPath $configurationPath -Raw | ConvertFrom-Json)
+        $dataRootProperty = $configuration.PSObject.Properties['DataRoot']
+        if ($null -ne $dataRootProperty -and -not [string]::IsNullOrWhiteSpace([string] $dataRootProperty.Value)) {
+            return Assert-SafeDirectoryPath -Path ([string] $dataRootProperty.Value) -Name 'Installed DataRoot'
+        }
+    }
+    catch {
+        throw "Installed configuration could not be safely parsed; no files were removed: $configurationPath. $($_.Exception.Message)"
+    }
+    return $DefaultPath
+}
+
+function Wait-ServiceState {
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [System.ServiceProcess.ServiceControllerStatus] $Desired,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $service = Get-Service -Name $Name -ErrorAction Stop
+        if ($service.Status -eq $Desired) { return $service }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Service '$Name' did not reach $Desired within $TimeoutSeconds seconds."
+}
+
+function Stop-ServiceBounded {
+    param([Parameter(Mandatory)] [string] $Name)
+    $service = Get-Service -Name $Name -ErrorAction Stop
+    if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
+    Stop-Service -Name $Name -ErrorAction Stop
+    Wait-ServiceState -Name $Name -Desired ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
+}
+
+function Remove-ServiceRegistration {
+    param([Parameter(Mandatory)] [string] $Name)
+    $sc = Join-Path -Path $env:SystemRoot -ChildPath 'System32\sc.exe'
+    if (-not (Test-Path -LiteralPath $sc -PathType Leaf)) { throw "Service control executable was not found: $sc" }
+    & $sc 'delete' $Name | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Removing Windows Service '$Name' failed with exit code $LASTEXITCODE." }
+}
+
+function Remove-ManagedFirewallRules {
+    try {
+        $rules = @(Get-NetFirewallRule -Name $script:ManagedFirewallName -ErrorAction SilentlyContinue)
+        foreach ($rule in $rules) {
+            Remove-NetFirewallRule -Name $rule.Name -ErrorAction Stop
+        }
+    }
+    catch {
+        throw "Windows Firewall management is unavailable: $($_.Exception.Message)"
+    }
+}
+
+Assert-Administrator
+
+$installPath = Assert-SafeDirectoryPath -Path $InstallDirectory -Name 'InstallDirectory'
+$dataPath = Assert-SafeDirectoryPath -Path $DataDirectory -Name 'DataDirectory'
+$configuredDataPath = if ($PSBoundParameters.ContainsKey('DataDirectory')) { $dataPath } else { Resolve-InstalledDataDirectory -DefaultPath $dataPath -ApplicationPath $installPath }
+if ([string]::Equals($installPath, $configuredDataPath, [StringComparison]::OrdinalIgnoreCase) -or
+    $configuredDataPath.StartsWith($installPath + '\', [StringComparison]::OrdinalIgnoreCase) -or
+    $installPath.StartsWith($configuredDataPath + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'InstallDirectory and DataDirectory must be separate directories.'
+}
+if ($DeleteWorldData -and -not $ConfirmWorldDeletion) {
+    throw 'World data deletion is deliberately disabled unless both -DeleteWorldData and -ConfirmWorldDeletion are supplied.'
+}
+
+$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if ($null -ne $service) {
+    Stop-ServiceBounded -Name $ServiceName
+    Remove-ServiceRegistration -Name $ServiceName
+    Write-Host "Removed Windows Service: $ServiceName"
+}
+else {
+    Write-Host "Windows Service not registered: $ServiceName"
+}
+
+# Only the deterministic installer-owned rule name/group is managed.
+Remove-ManagedFirewallRules
+
+if (Test-Path -LiteralPath $installPath) {
+    if (-not (Test-Path -LiteralPath $installPath -PathType Container)) { throw "InstallDirectory is not a directory: $installPath" }
+    Remove-Item -LiteralPath $installPath -Recurse -Force
+    Write-Host "Removed application files: $installPath"
+}
+
+if ($DeleteWorldData) {
+    if (Test-Path -LiteralPath $configuredDataPath) {
+        Remove-Item -LiteralPath $configuredDataPath -Recurse -Force
+        Write-Host "Deleted world data after explicit confirmation: $configuredDataPath"
+    }
+    else {
+        Write-Host "World data directory was already absent: $configuredDataPath"
+    }
+}
+else {
+    Write-Host ''
+    Write-Host ('World data preserved at: {0}' -f $configuredDataPath)
+    Write-Host 'Use -DeleteWorldData -ConfirmWorldDeletion only when permanent deletion is intended.'
+}
+
+Write-Host 'Little Ages uninstall completed.'

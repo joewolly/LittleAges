@@ -1,0 +1,44 @@
+name: Windows package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate artifact version (for example 0.1.0)
+        required: true
+        default: 0.1.0
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: src/LittleAges.Web/package-lock.json
+
+      - name: Build Windows package
+        shell: pwsh
+        run: .\scripts\package-windows.ps1 -Version '${{ inputs.version }}'
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: LittleAges-v${{ inputs.version }}-win-x64
+          path: artifacts/LittleAges-v${{ inputs.version }}-win-x64.zip
+          if-no-files-found: error
