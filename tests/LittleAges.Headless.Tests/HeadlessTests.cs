@@ -15,9 +15,9 @@ public sealed class HeadlessTests
     [InlineData(10)]
     [InlineData(100)]
     [InlineData(500)]
-    public void AcceptedHorizonsParseWithoutRunningTheHorizon(int years)
+    public void SupportedHorizonsParseWithoutRunningTheHorizon(int years)
     {
-        var result = HeadlessCommandLine.Parse(["acceptance", "--years", years.ToString(CultureInfo.InvariantCulture)]);
+        var result = HeadlessCommandLine.Parse(["run", "--years", years.ToString(CultureInfo.InvariantCulture)]);
 
         Assert.True(result.Succeeded);
         Assert.NotNull(result.Options);
@@ -45,10 +45,17 @@ public sealed class HeadlessTests
     [Fact]
     public void AcceptanceCheckpointParserAcceptsFinalContractAndRejectsInvalidPlacement()
     {
-        var accepted = HeadlessCommandLine.Parse(["acceptance", "--years", "100", "--checkpoint-year", "37", "--database", "checkpoint.db"]);
+        var missingCheckpoint = HeadlessCommandLine.Parse(["acceptance", "--years", "100"]);
+        var accepted = HeadlessCommandLine.Parse(["acceptance", "--years", "100", "--checkpoint-year", "37"]);
+        var callerSelectedDatabase = HeadlessCommandLine.Parse(["acceptance", "--years", "100", "--checkpoint-year", "37", "--database", "checkpoint.db"]);
+
+        Assert.False(missingCheckpoint.Succeeded);
+        Assert.Equal("acceptance requires --checkpoint-year.", missingCheckpoint.Error);
         Assert.True(accepted.Succeeded);
         Assert.Equal(37, accepted.Options!.CheckpointYear);
-        Assert.Equal("checkpoint.db", accepted.Options.DatabasePath);
+        Assert.Null(accepted.Options.DatabasePath);
+        Assert.True(callerSelectedDatabase.Succeeded);
+        Assert.Equal("checkpoint.db", callerSelectedDatabase.Options!.DatabasePath);
         Assert.False(HeadlessCommandLine.Parse(["run", "--years", "100", "--checkpoint-year", "37"]).Succeeded);
         Assert.False(HeadlessCommandLine.Parse(["acceptance", "--years", "10", "--checkpoint-year", "10"]).Succeeded);
     }
@@ -128,7 +135,7 @@ public sealed class HeadlessTests
     [Fact]
     public void OneYearReportHasStableDeterministicReportOutputAndOperationalTiming()
     {
-        var options = new HeadlessOptions(HeadlessCommand.Acceptance, 42, 1, SimulationEngine.CurrentSimulationRulesVersion, null, WorldCalendar.MinutesPerYear);
+        var options = new HeadlessOptions(HeadlessCommand.Run, 42, 1, SimulationEngine.CurrentSimulationRulesVersion, null, WorldCalendar.MinutesPerYear);
         var first = HeadlessRunner.Run(options);
         var second = HeadlessRunner.Run(options);
 

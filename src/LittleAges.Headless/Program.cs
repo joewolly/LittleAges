@@ -118,6 +118,8 @@ public static class HeadlessCommandLine
             return HeadlessParseResult.Failure("--checkpoint-year is only valid for acceptance.");
         if (databasePath is not null && command != HeadlessCommand.Acceptance)
             return HeadlessParseResult.Failure("--database is only valid for acceptance.");
+        if (command == HeadlessCommand.Acceptance && checkpointYear is null)
+            return HeadlessParseResult.Failure("acceptance requires --checkpoint-year.");
         if (checkpointYear is not null && checkpointYear >= years)
             return HeadlessParseResult.Failure("--checkpoint-year must be less than --years.");
         return HeadlessParseResult.Success(new HeadlessOptions(command, seed, years, rules, output, chunkMinutes, checkpointYear, databasePath));
@@ -664,7 +666,7 @@ public static class Program
         try
         {
             var options = parse.Options!;
-            var report = options.Command == HeadlessCommand.Acceptance && options.CheckpointYear is not null
+            var report = options.Command == HeadlessCommand.Acceptance
                 ? await HeadlessRunner.RunAcceptanceAsync(options)
                 : HeadlessRunner.Run(options);
             HeadlessReportSerialization.WriteArtifacts(report, options);
@@ -678,7 +680,7 @@ public static class Program
         }
     }
 
-    private const string HelpText = """
+    private static readonly string HelpText = $"""
 Little Ages headless deterministic runner
 
 Usage:
@@ -687,7 +689,7 @@ Usage:
 Options:
   --seed <uint64>       World seed (default: 42)
   --years <1|10|100|500>  Simulation horizon (default: 1)
-  --rules <version>     Rules version (default: m6-rng1-history1)
+  --rules <version>     Rules version (default: {SimulationEngine.CurrentSimulationRulesVersion})
   --output <path>       Output directory or .json/.md artifact path
   --chunk-minutes <n>   Deterministic reporting cadence (default: one year)
   --chunk-size <n>     Alias for --chunk-minutes
