@@ -1,9 +1,11 @@
 using System.Threading.Channels;
 using System.Globalization;
+using System.Diagnostics;
 using System.Collections.ObjectModel;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
 
 namespace LittleAges.Server;
@@ -13,6 +15,13 @@ public enum SimulationHostState
     Starting,
     Running,
     Stopping,
+    Faulted
+}
+
+public enum PersistenceState
+{
+    Healthy,
+    Degraded,
     Faulted
 }
 
@@ -26,7 +35,11 @@ public sealed record ServerStatusSnapshot(
     int Population = 0,
     int TotalPopulation = 0,
     int LivingPopulation = 0,
-    int DeadPopulation = 0);
+    int DeadPopulation = 0,
+    PersistenceState PersistenceState = PersistenceState.Healthy,
+    long? LastSuccessfulCheckpointWorldMinute = null,
+    DateTime? LastSuccessfulCheckpointUtc = null,
+    int ConsecutiveCheckpointFailures = 0);
 
 public sealed record ServerNeedsSnapshot(int Hunger, int Rest, int Shelter, int Social);
 
@@ -332,9 +345,11 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0)
     {
         ArgumentNullException.ThrowIfNull(status);
+        ArgumentOutOfRangeException.ThrowIfNegative(revision);
+        Revision = revision;
         Status = status;
         Citizens = Array.AsReadOnly((citizens ?? Array.Empty<ServerCitizenSnapshot>()).OrderBy(static citizen => long.Parse(citizen.CitizenId, CultureInfo.InvariantCulture)).ToArray());
         Settlement = settlement;
@@ -346,6 +361,7 @@ public sealed record ServerObservationSnapshot
     }
 
     public ServerStatusSnapshot Status { get; }
+    public long Revision { get; }
     public IReadOnlyList<ServerCitizenSnapshot> Citizens { get; }
     public ServerSettlementSnapshot? Settlement { get; }
     public IReadOnlyList<ServerStructureSnapshot> Structures { get; }
@@ -398,6 +414,7 @@ public sealed partial class SimulationHost : BackgroundService
 {
     private readonly ServerOptions _options;
     private readonly ILogger<SimulationHost> _logger;
+    private readonly WorldChangeBroadcaster? _broadcaster;
     private readonly Channel<SimulationCommand> _commands = Channel.CreateBounded<SimulationCommand>(
         new BoundedChannelOptions(32)
         {
@@ -410,14 +427,25 @@ public sealed partial class SimulationHost : BackgroundService
     private WorldDatabase? _database;
     private WorldCheckpointStore? _checkpointStore;
     private int _failNextFinalCheckpointForTesting;
+    private int _failNextCheckpointAttemptsForTesting;
     private Exception? _terminalFailure;
+    private PersistenceState _persistenceState = PersistenceState.Healthy;
+    private long? _lastSuccessfulCheckpointWorldMinute;
+    private DateTime? _lastSuccessfulCheckpointUtc;
+    private int _consecutiveCheckpointFailures;
+    private DateTimeOffset _lastCheckpointAttemptAt;
+    private long _observationRevision;
+    private int _acceptingCommands = 1;
+    private int _shutdownRequested;
     private readonly TaskCompletionSource<bool> _runningForTesting = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public SimulationHost(ServerOptions options, ILogger<SimulationHost> logger)
+    public SimulationHost(ServerOptions options, ILogger<SimulationHost> logger, WorldChangeBroadcaster? broadcaster = null)
     {
         if (!double.IsFinite(options.SimulationMinutesPerSecond) || options.SimulationMinutesPerSecond < 0) throw new ArgumentOutOfRangeException(nameof(options), "Simulation advancement must be finite and non-negative.");
+        options.Validate();
         _options = options;
         _logger = logger;
+        _broadcaster = broadcaster;
         var status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
         _observation = new ServerObservationSnapshot(status);
     }
@@ -432,7 +460,7 @@ public sealed partial class SimulationHost : BackgroundService
         var command = new CheckpointSimulationCommand(completion);
         try
         {
-            await _commands.Writer.WriteAsync(command, cancellationToken);
+            await EnqueueCommandAsync(command, cancellationToken);
             return await completion.Task.WaitAsync(cancellationToken);
         }
         catch (Exception exception)
@@ -445,7 +473,7 @@ public sealed partial class SimulationHost : BackgroundService
     internal async Task TriggerCommandLoopFailureForTestingAsync()
     {
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await _commands.Writer.WriteAsync(new FailSimulationCommand(
+        await EnqueueCommandAsync(new FailSimulationCommand(
             completion,
             new InvalidOperationException("Controlled simulation command failure.")));
         await completion.Task;
@@ -455,7 +483,7 @@ public sealed partial class SimulationHost : BackgroundService
     {
         ArgumentOutOfRangeException.ThrowIfNegative(minutes);
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes, completion), cancellationToken);
+        await EnqueueCommandAsync(new AdvanceSimulationCommand(minutes, completion), cancellationToken);
         await completion.Task.WaitAsync(cancellationToken);
     }
 
@@ -463,8 +491,23 @@ public sealed partial class SimulationHost : BackgroundService
 
     internal void FailNextFinalCheckpointForTesting() => Interlocked.Exchange(ref _failNextFinalCheckpointForTesting, 1);
 
+    /// <summary>
+    /// Schedules deterministic failures immediately before a checkpoint store call. This is
+    /// an internal integration-test seam; it never changes the simulation snapshot and is
+    /// consumed by the single-reader retry loop.
+    /// </summary>
+    internal void FailNextCheckpointAttemptsForTesting(int attempts)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(attempts);
+        Interlocked.Exchange(ref _failNextCheckpointAttemptsForTesting, attempts);
+    }
+
+    /// <summary>Optional internal test hook receiving checkpoint kind and one-based attempt.</summary>
+    internal Func<string, int, Exception?>? CheckpointAttemptFailureHookForTesting { get; set; }
+
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
+        StopAcceptingCommands();
         await base.StopAsync(cancellationToken);
         var terminalFailure = Volatile.Read(ref _terminalFailure);
         if (terminalFailure is not null)
@@ -479,8 +522,8 @@ public sealed partial class SimulationHost : BackgroundService
         try
         {
             await OpenOrCreateWorldAsync(stoppingToken);
-            Publish(SimulationHostState.Running);
-            LogHostRunning(_options.ActiveWorld, _engine!.CurrentMinute.Value);
+            Publish(IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running);
+            if (!IsShutdownRequested) LogHostRunning(_options.ActiveWorld, _engine!.CurrentMinute.Value);
             await ConsumeCommandsAsync(stoppingToken);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -510,17 +553,40 @@ public sealed partial class SimulationHost : BackgroundService
     {
         _database = await WorldDatabase.OpenAsync(_options.DatabasePath, cancellationToken);
         _checkpointStore = _database.CreateCheckpointStore();
+        LogDatabaseOpened(_options.DatabasePath);
         var hasCheckpoint = await _database.HasCheckpointAsync(cancellationToken);
         if (hasCheckpoint)
         {
             var snapshot = await _checkpointStore.LoadAsync(cancellationToken);
             _engine = SimulationEngine.FromPersistenceSnapshot(snapshot);
+            _lastSuccessfulCheckpointWorldMinute = _engine.CurrentMinute.Value;
+            _lastSuccessfulCheckpointUtc = await ReadLastCheckpointUtcAsync(cancellationToken);
+            _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
+            LogWorldResumed(_options.ActiveWorld, _engine.CurrentMinute.Value);
             return;
         }
 
         _engine = new SimulationEngine(_options.WorldSeed, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
-        await _checkpointStore.CheckpointAsync(_engine.CreatePersistenceSnapshot(), DateTime.UtcNow, cancellationToken: cancellationToken);
+        await WriteCheckpointWithRetriesAsync("initial", cancellationToken);
+        _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
         LogWorldCreated(_options.ActiveWorld, _options.DatabasePath);
+    }
+
+    private async Task<DateTime?> ReadLastCheckpointUtcAsync(CancellationToken cancellationToken)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = _options.DatabasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        }.ToString();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT last_checkpoint_utc FROM world_meta WHERE id = 1;";
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        if (value is null || value is DBNull) return null;
+        return DateTime.SpecifyKind(DateTime.Parse(Convert.ToString(value, CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DateTimeKind.Utc);
     }
 
     private async Task ConsumeCommandsAsync(CancellationToken stoppingToken)
@@ -529,17 +595,18 @@ public sealed partial class SimulationHost : BackgroundService
         var driver = RunOperationalDriverAsync(driverCancellation.Token);
         try
         {
-            await foreach (var command in _commands.Reader.ReadAllAsync(stoppingToken))
+            await foreach (var command in _commands.Reader.ReadAllAsync(CancellationToken.None))
             {
                 switch (command)
                 {
-                    case CheckpointSimulationCommand checkpoint: await ProcessCheckpointAsync(checkpoint, stoppingToken); break;
+                    case CheckpointSimulationCommand checkpoint: await ProcessCheckpointAsync(checkpoint, CancellationToken.None); break;
                     case FailSimulationCommand failure: failure.Completion.TrySetException(failure.Failure); throw failure.Failure;
                     case AdvanceSimulationCommand advance:
                         try
                         {
                             if (advance.Minutes > 0) _engine!.AdvanceUntil(_engine.CurrentMinute.Add(advance.Minutes));
-                            Publish(SimulationHostState.Running);
+                            Publish(IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running);
+                            if (advance.Minutes > 0) await CheckpointIfDueAsync(CancellationToken.None);
                             advance.Completion?.TrySetResult(true);
                         }
                         catch (Exception exception)
@@ -555,7 +622,16 @@ public sealed partial class SimulationHost : BackgroundService
         finally
         {
             driverCancellation.Cancel();
-            try { await driver; } catch (OperationCanceledException) when (driverCancellation.IsCancellationRequested) { }
+            try
+            {
+                await driver;
+            }
+            catch (OperationCanceledException) when (driverCancellation.IsCancellationRequested)
+            {
+            }
+            catch (ChannelClosedException) when (IsShutdownRequested)
+            {
+            }
         }
     }
 
@@ -569,7 +645,17 @@ public sealed partial class SimulationHost : BackgroundService
             accumulatedMinutes += _options.SimulationMinutesPerSecond;
             var minutes = (long)Math.Floor(accumulatedMinutes);
             accumulatedMinutes -= minutes;
-            if (minutes > 0) await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes), stoppingToken);
+            if (minutes > 0)
+            {
+                try
+                {
+                    await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes), stoppingToken);
+                }
+                catch (ChannelClosedException) when (IsShutdownRequested || stoppingToken.IsCancellationRequested)
+                {
+                    return;
+                }
+            }
         }
     }
 
@@ -577,8 +663,8 @@ public sealed partial class SimulationHost : BackgroundService
     {
         try
         {
-            await _checkpointStore!.CheckpointAsync(_engine!.CreatePersistenceSnapshot(), DateTime.UtcNow, cancellationToken: cancellationToken);
-            command.Completion.TrySetResult(new CheckpointCommandResult(true, _engine.CurrentMinute.Value));
+            await WriteCheckpointWithRetriesAsync("explicit", cancellationToken);
+            command.Completion.TrySetResult(new CheckpointCommandResult(true, _engine!.CurrentMinute.Value));
         }
         catch (Exception exception)
         {
@@ -587,8 +673,92 @@ public sealed partial class SimulationHost : BackgroundService
         }
     }
 
+    private async Task CheckpointIfDueAsync(CancellationToken cancellationToken)
+    {
+        if (_options.CheckpointSimulationMinutes == 0 || _engine is null) return;
+        var dueByMinute = !_lastSuccessfulCheckpointWorldMinute.HasValue || _engine.CurrentMinute.Value - _lastSuccessfulCheckpointWorldMinute.Value >= _options.CheckpointSimulationMinutes;
+        var dueByWallClock = _lastCheckpointAttemptAt == default || DateTimeOffset.UtcNow - _lastCheckpointAttemptAt >= TimeSpan.FromSeconds(_options.CheckpointMinimumRealSeconds);
+        if (dueByMinute && dueByWallClock)
+        {
+            await WriteCheckpointWithRetriesAsync("periodic", cancellationToken);
+        }
+    }
+
+    private async Task WriteCheckpointWithRetriesAsync(string kind, CancellationToken cancellationToken)
+    {
+        var engine = _engine ?? throw new InvalidOperationException("The simulation engine is not initialized.");
+        var snapshot = engine.CreatePersistenceSnapshot();
+        var attemptCount = checked(_options.CheckpointRetryCount + 1);
+        var worldMinute = engine.CurrentMinute.Value;
+        var started = Stopwatch.GetTimestamp();
+        Exception? lastException = null;
+        if (kind == "periodic") LogPeriodicCheckpointStarted(worldMinute, _options.CheckpointRetryCount);
+        for (var attempt = 0; attempt < attemptCount; attempt++)
+        {
+            _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
+            try
+            {
+                var checkpointUtc = DateTime.UtcNow;
+                if (kind == "final" && Interlocked.Exchange(ref _failNextFinalCheckpointForTesting, 0) != 0)
+                {
+                    throw new InvalidOperationException("Controlled final checkpoint failure.");
+                }
+                var injectedFailure = CheckpointAttemptFailureHookForTesting?.Invoke(kind, attempt + 1);
+                if (injectedFailure is not null)
+                {
+                    throw injectedFailure;
+                }
+                if (Volatile.Read(ref _failNextCheckpointAttemptsForTesting) > 0 && Interlocked.Decrement(ref _failNextCheckpointAttemptsForTesting) >= 0)
+                {
+                    throw new InvalidOperationException($"Controlled {kind} checkpoint attempt failure.");
+                }
+                await _checkpointStore!.CheckpointAsync(snapshot, checkpointUtc, cancellationToken: cancellationToken);
+                Interlocked.Exchange(ref _failNextFinalCheckpointForTesting, 0);
+                var wasDegraded = _persistenceState != PersistenceState.Healthy;
+                MarkCheckpointSucceeded(worldMinute, checkpointUtc);
+                Publish(GetCheckpointLifecycleState(kind));
+                if (wasDegraded) LogPersistenceRecovered(worldMinute);
+                var duration = Stopwatch.GetElapsedTime(started);
+                if (kind == "periodic") LogPeriodicCheckpointCompleted(worldMinute, duration.TotalMilliseconds, attempt);
+                else LogFinalOrExplicitCheckpointCompleted(kind, worldMinute, duration.TotalMilliseconds, attempt);
+                return;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+            {
+                lastException = exception;
+                _consecutiveCheckpointFailures++;
+                _persistenceState = PersistenceState.Degraded;
+                Publish(GetCheckpointLifecycleState(kind), exception.Message);
+                LogCheckpointFailed(kind, worldMinute, attempt + 1, attemptCount, exception);
+                if (attempt + 1 < attemptCount && _options.CheckpointRetryDelaySeconds > 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(_options.CheckpointRetryDelaySeconds), cancellationToken);
+                }
+            }
+        }
+
+        var exhausted = lastException ?? new InvalidOperationException("Checkpoint failed without an exception.");
+        _persistenceState = PersistenceState.Faulted;
+        Publish(SimulationHostState.Faulted, exhausted.Message);
+        LogCheckpointExhausted(kind, worldMinute, attemptCount, exhausted);
+        throw exhausted;
+    }
+
+    private void MarkCheckpointSucceeded(long worldMinute, DateTime checkpointUtc)
+    {
+        _persistenceState = PersistenceState.Healthy;
+        _lastSuccessfulCheckpointWorldMinute = worldMinute;
+        _lastSuccessfulCheckpointUtc = checkpointUtc;
+        _consecutiveCheckpointFailures = 0;
+    }
+
+    private SimulationHostState GetCheckpointLifecycleState(string kind) =>
+        kind == "initial" ? (IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Starting) :
+        kind == "final" || IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running;
+
     private async Task<Exception?> ShutdownAsync(bool preserveFaulted)
     {
+        StopAcceptingCommands();
         if (!preserveFaulted)
         {
             Publish(SimulationHostState.Stopping);
@@ -605,17 +775,12 @@ public sealed partial class SimulationHost : BackgroundService
         {
             try
             {
-                if (Interlocked.Exchange(ref _failNextFinalCheckpointForTesting, 0) != 0)
-                {
-                    throw new InvalidOperationException("Controlled final checkpoint failure.");
-                }
-
-                await _checkpointStore.CheckpointAsync(_engine.CreatePersistenceSnapshot(), DateTime.UtcNow);
-                LogFinalCheckpointCompleted(_engine.CurrentMinute.Value);
+                await WriteCheckpointWithRetriesAsync("final", CancellationToken.None);
             }
             catch (Exception exception)
             {
                 shutdownFailure = exception;
+                _persistenceState = PersistenceState.Faulted;
                 Publish(SimulationHostState.Faulted, exception.Message);
                 LogFinalCheckpointFailed(exception);
             }
@@ -642,6 +807,38 @@ public sealed partial class SimulationHost : BackgroundService
         return shutdownFailure;
     }
 
+    private bool IsShutdownRequested => Volatile.Read(ref _shutdownRequested) != 0;
+
+    private void StopAcceptingCommands()
+    {
+        if (Interlocked.Exchange(ref _acceptingCommands, 0) == 1)
+        {
+            Volatile.Write(ref _shutdownRequested, 1);
+            _commands.Writer.TryComplete();
+        }
+    }
+
+    private async ValueTask EnqueueCommandAsync(SimulationCommand command, CancellationToken cancellationToken = default)
+    {
+        if (Volatile.Read(ref _acceptingCommands) == 0)
+        {
+            var exception = new InvalidOperationException("The simulation host is stopping and no longer accepts commands.");
+            command.SetException(exception);
+            throw exception;
+        }
+
+        try
+        {
+            await _commands.Writer.WriteAsync(command, cancellationToken);
+        }
+        catch (ChannelClosedException) when (Volatile.Read(ref _acceptingCommands) == 0)
+        {
+            var exception = new InvalidOperationException("The simulation host is stopping and no longer accepts commands.");
+            command.SetException(exception);
+            throw exception;
+        }
+    }
+
     private void Publish(SimulationHostState state, string? error = null)
     {
         var engine = _engine;
@@ -662,8 +859,15 @@ public sealed partial class SimulationHost : BackgroundService
             livingPopulation,
             citizenSnapshots.Length,
             livingPopulation,
-            deadPopulation);
-        Interlocked.Exchange(ref _observation, new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History));
+            deadPopulation,
+            _persistenceState,
+            _lastSuccessfulCheckpointWorldMinute,
+            _lastSuccessfulCheckpointUtc,
+            _consecutiveCheckpointFailures);
+        var revision = Interlocked.Increment(ref _observationRevision);
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision);
+        Interlocked.Exchange(ref _observation, observation);
+        _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)
         {
             _runningForTesting.TrySetResult(true);
@@ -786,4 +990,28 @@ public sealed partial class SimulationHost : BackgroundService
 
     [LoggerMessage(EventId = 1005, Level = LogLevel.Error, Message = "Simulation database cleanup failed")]
     private partial void LogDatabaseCleanupFailed(Exception exception);
+
+    [LoggerMessage(EventId = 1006, Level = LogLevel.Information, Message = "Simulation database opened at {DatabasePath}")]
+    private partial void LogDatabaseOpened(string databasePath);
+
+    [LoggerMessage(EventId = 1007, Level = LogLevel.Information, Message = "Resumed world {ActiveWorld} at minute {WorldMinute}")]
+    private partial void LogWorldResumed(string activeWorld, long worldMinute);
+
+    [LoggerMessage(EventId = 1008, Level = LogLevel.Information, Message = "Periodic simulation checkpoint completed at minute {WorldMinute} in {DurationMilliseconds}ms after {RetryCount} additional retries")]
+    private partial void LogPeriodicCheckpointCompleted(long worldMinute, double durationMilliseconds, int retryCount);
+
+    [LoggerMessage(EventId = 1013, Level = LogLevel.Information, Message = "Periodic simulation checkpoint started at minute {WorldMinute} with {RetryCount} additional retries")]
+    private partial void LogPeriodicCheckpointStarted(long worldMinute, int retryCount);
+
+    [LoggerMessage(EventId = 1009, Level = LogLevel.Information, Message = "{CheckpointKind} simulation checkpoint completed at minute {WorldMinute} in {DurationMilliseconds}ms after {RetryCount} additional retries")]
+    private partial void LogFinalOrExplicitCheckpointCompleted(string checkpointKind, long worldMinute, double durationMilliseconds, int retryCount);
+
+    [LoggerMessage(EventId = 1010, Level = LogLevel.Warning, Message = "{CheckpointKind} simulation checkpoint attempt {Attempt} of {AttemptCount} failed at minute {WorldMinute}; persistence is degraded")]
+    private partial void LogCheckpointFailed(string checkpointKind, long worldMinute, int attempt, int attemptCount, Exception exception);
+
+    [LoggerMessage(EventId = 1011, Level = LogLevel.Critical, Message = "{CheckpointKind} simulation checkpoint exhausted {AttemptCount} attempts at minute {WorldMinute}; persistence is faulted")]
+    private partial void LogCheckpointExhausted(string checkpointKind, long worldMinute, int attemptCount, Exception exception);
+
+    [LoggerMessage(EventId = 1012, Level = LogLevel.Information, Message = "Simulation persistence recovered after a successful checkpoint at minute {WorldMinute}")]
+    private partial void LogPersistenceRecovered(long worldMinute);
 }

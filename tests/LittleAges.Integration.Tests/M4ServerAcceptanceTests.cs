@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LittleAges.Server;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -249,7 +250,12 @@ public sealed class M4ServerAcceptanceTests
             var status = documents[0].RootElement;
             Assert.Equal("Running", status.GetProperty("state").GetString());
             Assert.False(string.IsNullOrEmpty(status.GetProperty("world").GetProperty("fingerprint").GetString()));
-            return string.Join("|", documents.Select(static document => document.RootElement.GetRawText()));
+            var canonicalStatus = JsonNode.Parse(status.GetRawText())!.AsObject();
+            canonicalStatus.Remove("persistenceState");
+            canonicalStatus.Remove("lastSuccessfulCheckpointWorldMinute");
+            canonicalStatus.Remove("lastSuccessfulCheckpointUtc");
+            canonicalStatus.Remove("consecutiveCheckpointFailures");
+            return string.Join("|", new[] { canonicalStatus.ToJsonString() }.Concat(documents.Skip(1).Select(static document => document.RootElement.GetRawText())));
         }
         finally
         {

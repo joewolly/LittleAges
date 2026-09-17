@@ -7,6 +7,7 @@ using Xunit.Abstractions;
 
 namespace LittleAges.Simulation.Tests;
 
+[Trait("Category", "Long")]
 public sealed class M5LongHorizonAcceptanceTests
 {
     private readonly ITestOutputHelper _output;

@@ -9,4 +9,7 @@
     <ProjectReference Include="..\LittleAges.Simulation\LittleAges.Simulation.csproj" />
     <ProjectReference Include="..\LittleAges.Persistence\LittleAges.Persistence.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\LittleAges.Web\dist\**\*" LinkBase="wwwroot" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

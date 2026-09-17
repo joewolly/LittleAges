@@ -16,11 +16,26 @@ var healthChecks = builder.Services.AddHealthChecks();
 healthChecks.AddCheck<SimulationHostHealthCheck>("simulation-host");
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(serverOptions);
+builder.Services.AddSignalR().AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+builder.Services.AddSingleton<WorldChangeBroadcaster>();
 builder.Services.AddSingleton<SimulationHost>();
 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<SimulationHost>());
+builder.Services.AddHostedService<WorldChangeBroadcasterService>();
 
 var app = builder.Build();
+app.UseDefaultFiles();
+app.UseStaticFiles();
+var hostingLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LittleAges.Server.Hosting");
+var logLanWarning = LoggerMessage.Define<string>(LogLevel.Warning, new EventId(3000), "Listening on {ListenUrl} is intended for trusted LAN use and not the public Internet.");
+foreach (var listenUri in serverOptions.GetListenUris())
+{
+    if (!listenUri.IsLoopback && !string.Equals(listenUri.Host, "localhost", StringComparison.OrdinalIgnoreCase))
+    {
+        logLanWarning(hostingLogger, listenUri.ToString(), null);
+    }
+}
 app.MapHealthChecks("/api/v1/health", new HealthCheckOptions());
+app.MapHub<WorldHub>("/hubs/world");
 app.MapGet("/api/v1/status", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Status));
 app.MapGet("/api/v1/world", (SimulationHost simulationHost) =>
 {
@@ -145,6 +160,25 @@ app.MapGet("/api/v1/households/{id}", (string id, SimulationHost simulationHost)
     var observation = simulationHost.Observation;
     var household = observation.Households.FirstOrDefault(x => x.Id.Value == value);
     return household is null ? Results.NotFound() : Results.Ok(ToHouseholdSnapshot(household, observation.Citizens));
+});
+app.MapFallback(async context =>
+{
+    if (context.Request.Path.StartsWithSegments("/api") || context.Request.Path.StartsWithSegments("/hubs"))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    var environment = context.RequestServices.GetRequiredService<IWebHostEnvironment>();
+    var indexPath = Path.Combine(environment.WebRootPath ?? string.Empty, "index.html");
+    if (!File.Exists(indexPath))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    context.Response.ContentType = "text/html; charset=utf-8";
+    await context.Response.SendFileAsync(indexPath);
 });
 
 static ServerHouseholdSnapshot ToHouseholdSnapshot(Household household, IReadOnlyList<ServerCitizenSnapshot> citizens)

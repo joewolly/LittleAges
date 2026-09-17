@@ -2,6 +2,42 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
+const liveMock = vi.hoisted(() => {
+  type WorldChangedHandler = (message: unknown) => void
+  type ConnectionHandler = () => void
+  const state = {
+    startMode: 'reject' as 'resolve' | 'reject',
+    startPromise: null as Promise<void> | null,
+    startCalls: 0,
+    stopCalls: 0,
+    emitWorldChanged: (message: unknown) => { void message },
+    emitReconnecting: () => undefined,
+    emitReconnected: () => undefined,
+    emitClose: () => undefined,
+  }
+  const factory = vi.fn(() => {
+    const worldChangedHandlers: WorldChangedHandler[] = []
+    const reconnectingHandlers: ConnectionHandler[] = []
+    const reconnectedHandlers: ConnectionHandler[] = []
+    const closeHandlers: ConnectionHandler[] = []
+    state.emitWorldChanged = message => { worldChangedHandlers.forEach(handler => handler(message)) }
+    state.emitReconnecting = () => { reconnectingHandlers.forEach(handler => handler()) }
+    state.emitReconnected = () => { reconnectedHandlers.forEach(handler => handler()) }
+    state.emitClose = () => { closeHandlers.forEach(handler => handler()) }
+    return {
+      start: vi.fn(async () => { state.startCalls += 1; if (state.startMode === 'reject') throw new Error('SignalR unavailable'); if (state.startPromise !== null) await state.startPromise }),
+      stop: vi.fn(async () => { state.stopCalls += 1 }),
+      onWorldChanged: (handler: WorldChangedHandler) => { worldChangedHandlers.push(handler) },
+      onReconnecting: (handler: ConnectionHandler) => { reconnectingHandlers.push(handler) },
+      onReconnected: (handler: ConnectionHandler) => { reconnectedHandlers.push(handler) },
+      onClose: (handler: ConnectionHandler) => { closeHandlers.push(handler) },
+    }
+  })
+  return { state, factory }
+})
+
+vi.mock('./live', () => ({ createWorldConnection: liveMock.factory }))
+
 const citizen = { citizenId: '9223372036854775807', name: 'Elara Venn', age: 18, lifeStage: 'Adult', location: { x: 1, y: 2 }, health: 10000, currentAction: 'Build', actionSequence: 0, isAlive: true, deathMinute: null, deathCause: null, hunger: 120, rest: 80, actionPhase: 'Perform', carriedResource: null, carriedQuantity: null, targetResourceNodeId: null, homeStructureId: '1', targetStructureId: '2', occupation: 'Builder', lifetimeWorkActivity: { foragingMinutes: 0, woodcuttingMinutes: 0, stoneworkingMinutes: 0, constructionMinutes: 16, haulingMinutes: 4 } }
 const structure = { structureId: '2', type: 'Shelter', status: 'UnderConstruction', location: { x: 2, y: 1 }, startedMinute: 12, completedMinute: null, requiredWood: 10, deliveredWood: 3, requiredStone: 4, deliveredStone: 1, requiredWork: 20, completedWork: 7, condition: 0, capacity: 4, storageBonus: null, constructionMultiplierBasisPoints: null, currentOccupantIds: [], contributions: [{ citizenId: citizen.citizenId, constructionWork: 7, woodDelivered: 3, stoneDelivered: 1 }] }
 const settlement = { foodStored: 400, woodStored: 120, stoneStored: 30, livingPopulation: 20, deadPopulation: 0, totalPopulation: 20, remainingResources: [], resources: [], storageCapacity: 1000, storageUsed: 550, shelterCapacity: 24, shelteredPopulation: 19, unhousedPopulation: 1, completedShelters: 5, completedStockpiles: 1, completedWorkshops: 0, exposureGraceUntilMinute: 720, activeConstructionProject: structure }
@@ -40,6 +76,10 @@ afterEach(() => {
 })
 
 beforeEach(() => {
+  liveMock.state.startMode = 'reject'
+  liveMock.state.startPromise = null
+  liveMock.state.startCalls = 0
+  liveMock.state.stopCalls = 0
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 })
 
@@ -86,16 +126,17 @@ describe('citizen observer', () => {
     render(<App />)
     expect(requests).toHaveLength(9)
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
     expect(requests).toHaveLength(9)
 
     await act(async () => {
       requests.forEach((request, index) => request.resolve(responseFor(paths[index], 1)))
       await Promise.all(requests.map(request => request.promise))
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(1999) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
     expect(requests).toHaveLength(9)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    await act(async () => { await Promise.resolve() })
     expect(requests).toHaveLength(15)
     expect(paths).toContain('/api/v1/settlement')
     expect(paths.filter(path => path.endsWith('/map'))).toHaveLength(1)
@@ -116,7 +157,7 @@ describe('citizen observer', () => {
     expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
     expect(screen.getByText('1', { selector: 'strong' })).toBeInTheDocument()
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
     expect(screen.getByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
     expect(screen.getByText('2', { selector: 'strong' })).toBeInTheDocument()
     expect(poll).toBe(2)
@@ -312,5 +353,108 @@ describe('citizen observer', () => {
     const statisticsPaths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
     expect(statisticsPaths).toHaveLength(2)
     expect(statisticsPaths[1]).toBe('/api/v1/statistics?fromMinute=4320001&limit=100')
+  })
+
+  it('refreshes authoritative REST data for coalesced invalidations and reconnects', async () => {
+    liveMock.state.startMode = 'resolve'
+    let statusCalls = 0
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/status')) statusCalls += 1
+      return responseFor(path, statusCalls || 1, `Citizen ${statusCalls || 1}`)
+    })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Live updates: connected')).toBeInTheDocument())
+    expect(statusCalls).toBe(2)
+
+    liveMock.state.emitWorldChanged({ revision: 2, worldMinute: 2, hostState: 'Running', persistenceState: 'Ready' })
+    liveMock.state.emitWorldChanged({ revision: 3, worldMinute: 3, hostState: 'Running', persistenceState: 'Ready' })
+    await waitFor(() => expect(statusCalls).toBe(4))
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith('/api/v1/history?'))).toHaveLength(3))
+
+    liveMock.state.emitReconnecting()
+    await waitFor(() => expect(screen.getByText('Live updates: reconnecting…')).toBeInTheDocument())
+    liveMock.state.emitReconnected()
+    await waitFor(() => expect(statusCalls).toBe(5))
+    expect(screen.getByText('Live updates: connected')).toBeInTheDocument()
+  })
+
+  it('refreshes after the first SignalR connection start to capture state changes during startup', async () => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    const start = deferred<void>()
+    liveMock.state.startPromise = start.promise
+    let worldMinute = 1
+    let statusCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/status')) statusCalls += 1
+      return responseFor(path, worldMinute, `Citizen ${worldMinute}`)
+    })
+
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
+    expect(liveMock.state.startCalls).toBe(1)
+
+    worldMinute = 2
+    await act(async () => {
+      start.resolve()
+      await start.promise
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(screen.getByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
+    expect(screen.getByText('2', { selector: 'strong' })).toBeInTheDocument()
+    expect(statusCalls).toBe(2)
+    await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
+    expect(statusCalls).toBe(2)
+  })
+
+  it('uses a visible degraded state and ten-second REST fallback when SignalR is unavailable', async () => {
+    vi.useFakeTimers()
+    let statusCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/status')) statusCalls += 1
+      return responseFor(path, statusCalls || 1)
+    })
+    render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Live updates: unavailable')).toBeInTheDocument()
+    expect(statusCalls).toBe(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
+    expect(statusCalls).toBe(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(statusCalls).toBe(2)
+  })
+
+  it('keeps a newer reconnect biography when the older response resolves later', async () => {
+    liveMock.state.startMode = 'resolve'
+    const biographyRequests: Array<Deferred<Response>> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.includes('/biography')) {
+        const request = deferred<Response>()
+        biographyRequests.push(request)
+        return request.promise
+      }
+      return responseFor(path, 12)
+    })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
+    await waitFor(() => expect(biographyRequests).toHaveLength(1))
+
+    liveMock.state.emitReconnected()
+    await waitFor(() => expect(biographyRequests).toHaveLength(2))
+    const biographyFor = (name: string) => new Response(JSON.stringify({ citizen: { ...citizen, name }, events: [], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 0, deathMinute: null, deathCause: null }))
+    await act(async () => { biographyRequests[1].resolve(biographyFor('New name')); await biographyRequests[1].promise })
+    expect(await screen.findByRole('heading', { name: 'New name' })).toBeInTheDocument()
+    await act(async () => { biographyRequests[0].resolve(biographyFor('Old name')); await biographyRequests[0].promise })
+    expect(screen.getByRole('heading', { name: 'New name' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Old name' })).not.toBeInTheDocument()
   })
 })

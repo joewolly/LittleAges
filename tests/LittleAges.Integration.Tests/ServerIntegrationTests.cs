@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Server;
@@ -395,7 +396,12 @@ public sealed class ServerIntegrationTests
         using var status = JsonDocument.Parse(await (await client.GetAsync("/api/v1/status")).Content.ReadAsStringAsync());
         using var citizens = JsonDocument.Parse(await (await client.GetAsync("/api/v1/citizens")).Content.ReadAsStringAsync());
         using var settlement = JsonDocument.Parse(await (await client.GetAsync("/api/v1/settlement")).Content.ReadAsStringAsync());
-        return string.Concat(status.RootElement.GetRawText(), "|", citizens.RootElement.GetRawText(), "|", settlement.RootElement.GetRawText());
+        var canonicalStatus = JsonNode.Parse(status.RootElement.GetRawText())!.AsObject();
+        canonicalStatus.Remove("persistenceState");
+        canonicalStatus.Remove("lastSuccessfulCheckpointWorldMinute");
+        canonicalStatus.Remove("lastSuccessfulCheckpointUtc");
+        canonicalStatus.Remove("consecutiveCheckpointFailures");
+        return string.Concat(canonicalStatus.ToJsonString(), "|", citizens.RootElement.GetRawText(), "|", settlement.RootElement.GetRawText());
     }
 
     [Fact]
@@ -619,20 +625,14 @@ public sealed class ServerIntegrationTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            var factory = new ServerFactory(dataRoot);
-            try
-            {
-                var host = factory.Services.GetRequiredService<SimulationHost>();
-                using var client = factory.CreateClient();
-                await WaitForStateAsync(host, SimulationHostState.Faulted);
-                Assert.Contains("not supported", host.Status.Error, StringComparison.OrdinalIgnoreCase);
-                var health = await new SimulationHostHealthCheck(host).CheckHealthAsync(new HealthCheckContext());
-                Assert.Equal(HealthStatus.Unhealthy, health.Status);
-            }
-            finally
-            {
-                Assert.IsType<NotSupportedException>(Record.Exception(factory.Dispose));
-            }
+            using var host = CreateSimulationHost(dataRoot, "integration-world");
+            var simulationHost = host.Services.GetRequiredService<SimulationHost>();
+            await host.StartAsync();
+            await WaitForStateAsync(simulationHost, SimulationHostState.Faulted);
+            Assert.Contains("not supported", simulationHost.Status.Error, StringComparison.OrdinalIgnoreCase);
+            var health = await new SimulationHostHealthCheck(simulationHost).CheckHealthAsync(new HealthCheckContext());
+            Assert.Equal(HealthStatus.Unhealthy, health.Status);
+            await Assert.ThrowsAsync<NotSupportedException>(() => host.StopAsync());
         }
         finally
         {
@@ -794,7 +794,7 @@ public sealed class ServerIntegrationTests
         throw new InvalidOperationException($"The simulation host did not reach {expectedState} state.");
     }
 
-    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world", double simulationMinutesPerSecond = 10)
+    private static IHost CreateSimulationHost(string dataRoot, string activeWorld = "host-world", double simulationMinutesPerSecond = 10, int checkpointRetryCount = 0)
     {
         var builder = Host.CreateApplicationBuilder();
         var options = new ServerOptions
@@ -803,7 +803,8 @@ public sealed class ServerIntegrationTests
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(17),
             ListenUrls = ServerOptions.DefaultListenUrls,
-            SimulationMinutesPerSecond = simulationMinutesPerSecond
+            SimulationMinutesPerSecond = simulationMinutesPerSecond,
+            CheckpointRetryCount = checkpointRetryCount
         };
         builder.Services.Configure<HostOptions>(hostOptions => hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost);
         builder.Services.AddSingleton(options);
