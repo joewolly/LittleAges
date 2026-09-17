@@ -625,20 +625,14 @@ public sealed class ServerIntegrationTests
                 await command.ExecuteNonQueryAsync();
             }
 
-            var factory = new ServerFactory(dataRoot);
-            try
-            {
-                var host = factory.Services.GetRequiredService<SimulationHost>();
-                using var client = factory.CreateClient();
-                await WaitForStateAsync(host, SimulationHostState.Faulted);
-                Assert.Contains("not supported", host.Status.Error, StringComparison.OrdinalIgnoreCase);
-                var health = await new SimulationHostHealthCheck(host).CheckHealthAsync(new HealthCheckContext());
-                Assert.Equal(HealthStatus.Unhealthy, health.Status);
-            }
-            finally
-            {
-                Assert.IsType<NotSupportedException>(Record.Exception(factory.Dispose));
-            }
+            using var host = CreateSimulationHost(dataRoot, "integration-world");
+            var simulationHost = host.Services.GetRequiredService<SimulationHost>();
+            await host.StartAsync();
+            await WaitForStateAsync(simulationHost, SimulationHostState.Faulted);
+            Assert.Contains("not supported", simulationHost.Status.Error, StringComparison.OrdinalIgnoreCase);
+            var health = await new SimulationHostHealthCheck(simulationHost).CheckHealthAsync(new HealthCheckContext());
+            Assert.Equal(HealthStatus.Unhealthy, health.Status);
+            await Assert.ThrowsAsync<NotSupportedException>(() => host.StopAsync());
         }
         finally
         {
