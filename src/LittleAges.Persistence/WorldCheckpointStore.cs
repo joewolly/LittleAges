@@ -57,7 +57,7 @@ public sealed class WorldCheckpointStore
         var citizenCount = await _context.Citizens.CountAsync(cancellationToken);
         if (metadata.SurvivalVersion == SimulationEngine.SurvivalVersion)
         {
-            if (metadata.CitizenGenerationVersion != SimulationEngine.CitizenGenerationVersion || citizenCount != CitizenGenerator.FounderCount) throw new InvalidDataException("An M3 checkpoint has an incomplete citizen sentinel.");
+            if (metadata.CitizenGenerationVersion != SimulationEngine.CitizenGenerationVersion) throw new InvalidDataException("An M3 checkpoint has an incomplete citizen sentinel.");
             return false;
         }
         if (metadata.CitizenGenerationVersion == SimulationEngine.CitizenGenerationVersion && citizenCount == CitizenGenerator.FounderCount) return false;
@@ -100,7 +100,7 @@ public sealed class WorldCheckpointStore
         if (metadata.SurvivalVersion != 0) throw new NotSupportedException($"Survival version '{metadata.SurvivalVersion}' is not supported.");
         if (!string.Equals(metadata.SimulationRulesVersion, SimulationEngine.M2SimulationRulesVersion, StringComparison.Ordinal))
         {
-            if (string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("Current M3 rules require survival version 1.");
+            if (SimulationEngine.HistorySystemsEnabled(metadata.SimulationRulesVersion)) throw new InvalidDataException("History rules require survival version 1.");
             return false;
         }
 
@@ -170,7 +170,7 @@ public sealed class WorldCheckpointStore
         if (metadata.SettlementVersion != 0) throw new NotSupportedException($"Settlement version '{metadata.SettlementVersion}' is not supported.");
         if (metadata.SurvivalVersion != SimulationEngine.SurvivalVersion || !string.Equals(metadata.SimulationRulesVersion, SimulationEngine.M3SimulationRulesVersion, StringComparison.Ordinal))
         {
-            if (string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("Current M4 rules require settlement version 1.");
+            if (SimulationEngine.HistorySystemsEnabled(metadata.SimulationRulesVersion)) throw new InvalidDataException("History rules require settlement version 1.");
             return false;
         }
 
@@ -232,7 +232,7 @@ public sealed class WorldCheckpointStore
         if (metadata.HistoryVersion is not (0 or SimulationEngine.HistoryVersion)) throw new NotSupportedException($"History version '{metadata.HistoryVersion}' is not supported.");
         if (metadata.HistoryVersion == SimulationEngine.HistoryVersion)
         {
-            if (!string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal) || metadata.SocialVersion != SimulationEngine.SocialVersion || metadata.SurvivalVersion != SimulationEngine.SurvivalVersion || metadata.SettlementVersion != SimulationEngine.SettlementVersion) throw new InvalidDataException("M6 metadata is only valid with complete M6 compatibility sentinels.");
+            if (!SimulationEngine.IsHistoryRulesVersion(metadata.SimulationRulesVersion) || metadata.SocialVersion != SimulationEngine.SocialVersion || metadata.SurvivalVersion != SimulationEngine.SurvivalVersion || metadata.SettlementVersion != SimulationEngine.SettlementVersion) throw new InvalidDataException("History metadata is only valid with complete compatibility sentinels.");
             _ = await LoadAsync(cancellationToken);
             return false;
         }
@@ -244,7 +244,7 @@ public sealed class WorldCheckpointStore
             await _context.HistoryStates.AsNoTracking().AnyAsync(cancellationToken) ||
             await _context.ScheduledEvents.AsNoTracking().AnyAsync(x => x.EventName == CitizenEventNames.StatisticsSample, cancellationToken);
         if (hasPartialHistory) throw new InvalidDataException("History rows cannot exist while HistoryVersion is zero.");
-        if (string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("M6 rules require history version 1.");
+        if (SimulationEngine.HistorySystemsEnabled(metadata.SimulationRulesVersion)) throw new InvalidDataException("History rules require history version 1.");
         if (metadata.HistoryVersion != 0 || metadata.SocialVersion != SimulationEngine.SocialVersion || metadata.SurvivalVersion != SimulationEngine.SurvivalVersion || metadata.SettlementVersion != SimulationEngine.SettlementVersion || !string.Equals(metadata.SimulationRulesVersion, SimulationEngine.M5SimulationRulesVersion, StringComparison.Ordinal)) return false;
         var m5 = await LoadAsync(cancellationToken);
         var counters = new DeterministicCounters(m5.Counters);
@@ -286,7 +286,7 @@ public sealed class WorldCheckpointStore
         });
         var historyStartEventId = historyEvents.Count == 0 ? counters.Snapshot.NextHistoricalEventId : historyEvents[0].Id.Value;
         var history = new HistoryState(m5.WorldMinute.Value, historyStartEventId, m5.WorldMinute.Value, 0, 0, 0, 0, activeShortage, DetermineMilestoneWatermark(historyEvents));
-        var migration = new SimulationPersistenceSnapshot(m5.Seed, m5.WorldMinute, m5.WorldSchemaVersion, SimulationEngine.CurrentSimulationRulesVersion, m5.ApplicationVersion, m5.WorldConfiguration, counters.Snapshot, events, m5.World, m5.Citizens, m5.CitizenGenerationVersion, m5.ResourceStates, m5.Settlement, m5.SurvivalVersion, m5.SettlementVersion, m5.Structures, m5.StructureContributions, SimulationEngine.SocialVersion, m5.Relationships, m5.Households, SimulationEngine.HistoryVersion, history, historyEvents, historyCitizenLinks, historyStructureLinks, Array.Empty<StatisticsSample>(), memories);
+        var migration = new SimulationPersistenceSnapshot(m5.Seed, m5.WorldMinute, m5.WorldSchemaVersion, SimulationEngine.M6SimulationRulesVersion, m5.ApplicationVersion, m5.WorldConfiguration, counters.Snapshot, events, m5.World, m5.Citizens, m5.CitizenGenerationVersion, m5.ResourceStates, m5.Settlement, m5.SurvivalVersion, m5.SettlementVersion, m5.Structures, m5.StructureContributions, SimulationEngine.SocialVersion, m5.Relationships, m5.Households, SimulationEngine.HistoryVersion, history, historyEvents, historyCitizenLinks, historyStructureLinks, Array.Empty<StatisticsSample>(), memories);
         await CheckpointCoreAsync(migration, DateTime.SpecifyKind(metadata.LastCheckpointUtc, DateTimeKind.Utc), failurePoint == M6UpgradeFailurePoint.AfterRowsWritten ? CheckpointFailurePoint.AfterRowsWritten : null, cancellationToken);
         return true;
     }
@@ -667,8 +667,8 @@ public sealed class WorldCheckpointStore
         var metadata = metadataRows[0];
         if (metadata.SurvivalVersion is not (0 or SimulationEngine.SurvivalVersion)) throw new NotSupportedException($"Survival version '{metadata.SurvivalVersion}' is not supported.");
         if (metadata.SettlementVersion is not (0 or SimulationEngine.SettlementVersion)) throw new NotSupportedException($"Settlement version '{metadata.SettlementVersion}' is not supported.");
-        if (metadata.SurvivalVersion == 0 && string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("Current M4 rules require survival version 1.");
-        if (metadata.SettlementVersion == 0 && string.Equals(metadata.SimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion, StringComparison.Ordinal)) throw new InvalidDataException("Current M4 rules require settlement version 1.");
+        if (metadata.SurvivalVersion == 0 && SimulationEngine.HistorySystemsEnabled(metadata.SimulationRulesVersion)) throw new InvalidDataException("History rules require survival version 1.");
+        if (metadata.SettlementVersion == 0 && SimulationEngine.HistorySystemsEnabled(metadata.SimulationRulesVersion)) throw new InvalidDataException("History rules require settlement version 1.");
         var configuration = ParseConfiguration(metadata.WorldConfigurationJson);
         if (metadata.GenerationVersion != WorldGenerationConfiguration.CurrentVersion) throw new NotSupportedException($"World generation version '{metadata.GenerationVersion}' is not supported.");
         var seed = WorldSeedCodec.Decode(metadata.WorldSeedValue);

@@ -66,6 +66,7 @@ public sealed class M7PersistentHostTests
 
     [Theory]
     [InlineData("SimulationMinutesPerSecond", "-1")]
+    [InlineData("SimulationMinutesPerSecond", "1001")]
     [InlineData("SimulationMinutesPerSecond", "NaN")]
     [InlineData("SimulationMinutesPerSecond", "Infinity")]
     [InlineData("CheckpointSimulationMinutes", "-1")]
@@ -92,6 +93,55 @@ public sealed class M7PersistentHostTests
         finally
         {
             CleanupDataRoot(values["DataRoot"]!);
+        }
+    }
+
+    [Fact]
+    public async Task OperationalControlsUseHostCommandsWithoutChangingCanonicalState()
+    {
+        var root = CreateDataRoot();
+        IHost? host = null;
+        try
+        {
+            host = BuildHost(root, "operational-controls", checkpointSimulationMinutes: 0, checkpointMinimumRealSeconds: 0);
+            await host.StartAsync();
+            var simulationHost = host.Services.GetRequiredService<SimulationHost>();
+            await simulationHost.WaitForRunningForTestingAsync();
+            Assert.True(simulationHost.Status.Paused);
+            Assert.Equal(0d, simulationHost.Status.OperationalSpeed);
+
+            await simulationHost.AdvanceOperationalForTestingAsync(1);
+            Assert.Equal(0, simulationHost.Status.WorldMinute);
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => simulationHost.RequestOperationalSpeedAsync(ServerOptions.MaximumSimulationMinutesPerSecond + 1));
+            var changed = await simulationHost.RequestOperationalSpeedAsync(5);
+            Assert.True(changed.Paused);
+            Assert.Equal(5d, changed.OperationalSpeed);
+            var resumed = await simulationHost.RequestResumeAsync();
+            Assert.False(resumed.Paused);
+            Assert.Equal(5d, resumed.OperationalSpeed);
+            await simulationHost.AdvanceOperationalForTestingAsync(1);
+            var runningMinute = simulationHost.Status.WorldMinute;
+            Assert.True(runningMinute >= 1);
+
+            var paused = await simulationHost.RequestPauseAsync();
+            Assert.True(paused.Paused);
+            var pausedMinute = simulationHost.Status.WorldMinute;
+            await simulationHost.AdvanceOperationalForTestingAsync(1);
+            Assert.Equal(pausedMinute, simulationHost.Status.WorldMinute);
+            await simulationHost.RequestCheckpointAsync();
+            var beforeControls = await LoadSnapshotAsync(Path.Combine(root, "operational-controls.db"));
+            await simulationHost.RequestOperationalSpeedAsync(6);
+            await simulationHost.RequestPauseAsync();
+            await simulationHost.RequestCheckpointAsync();
+            var afterSnapshot = await LoadSnapshotAsync(Path.Combine(root, "operational-controls.db"));
+            Assert.Equal(SimulationEngine.FromPersistenceSnapshot(beforeControls).HistoryFingerprint, SimulationEngine.FromPersistenceSnapshot(afterSnapshot).HistoryFingerprint);
+            Assert.Equal(SimulationEngine.FromPersistenceSnapshot(beforeControls).SurvivalFingerprint, SimulationEngine.FromPersistenceSnapshot(afterSnapshot).SurvivalFingerprint);
+        }
+        finally
+        {
+            if (host is not null) _ = await Record.ExceptionAsync(() => host.StopAsync());
+            host?.Dispose();
+            CleanupDataRoot(root);
         }
     }
 

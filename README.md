@@ -1,6 +1,6 @@
 # Little Ages
 
-Little Ages is a persistent-world simulation project. M0 (Foundations) through M6 (history, biographies, and statistics) are implemented, with the current deterministic rules boundary `m6-rng1-history1`. M7 adds persistent-host hardening, coalesced observer invalidation, static publishing, Windows Service guidance, backup/recovery guidance, and sleep/resume verification. The server remains the sole owner of canonical simulation state; the browser is an optional observer.
+Little Ages is a persistent-world simulation project. M0 (Foundations) through M6 (history, biographies, and statistics) remain compatibility contracts, and fresh worlds currently use the deterministic M8 rules boundary `m8-rng1-balance1`. M7 adds persistent-host hardening, coalesced observer invalidation, static publishing, Windows Service guidance, backup/recovery guidance, and sleep/resume verification. M8 adds the headless/MAX acceptance runner and sampled shortage-recovery boundary. The server remains the sole owner of canonical simulation state; the browser is an optional observer.
 
 ## Prerequisites
 
@@ -19,6 +19,25 @@ dotnet test -c Release
 ```
 
 The second restore is the reproducibility check; CI uses locked mode. NuGet lock files are committed for all .NET projects.
+
+## Headless acceptance
+
+The headless console runs the normal deterministic engine without wall-clock
+pacing. It supports `run`, `benchmark`, and `acceptance` with invariant JSON and
+Markdown output, seed/rules selection, and public horizons of 1, 10, 100, or
+500 years. The acceptance command can checkpoint to SQLite, reopen, and compare
+the continued run against an uninterrupted run. Timing is operational metadata;
+canonical fingerprints exclude it.
+
+```powershell
+dotnet run --project .\src\LittleAges.Headless -- acceptance `
+  --seed 42 --years 100 --rules m8-rng1-balance1 `
+  --checkpoint-year 37 --database .\artifacts\acceptance.db `
+  --output .\artifacts
+```
+
+See [`docs/v0.1-acceptance-report.md`](./docs/v0.1-acceptance-report.md) for
+the candidate-only 100-year evidence and Section 62 matrix.
 
 ## Frontend
 
@@ -48,7 +67,7 @@ The default binding is loopback-only at `http://127.0.0.1:5274`. The current end
 - `GET http://127.0.0.1:5274/api/v1/health`
 - `GET http://127.0.0.1:5274/api/v1/status`
 
-The default operational settings are `SimulationMinutesPerSecond=10`, a periodic checkpoint every `360` simulation minutes subject to a minimum `30` real seconds, `CheckpointRetryCount=3` retries after the initial attempt with a `2` second delay, and observer invalidation every `500` milliseconds. Set `SimulationMinutesPerSecond=0` to disable operational advancement. Periodic checkpoints are serialized by the host and browser notifications are bounded/coalesced; a failed checkpoint reports degraded persistence, retries within that policy, and becomes faulted when retries are exhausted.
+The default operational settings are `SimulationMinutesPerSecond=10`, a periodic checkpoint every `360` simulation minutes subject to a minimum `30` real seconds, `CheckpointRetryCount=3` retries after the initial attempt with a `2` second delay, and observer invalidation every `500` milliseconds. Operational controls are bounded host commands: `POST /api/v1/control/pause`, `POST /api/v1/control/resume`, and `POST /api/v1/control/speed` with a finite positive speed up to the configured maximum. A zero startup speed is paused; resume restores the default positive speed. Pause, resume, and speed never enter canonical state or history. Periodic checkpoints are serialized by the host and browser notifications are bounded/coalesced; a failed checkpoint reports degraded persistence, retries within that policy, and becomes faulted when retries are exhausted.
 
 The published server serves the Vite build from its `wwwroot` directory. `GET` REST observations are authoritative after startup and reconnect; the observer-only SignalR endpoint `/hubs/world` sends coalesced `worldChanged` invalidations and is safe to reconnect or fall back from to REST polling. It never accepts gameplay mutations.
 
@@ -78,7 +97,8 @@ The script verifies `dotnet`, `node`, and `npm`, runs `npm ci` and `npm run buil
 - [`docs/windows-service.example.json`](./docs/windows-service.example.json) — production configuration example with portable paths and no machine address.
 - [`docs/design-v0.1.md`](./docs/design-v0.1.md) — product design baseline.
 - [`docs/implementation-plan-v0.1.md`](./docs/implementation-plan-v0.1.md) — implementation plan.
+- [`docs/v0.1-acceptance-report.md`](./docs/v0.1-acceptance-report.md) — candidate-only acceptance artifact and Section 62 matrix.
 
 ## CI test split
 
-Pull requests run the fast backend suite on Ubuntu and Windows, excluding tests tagged `Category=Long`, plus the unchanged Ubuntu frontend checks. The separate `Long tests` workflow runs only when manually dispatched or on its weekly schedule; it runs the `Category=Long` backend suite on both operating systems with a 180-minute job timeout. Neither workflow changes the `m6-rng1-history1` rules or historical M0-M6 contracts.
+Pull requests run the fast backend suite on Ubuntu and Windows, excluding tests tagged `Category=Long`, plus the unchanged Ubuntu frontend checks. The separate `Long tests` workflow runs only when manually dispatched or on its weekly schedule; it runs the `Category=Long` backend suite on both operating systems with a 180-minute job timeout. The manual [`v0.1 acceptance workflow`](./.github/workflows/v01-acceptance.yml) is `workflow_dispatch`-only on Windows, uses locked restore and a Release build, has a 180-minute timeout, runs seed 42 for 100 years with a year-37 SQLite checkpoint, and uploads JSON/Markdown artifacts. M6 historical contracts and locked goldens remain preserved while fresh acceptance worlds use `m8-rng1-balance1`.

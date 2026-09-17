@@ -22,7 +22,7 @@ public sealed class M6HistoryApiTests
         Directory.CreateDirectory(dataRoot);
         try
         {
-            var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+            var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
             engine.AdvanceUntil(new WorldMinute(30L * WorldCalendar.MinutesPerDay));
             await using (var database = await WorldDatabase.OpenAsync(Path.Combine(dataRoot, "integration-world.db")))
                 await database.CreateCheckpointStore().CheckpointAsync(engine.CreatePersistenceSnapshot(), DateTime.UtcNow);

@@ -6,6 +6,8 @@ export type Status = {
   pendingEventCount: number | null
   worldSeed: string | null
   error: string | null
+  paused: boolean
+  operationalSpeed: number | null
   population?: number | null
   totalPopulation?: number | null
   livingPopulation?: number | null
@@ -251,6 +253,8 @@ export function parseStatus(value: unknown): Status {
     pendingEventCount: typeof data.pendingEventCount === 'number' && Number.isFinite(data.pendingEventCount) ? data.pendingEventCount : null,
     worldSeed: typeof data.worldSeed === 'string' ? data.worldSeed : null,
     error: typeof data.error === 'string' ? data.error : null,
+    paused: typeof data.paused === 'boolean' ? data.paused : false,
+    operationalSpeed: typeof data.operationalSpeed === 'number' && Number.isFinite(data.operationalSpeed) && data.operationalSpeed >= 0 ? data.operationalSpeed : null,
   }
   for (const field of ['population', 'totalPopulation', 'livingPopulation', 'deadPopulation'] as const) {
     if (field in data) result[field] = parseOptionalNonNegativeInteger(data[field])
@@ -265,8 +269,25 @@ async function get(path: string): Promise<unknown> {
   try { return JSON.parse(text) as unknown } catch { return text }
 }
 
+async function post(path: string, body?: unknown): Promise<unknown> {
+  const response = await fetch(path, body === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!response.ok) throw new Error(`Request failed (${response.status})`)
+  const text = await response.text()
+  try { return JSON.parse(text) as unknown } catch { return text }
+}
+
 export async function fetchHealth(): Promise<Health> { return parseHealth(await get('/api/v1/health')) }
 export async function fetchStatus(): Promise<Status> { return parseStatus(await get('/api/v1/status')) }
+
+export const SAFE_OPERATIONAL_SPEEDS = [1, 5, 10, 50] as const
+export const MAX_OPERATIONAL_SPEED = 1000
+
+export async function pauseSimulation(): Promise<Status> { return parseStatus(await post('/api/v1/control/pause')) }
+export async function resumeSimulation(): Promise<Status> { return parseStatus(await post('/api/v1/control/resume')) }
+export async function changeSimulationSpeed(speed: number): Promise<Status> {
+  if (!Number.isFinite(speed) || speed <= 0 || speed > MAX_OPERATIONAL_SPEED) throw new Error(`Speed must be finite, positive, and no greater than ${MAX_OPERATIONAL_SPEED}.`)
+  return parseStatus(await post('/api/v1/control/speed', { speed }))
+}
 
 const HISTORICAL_CITIZEN_ROLES = ['subject', 'parent', 'partner', 'founder', 'participant', 'member', 'contributor'] as const
 const HISTORICAL_STRUCTURE_ROLES = ['subject'] as const

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>LittleAges.Headless</AssemblyName>
+    <RootNamespace>LittleAges.Headless</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LittleAges.Domain\LittleAges.Domain.csproj" />
+    <ProjectReference Include="..\LittleAges.Simulation\LittleAges.Simulation.csproj" />
+    <ProjectReference Include="..\LittleAges.Persistence\LittleAges.Persistence.csproj" />
+  </ItemGroup>
+</Project>

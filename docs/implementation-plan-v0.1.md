@@ -1,6 +1,6 @@
 # Little Ages v0.1 — Technical Implementation Plan
 
-**Status:** Implementation baseline  
+**Status:** Implementation baseline plus candidate acceptance evidence
 **Product source of truth:** [`docs/design-v0.1.md`](./design-v0.1.md)  
 **Target release:** Little Ages v0.1 — First Settlement  
 **Primary deployment target:** Always-on Windows PC on a trusted LAN
@@ -65,19 +65,22 @@ LittleAges/
 │   ├── LittleAges.Simulation/
 │   ├── LittleAges.Persistence/
 │   ├── LittleAges.Server/
+│   ├── LittleAges.Headless/
 │   └── LittleAges.Web/
 ├── tests/
 │   ├── LittleAges.Domain.Tests/
 │   ├── LittleAges.Simulation.Tests/
 │   ├── LittleAges.Persistence.Tests/
-│   └── LittleAges.Integration.Tests/
+│   ├── LittleAges.Integration.Tests/
+│   └── LittleAges.Headless.Tests/
 ├── benchmarks/
 │   └── LittleAges.Benchmarks/
 ├── docs/
 │   ├── design-v0.1.md
 │   ├── implementation-plan-v0.1.md
 │   ├── architecture.md             # generated/refined during implementation
-│   └── simulation-model.md         # generated/refined during implementation
+│   ├── simulation-model.md         # generated/refined during implementation
+│   └── v0.1-acceptance-report.md   # candidate-only acceptance evidence
 ├── tools/
 ├── .github/workflows/
 ├── Directory.Build.props
@@ -344,6 +347,11 @@ CreateReadSnapshot()
 
 The same engine path must power normal speed and MAX/headless mode.
 
+MAX is an operational driver mode: it removes wall-clock pacing while retaining
+the normal event queue, RNG derivation, decision flow, and single-writer
+mutation path. The driver must never put elapsed time, speed, pause state, or
+benchmark counters into canonical state.
+
 ---
 
 ## 10. Runtime Concurrency Model
@@ -364,6 +372,13 @@ CreateWorld
 LoadWorld
 RequestCheckpoint
 ```
+
+Pause, Resume, and SetSpeed are operational commands only. HTTP handlers submit
+them to the host's bounded single-reader channel; `Program.cs` never accesses a
+mutable `SimulationEngine`. The published immutable status includes paused
+state and the current bounded positive operational speed. A zero startup rate is
+paused; resume restores a safe positive rate. These controls do not emit
+history, affect fingerprints, or change persistence schema.
 
 REST requests and SignalR clients must not lock and directly inspect mutable simulation collections.
 
@@ -874,9 +889,9 @@ GET    /api/v1/worlds
 POST   /api/v1/worlds/{id}/load
 GET    /api/v1/world
 
-POST   /api/v1/simulation/pause
-POST   /api/v1/simulation/resume
-PUT    /api/v1/simulation/speed
+POST   /api/v1/control/pause
+POST   /api/v1/control/resume
+POST   /api/v1/control/speed
 
 GET    /api/v1/settlement
 GET    /api/v1/citizens
@@ -888,6 +903,10 @@ GET    /api/v1/statistics
 ```
 
 The exact DTOs should be presentation-safe read models rather than EF entities or mutable simulation objects.
+
+The operational control DTOs are deliberately separate from canonical world
+state. They report host state, paused state, and bounded current speed; they do
+not report or accept gameplay mutations.
 
 Implemented M6 read routes are `GET /api/v1/history`, `GET /api/v1/history/{eventId}`, `GET /api/v1/citizens/{id}/biography`, `GET /api/v1/citizens/{id}/memories`, and `GET /api/v1/statistics`. History defaults to `minimumImportance=2`, `limit=50`, newest-first `(WorldMinute, EventId)` and bounds `limit` at 100. It accepts minute range, event type, importance, citizen, family root, structure, and `beforeEventId` cursor filters. Statistics returns bounded samples ascending by minute. Malformed canonical IDs return 400 and unknown IDs return 404. All M6 routes are immutable GET reads from the host's atomically published observation.
 
@@ -1404,7 +1423,7 @@ Add:
 - statistics sampling;
 - UI history/biography surfaces.
 
-Implemented contract: `HistoryVersion=1`, `m6-rng1-history1`, and `HistoricalEventSchemaVersion=1`. Historical events use the stable 15-value event enum, five-level importance, live/backfill origin, canonical structured payloads, separate historical IDs, immutable citizen/structure links, and append-only prefix-validated checkpointing. M6 emits important transitions only (not every movement, meal, gather, decision, or construction shift), generates bounded structured memories, and samples monthly statistics at exact 43,200-minute boundaries through priority-19 `history.statistics-sample.v1`. The direct M5→M6 migration backfills only exact facts and does not invent friendship, rivalry, specialization, founder pre-world births, or pre-M6 aggregates. Read APIs are bounded and immutable; the React observer parses DTOs strictly, keeps IDs as strings, filters/paginates history, and exposes factual biography/memory and statistics surfaces. M6 does not add AI narration, event sourcing, SignalR, reconnect hardening, or scale/tuning work.
+Implemented contract: `HistoryVersion=1`, `m6-rng1-history1`, and `HistoricalEventSchemaVersion=1`. Historical events use the stable 15-value event enum, five-level importance, live/backfill origin, canonical structured payloads, separate historical IDs, immutable citizen/structure links, and append-only prefix-validated checkpointing. M6 emits important transitions only (not every movement, meal, gather, decision, or construction shift), generates bounded structured memories, and samples monthly statistics at exact 43,200-minute boundaries through priority-19 `history.statistics-sample.v1`. The direct M5→M6 migration backfills only exact facts and does not invent friendship, rivalry, specialization, founder pre-world births, or pre-M6 aggregates. Read APIs are bounded and immutable; the React observer parses DTOs strictly, keeps IDs as strings, filters/paginates history, and exposes factual biography/memory and statistics surfaces. These M6 contracts and goldens remain preserved for explicit M6 worlds; fresh M8 worlds use `m8-rng1-balance1` and only version the sampled shortage-recovery boundary.
 
 Gate: important outcomes can be explained from structured facts without reading debug logs.
 
@@ -1423,22 +1442,32 @@ Harden:
 
 Gate: close every browser, reboot/restart the service, and the world remains valid and resumes correctly.
 
-### M8 — 100 Years
+### M8 — 100 Years (candidate evidence)
 
-Add/harden:
+Implemented candidate boundary:
 
-- headless runner;
-- MAX mode;
-- canonical fingerprints;
-- continuous vs. save/reload equivalence at scale;
-- benchmarks/profiling;
-- performance fixes backed by measurements;
-- population balancing;
-- 1/10/100/500-year scenario tooling;
-- fixed 100-year acceptance seed;
-- written acceptance report.
+- `LittleAges.Headless` runs the normal `SimulationEngine` in MAX mode, with
+  stable invariant JSON/Markdown projections for 1/10/100/500-year horizons;
+- `acceptance` compares uninterrupted Run A with a real-SQLite checkpoint,
+  dispose, reopen, load, and continued Run B, including full snapshot/history
+  equivalence and mandatory invariants;
+- `m8-rng1-balance1` is the fresh-world rules value. M6 remains explicitly
+  selectable and its old goldens remain unchanged;
+- M8 shortage recovery starts below 10 food per living citizen and confirms a
+  non-zero-population end at the monthly statistics sample at 20 food per living
+  citizen; zero population ends immediately;
+- bounded 250/500 synthetic-adult one-day fixtures measure advance, read
+  snapshot, and server projection costs without persistence;
+- the manual `.github/workflows/v01-acceptance.yml` workflow uses
+  `workflow_dispatch`, `windows-latest`, locked restore, Release build, seed 42,
+  100 years, year-37 checkpoint, and artifact upload;
+- candidate-only evidence is recorded in
+  [`docs/v0.1-acceptance-report.md`](./v0.1-acceptance-report.md).
 
-Gate: v0.1 release criteria in `design-v0.1.md` pass.
+The acceptance artifact recorded exact Run A/Run B canonical equivalence and
+the Section 62 matrix, but this document does not claim that service install,
+reboot, sleep/resume, or hands-on browser checks have been completed. Gate:
+evaluate those manual notes before calling the candidate released.
 
 ---
 
