@@ -39,7 +39,9 @@ public sealed record ServerStatusSnapshot(
     PersistenceState PersistenceState = PersistenceState.Healthy,
     long? LastSuccessfulCheckpointWorldMinute = null,
     DateTime? LastSuccessfulCheckpointUtc = null,
-    int ConsecutiveCheckpointFailures = 0);
+    int ConsecutiveCheckpointFailures = 0,
+    bool Paused = false,
+    double OperationalSpeed = 0);
 
 public sealed record ServerNeedsSnapshot(int Hunger, int Rest, int Shelter, int Social);
 
@@ -401,9 +403,24 @@ internal sealed record FailSimulationCommand(TaskCompletionSource<bool> Completi
 {
     internal override void SetException(Exception exception) => Completion.TrySetException(exception);
 }
-internal sealed record AdvanceSimulationCommand(long Minutes, TaskCompletionSource<bool>? Completion = null) : SimulationCommand
+internal sealed record AdvanceSimulationCommand(long Minutes, TaskCompletionSource<bool>? Completion = null, bool RespectOperationalState = false) : SimulationCommand
 {
     internal override void SetException(Exception exception) => Completion?.TrySetException(exception);
+}
+
+internal sealed record PauseSimulationCommand(TaskCompletionSource<ServerStatusSnapshot> Completion) : SimulationCommand
+{
+    internal override void SetException(Exception exception) => Completion.TrySetException(exception);
+}
+
+internal sealed record ResumeSimulationCommand(TaskCompletionSource<ServerStatusSnapshot> Completion) : SimulationCommand
+{
+    internal override void SetException(Exception exception) => Completion.TrySetException(exception);
+}
+
+internal sealed record SetOperationalSpeedCommand(double Speed, TaskCompletionSource<ServerStatusSnapshot> Completion) : SimulationCommand
+{
+    internal override void SetException(Exception exception) => Completion.TrySetException(exception);
 }
 
 /// <summary>
@@ -437,22 +454,51 @@ public sealed partial class SimulationHost : BackgroundService
     private long _observationRevision;
     private int _acceptingCommands = 1;
     private int _shutdownRequested;
+    private int _paused;
+    private double _operationalSpeed;
     private readonly TaskCompletionSource<bool> _runningForTesting = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public SimulationHost(ServerOptions options, ILogger<SimulationHost> logger, WorldChangeBroadcaster? broadcaster = null)
     {
-        if (!double.IsFinite(options.SimulationMinutesPerSecond) || options.SimulationMinutesPerSecond < 0) throw new ArgumentOutOfRangeException(nameof(options), "Simulation advancement must be finite and non-negative.");
+        if (!double.IsFinite(options.SimulationMinutesPerSecond) || options.SimulationMinutesPerSecond < 0 || options.SimulationMinutesPerSecond > ServerOptions.MaximumSimulationMinutesPerSecond) throw new ArgumentOutOfRangeException(nameof(options), "Simulation advancement must be finite, non-negative, and no greater than the configured maximum.");
         options.Validate();
         _options = options;
         _logger = logger;
         _broadcaster = broadcaster;
-        var status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null);
+        _operationalSpeed = options.SimulationMinutesPerSecond;
+        _paused = options.SimulationMinutesPerSecond <= 0 ? 1 : 0;
+        var status = new ServerStatusSnapshot(SimulationHostState.Starting, 0, 0, FormatWorldSeed(options.WorldSeed.Value), null, Paused: _paused != 0, OperationalSpeed: _operationalSpeed);
         _observation = new ServerObservationSnapshot(status);
     }
 
     public ServerObservationSnapshot Observation => Volatile.Read(ref _observation);
     public ServerStatusSnapshot Status => Observation.Status;
     public int CommandCapacity => 32;
+
+    public async Task<ServerStatusSnapshot> RequestPauseAsync(CancellationToken cancellationToken = default)
+    {
+        var completion = new TaskCompletionSource<ServerStatusSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var command = new PauseSimulationCommand(completion);
+        await EnqueueCommandAsync(command, cancellationToken);
+        return await completion.Task.WaitAsync(cancellationToken);
+    }
+
+    public async Task<ServerStatusSnapshot> RequestResumeAsync(CancellationToken cancellationToken = default)
+    {
+        var completion = new TaskCompletionSource<ServerStatusSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var command = new ResumeSimulationCommand(completion);
+        await EnqueueCommandAsync(command, cancellationToken);
+        return await completion.Task.WaitAsync(cancellationToken);
+    }
+
+    public async Task<ServerStatusSnapshot> RequestOperationalSpeedAsync(double speed, CancellationToken cancellationToken = default)
+    {
+        ValidateOperationalSpeed(speed);
+        var completion = new TaskCompletionSource<ServerStatusSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var command = new SetOperationalSpeedCommand(speed, completion);
+        await EnqueueCommandAsync(command, cancellationToken);
+        return await completion.Task.WaitAsync(cancellationToken);
+    }
 
     public async Task<CheckpointCommandResult> RequestCheckpointAsync(CancellationToken cancellationToken = default)
     {
@@ -484,6 +530,14 @@ public sealed partial class SimulationHost : BackgroundService
         ArgumentOutOfRangeException.ThrowIfNegative(minutes);
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         await EnqueueCommandAsync(new AdvanceSimulationCommand(minutes, completion), cancellationToken);
+        await completion.Task.WaitAsync(cancellationToken);
+    }
+
+    internal async Task AdvanceOperationalForTestingAsync(long minutes, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(minutes);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await EnqueueCommandAsync(new AdvanceSimulationCommand(minutes, completion, RespectOperationalState: true), cancellationToken);
         await completion.Task.WaitAsync(cancellationToken);
     }
 
@@ -601,10 +655,27 @@ public sealed partial class SimulationHost : BackgroundService
                 {
                     case CheckpointSimulationCommand checkpoint: await ProcessCheckpointAsync(checkpoint, CancellationToken.None); break;
                     case FailSimulationCommand failure: failure.Completion.TrySetException(failure.Failure); throw failure.Failure;
+                    case PauseSimulationCommand pause:
+                        Volatile.Write(ref _paused, 1);
+                        Publish(IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running);
+                        pause.Completion.TrySetResult(Status);
+                        break;
+                    case ResumeSimulationCommand resume:
+                        if (Volatile.Read(ref _operationalSpeed) <= 0) Volatile.Write(ref _operationalSpeed, ServerOptions.DefaultSimulationMinutesPerSecond);
+                        Volatile.Write(ref _paused, 0);
+                        Publish(IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running);
+                        resume.Completion.TrySetResult(Status);
+                        break;
+                    case SetOperationalSpeedCommand speed:
+                        Volatile.Write(ref _operationalSpeed, speed.Speed);
+                        Publish(IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running);
+                        speed.Completion.TrySetResult(Status);
+                        break;
                     case AdvanceSimulationCommand advance:
                         try
                         {
-                            if (advance.Minutes > 0) _engine!.AdvanceUntil(_engine.CurrentMinute.Add(advance.Minutes));
+                            var operationallyEnabled = Volatile.Read(ref _paused) == 0 && Volatile.Read(ref _operationalSpeed) > 0;
+                            if (advance.Minutes > 0 && (!advance.RespectOperationalState || operationallyEnabled)) _engine!.AdvanceUntil(_engine.CurrentMinute.Add(advance.Minutes));
                             Publish(IsShutdownRequested ? SimulationHostState.Stopping : SimulationHostState.Running);
                             if (advance.Minutes > 0) await CheckpointIfDueAsync(CancellationToken.None);
                             advance.Completion?.TrySetResult(true);
@@ -637,12 +708,13 @@ public sealed partial class SimulationHost : BackgroundService
 
     private async Task RunOperationalDriverAsync(CancellationToken stoppingToken)
     {
-        if (_options.SimulationMinutesPerSecond <= 0) return;
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
         var accumulatedMinutes = 0d;
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
-            accumulatedMinutes += _options.SimulationMinutesPerSecond;
+            var speed = Volatile.Read(ref _operationalSpeed);
+            if (Volatile.Read(ref _paused) != 0 || speed <= 0) continue;
+            accumulatedMinutes += speed;
             var minutes = (long)Math.Floor(accumulatedMinutes);
             accumulatedMinutes -= minutes;
             if (minutes > 0)
@@ -809,6 +881,14 @@ public sealed partial class SimulationHost : BackgroundService
 
     private bool IsShutdownRequested => Volatile.Read(ref _shutdownRequested) != 0;
 
+    private static void ValidateOperationalSpeed(double speed)
+    {
+        if (!double.IsFinite(speed) || speed <= 0 || speed > ServerOptions.MaximumSimulationMinutesPerSecond)
+        {
+            throw new ArgumentOutOfRangeException(nameof(speed), $"Operational speed must be finite, positive, and no greater than {ServerOptions.MaximumSimulationMinutesPerSecond.ToString(CultureInfo.InvariantCulture)}.");
+        }
+    }
+
     private void StopAcceptingCommands()
     {
         if (Interlocked.Exchange(ref _acceptingCommands, 0) == 1)
@@ -863,7 +943,9 @@ public sealed partial class SimulationHost : BackgroundService
             _persistenceState,
             _lastSuccessfulCheckpointWorldMinute,
             _lastSuccessfulCheckpointUtc,
-            _consecutiveCheckpointFailures);
+            _consecutiveCheckpointFailures,
+            Paused: Volatile.Read(ref _paused) != 0,
+            OperationalSpeed: Volatile.Read(ref _operationalSpeed));
         var revision = Interlocked.Increment(ref _observationRevision);
         var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision);
         Interlocked.Exchange(ref _observation, observation);

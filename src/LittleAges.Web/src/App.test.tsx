@@ -106,6 +106,36 @@ describe('citizen observer', () => {
     expect(screen.getByText('At (1, 2)')).toBeInTheDocument()
   })
 
+  it('renders operational controls and sends bounded control requests', async () => {
+    let paused = false
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/control/pause')) paused = true
+      if (path.endsWith('/control/resume')) paused = false
+      if (path.endsWith('/control/speed')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', paused, operationalSpeed: 5 }))
+      if (path.endsWith('/control/pause') || path.endsWith('/control/resume')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', paused, operationalSpeed: 10 }))
+      return responseFor(path, 12)
+    })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Set the pace' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Resume' })).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }))
+    fireEvent.change(screen.getByLabelText('Simulation speed'), { target: { value: '5' } })
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, request]) => request?.method === 'POST')).toHaveLength(3))
+    expect(fetchMock.mock.calls.some(([path]) => String(path).endsWith('/control/pause'))).toBe(true)
+    expect(fetchMock.mock.calls.some(([path, request]) => String(path).endsWith('/control/speed') && request?.method === 'POST')).toBe(true)
+  })
+
+  it('shows an operational control error without hiding observer data', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/control/pause') ? new Response('unavailable', { status: 503 }) : responseFor(String(input), 12))
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(await screen.findByText('Request failed (503)')).toBeInTheDocument()
+  })
+
   it('shows an accessible API error', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
     render(<App />)
@@ -263,7 +293,7 @@ describe('citizen observer', () => {
     expect(fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/relationships'))).toHaveLength(1)
     expect(fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/households/3'))).toHaveLength(1)
     expect(fetchMock.mock.calls.every(([, init]) => init === undefined || init.method === undefined || init.method === 'GET')).toBe(true)
-    expect(screen.getByText('No controls. No interruptions.')).toBeInTheDocument()
+    expect(screen.getByText('Controls affect operational pacing only.')).toBeInTheDocument()
   })
 
   it('renders historical events and statistics, opens a biography, and never sends mutation requests', async () => {

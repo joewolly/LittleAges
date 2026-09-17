@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using LittleAges.Domain;
@@ -116,6 +117,42 @@ public sealed class ServerIntegrationTests
             using var missing = await client.GetAsync("/api/v1/citizens/999");
             Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
         });
+    }
+
+    [Fact]
+    public async Task OperationalControlRoutesValidateAndReportImmutableStatus()
+    {
+        var dataRoot = CreateDataRoot();
+        using var factory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+        try
+        {
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            Assert.True(running.RootElement.GetProperty("paused").GetBoolean());
+            using var pause = await client.PostAsync("/api/v1/control/pause", content: null);
+            Assert.Equal(HttpStatusCode.OK, pause.StatusCode);
+            using var paused = JsonDocument.Parse(await pause.Content.ReadAsStringAsync());
+            Assert.True(paused.RootElement.GetProperty("paused").GetBoolean());
+
+            using var invalidSpeed = await client.PostAsync("/api/v1/control/speed", new StringContent("{\"speed\":1001}", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.BadRequest, invalidSpeed.StatusCode);
+            using var speed = await client.PostAsync("/api/v1/control/speed", new StringContent("{\"speed\":5}", Encoding.UTF8, "application/json"));
+            Assert.Equal(HttpStatusCode.OK, speed.StatusCode);
+            using var changed = JsonDocument.Parse(await speed.Content.ReadAsStringAsync());
+            Assert.Equal(5, changed.RootElement.GetProperty("operationalSpeed").GetDouble());
+            Assert.True(changed.RootElement.GetProperty("paused").GetBoolean());
+
+            using var resume = await client.PostAsync("/api/v1/control/resume", content: null);
+            Assert.Equal(HttpStatusCode.OK, resume.StatusCode);
+            using var resumed = JsonDocument.Parse(await resume.Content.ReadAsStringAsync());
+            Assert.False(resumed.RootElement.GetProperty("paused").GetBoolean());
+            Assert.Equal(5, resumed.RootElement.GetProperty("operationalSpeed").GetDouble());
+        }
+        finally
+        {
+            factory.Dispose();
+            CleanupDataRoot(dataRoot);
+        }
     }
 
     [Fact]

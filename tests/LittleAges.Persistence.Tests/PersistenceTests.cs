@@ -546,7 +546,7 @@ public sealed class PersistenceTests
                 Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
                 Assert.Equal(1234, snapshot.WorldMinute.Value);
                 Assert.Equal(SimulationEngine.CurrentWorldSchemaVersion, snapshot.WorldSchemaVersion);
-                Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, snapshot.SimulationRulesVersion);
+                Assert.Equal(SimulationEngine.M6SimulationRulesVersion, snapshot.SimulationRulesVersion);
                 Assert.Equal(SimulationEngine.SocialVersion, snapshot.SocialVersion);
                 Assert.Equal("m0-test", snapshot.ApplicationVersion);
                 Assert.Equal(new DeterministicCountersSnapshot(276, 515, 54), snapshot.Counters);

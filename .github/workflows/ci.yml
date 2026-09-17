@@ -44,6 +44,9 @@ jobs:
       - name: Test Integration
         run: dotnet test tests/LittleAges.Integration.Tests/LittleAges.Integration.Tests.csproj --configuration Release --no-build --no-restore --filter "Category!=Long"
 
+      - name: Test Headless
+        run: dotnet test tests/LittleAges.Headless.Tests/LittleAges.Headless.Tests.csproj --configuration Release --no-build --no-restore --filter "Category!=Long"
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

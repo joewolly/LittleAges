@@ -1,0 +1,42 @@
+name: v0.1 acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup exact .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+
+      - name: Restore locked dependencies
+        run: dotnet restore LittleAges.sln --locked-mode
+
+      - name: Build Release
+        run: dotnet build LittleAges.sln --configuration Release --no-restore
+
+      - name: Run seed 42 acceptance with year 37 checkpoint
+        run: >-
+          dotnet run --project src/LittleAges.Headless/LittleAges.Headless.csproj
+          --configuration Release --no-build -- acceptance
+          --seed 42 --years 100 --rules m8-rng1-balance1
+          --checkpoint-year 37 --database artifacts/acceptance.db
+          --output artifacts
+
+      - name: Upload acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: little-ages-v01-acceptance
+          path: artifacts/
+          if-no-files-found: warn

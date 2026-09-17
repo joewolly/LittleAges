@@ -248,14 +248,17 @@ public sealed partial class SimulationEngine
     }
 
     private void ReevaluateFoodShortage(bool preexisting)
+        => ReevaluateFoodShortageCore(preexisting, sampledRecovery: false);
+
+    private void ReevaluateFoodShortageCore(bool preexisting, bool sampledRecovery)
     {
         if (_historyState is null) return;
         var living = LivingPopulation;
-        // Shortage activation and recovery intentionally use different
-        // thresholds.  Once active, retain the state until food reaches the
-        // recovery threshold so a fluctuating stock level cannot chatter
-        // started/ended events in the same interval.
-        var shouldBeActive = living > 0 && Settlement.FoodStored < checked(living * (_historyState.ActiveFoodShortage ? 20 : 10));
+        var shouldBeActive = !_historyState.ActiveFoodShortage
+            ? living > 0 && Settlement.FoodStored < checked(living * 10)
+            : living > 0 && (SimulationRulesVersion == M6SimulationRulesVersion
+                ? Settlement.FoodStored < checked(living * FoodShortageRecoveryMultiplier(SimulationRulesVersion))
+                : !sampledRecovery || Settlement.FoodStored < checked(living * FoodShortageRecoveryMultiplier(SimulationRulesVersion)));
         if (shouldBeActive == _historyState.ActiveFoodShortage) return;
         var quantity = Settlement.FoodStored;
         var type = shouldBeActive ? HistoricalEventType.ResourceShortageStarted : HistoricalEventType.ResourceShortageEnded;
@@ -275,6 +278,7 @@ public sealed partial class SimulationEngine
             EmitHistory(HistoricalEventType.SeasonStarted, HistoricalImportance.Routine, null, HistoricalEventPayloads.SeasonStarted(date.Season, date.Year));
         }
         _statisticsSamples.Add(new StatisticsSample(CurrentMinute.Value, _historyState.PeriodStartMinute, living.Length, _historyState.BirthsSinceSample, _historyState.DeathsSinceSample, Settlement.FoodStored, _historyState.FoodProducedSinceSample, _historyState.FoodConsumedSinceSample, Settlement.WoodStored, Settlement.StoneStored, ShelterCapacity, checked((int)averageHealth), checked((int)averageHunger)));
+        if (SimulationRulesVersion == CurrentSimulationRulesVersion) ReevaluateFoodShortageAtStatisticsSample();
         _historyState.PeriodStartMinute = CurrentMinute.Value;
         _historyState.BirthsSinceSample = 0;
         _historyState.DeathsSinceSample = 0;
@@ -282,6 +286,8 @@ public sealed partial class SimulationEngine
         _historyState.FoodConsumedSinceSample = 0;
         ScheduleStatisticsSample();
     }
+
+    private void ReevaluateFoodShortageAtStatisticsSample() => ReevaluateFoodShortageCore(preexisting: false, sampledRecovery: true);
 
     private void ScheduleStatisticsSample()
     {

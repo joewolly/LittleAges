@@ -12,6 +12,57 @@ public sealed class M6HistoryPersistenceTests
     private static readonly HistoricalEventType[] InitializationTypes = [HistoricalEventType.WorldCreated, HistoricalEventType.SettlementFounded, HistoricalEventType.SeasonStarted];
 
     [Fact]
+    public async Task M8CheckpointWithMoreThanTwentyCitizensReopensWithoutM2SentinelRejection()
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+            var citizens = Citizens(source);
+            var parents = citizens.Values
+                .Where(citizen => citizen.FounderOrdinal is not null && (0L - citizen.BirthMinute) / WorldCalendar.MinutesPerYear is >= 18 and <= 45)
+                .OrderBy(citizen => citizen.Id.Value)
+                .Take(2)
+                .ToArray();
+            Assert.Equal(2, parents.Length);
+            var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(source));
+            var childId = counters.AllocateCitizenId();
+            var child = new Citizen(childId, (int?)null, "M8Child", parents[0].FamilyName, 0, parents[0].Location, parents[0].Traits, new CitizenSkills(0, 0, 0, 0, 0, 0))
+            {
+                ParentAId = parents[0].Id,
+                ParentBId = parents[1].Id,
+                NeedsUpdatedMinute = source.CurrentMinute.Value,
+                HealthUpdatedMinute = source.CurrentMinute.Value
+            };
+            citizens.Add(child.Id.Value, child);
+            InvokePrivate(source, "ScheduleCitizen", child, CitizenEventNames.Decision, source.CurrentMinute, CitizenEventNames.DecisionPriority);
+            InvokePrivate(source, "ScheduleSurvival", child);
+            var snapshot = source.CreatePersistenceSnapshot();
+            Assert.Equal(21, snapshot.Citizens.Count);
+            var beforeReload = SimulationEngine.FromPersistenceSnapshot(snapshot);
+
+            await using (var database = await WorldDatabase.OpenAsync(path))
+            {
+                await database.CreateCheckpointStore().CheckpointAsync(snapshot, new DateTime(2026, 9, 17, 4, 0, 0, DateTimeKind.Utc));
+            }
+
+            await using var reopened = await WorldDatabase.OpenAsync(path);
+            var loaded = await reopened.CreateCheckpointStore().LoadAsync();
+            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, loaded.SimulationRulesVersion);
+            Assert.Equal(SimulationEngine.CitizenGenerationVersion, loaded.CitizenGenerationVersion);
+            Assert.Equal(SimulationEngine.SurvivalVersion, loaded.SurvivalVersion);
+            Assert.Equal(SimulationEngine.SettlementVersion, loaded.SettlementVersion);
+            Assert.Equal(SimulationEngine.SocialVersion, loaded.SocialVersion);
+            Assert.Equal(SimulationEngine.HistoryVersion, loaded.HistoryVersion);
+            Assert.Equal(snapshot.Citizens.Count, loaded.Citizens.Count);
+            var afterReload = SimulationEngine.FromPersistenceSnapshot(loaded);
+            Assert.Equal(beforeReload.SurvivalFingerprint, afterReload.SurvivalFingerprint);
+            Assert.Equal(beforeReload.SettlementFingerprint, afterReload.SettlementFingerprint);
+            Assert.Equal(beforeReload.SocialFingerprint, afterReload.SocialFingerprint);
+            Assert.Equal(beforeReload.HistoryFingerprint, afterReload.HistoryFingerprint);
+        });
+    }
+
+    [Fact]
     public async Task M6CheckpointAppendsOnlyNewHistoryAndRepeatedCheckpointIsIdempotent()
     {
         await WithDatabaseAsync(async path =>
@@ -103,7 +154,7 @@ public sealed class M6HistoryPersistenceTests
 
             SimulationPersistenceSnapshot upgraded;
             await using (var database = await WorldDatabase.OpenAsync(path)) upgraded = await database.CreateCheckpointStore().LoadAsync();
-            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, upgraded.SimulationRulesVersion);
+            Assert.Equal(SimulationEngine.M6SimulationRulesVersion, upgraded.SimulationRulesVersion);
             Assert.Equal(SimulationEngine.HistoryVersion, upgraded.HistoryVersion);
             Assert.NotNull(upgraded.HistoryState);
             Assert.Equal(987_654, upgraded.HistoryState!.HistoryStartEventId);
@@ -289,7 +340,7 @@ public sealed class M6HistoryPersistenceTests
 
     private static SimulationEngine Advance(WorldSeed seed, long days)
     {
-        var engine = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(checked(days * WorldCalendar.MinutesPerDay)));
         return engine;
     }

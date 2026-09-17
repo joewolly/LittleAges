@@ -37,6 +37,22 @@ foreach (var listenUri in serverOptions.GetListenUris())
 app.MapHealthChecks("/api/v1/health", new HealthCheckOptions());
 app.MapHub<WorldHub>("/hubs/world");
 app.MapGet("/api/v1/status", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Status));
+app.MapPost("/api/v1/control/pause", async (SimulationHost simulationHost, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await simulationHost.RequestPauseAsync(cancellationToken)); }
+    catch (InvalidOperationException) { return Results.StatusCode(StatusCodes.Status503ServiceUnavailable); }
+});
+app.MapPost("/api/v1/control/resume", async (SimulationHost simulationHost, CancellationToken cancellationToken) =>
+{
+    try { return Results.Ok(await simulationHost.RequestResumeAsync(cancellationToken)); }
+    catch (InvalidOperationException) { return Results.StatusCode(StatusCodes.Status503ServiceUnavailable); }
+});
+app.MapPost("/api/v1/control/speed", async (OperationalSpeedRequest request, SimulationHost simulationHost, CancellationToken cancellationToken) =>
+{
+    if (!double.IsFinite(request.Speed) || request.Speed <= 0 || request.Speed > ServerOptions.MaximumSimulationMinutesPerSecond) return Results.BadRequest(new { error = $"speed must be finite, positive, and no greater than {ServerOptions.MaximumSimulationMinutesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture)}." });
+    try { return Results.Ok(await simulationHost.RequestOperationalSpeedAsync(request.Speed, cancellationToken)); }
+    catch (InvalidOperationException) { return Results.StatusCode(StatusCodes.Status503ServiceUnavailable); }
+});
 app.MapGet("/api/v1/world", (SimulationHost simulationHost) =>
 {
     var world = simulationHost.Observation.Status.World;
@@ -222,6 +238,11 @@ static long? ParseNonNegative(string? value) => long.TryParse(value, System.Glob
 
 public partial class Program
 {
+}
+
+namespace LittleAges.Server
+{
+    public sealed record OperationalSpeedRequest(double Speed);
 }
 
 internal static class FamilyClosureRules

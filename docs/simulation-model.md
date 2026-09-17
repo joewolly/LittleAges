@@ -1,6 +1,6 @@
-# Little Ages M0-M7 Simulation Model
+# Little Ages M0-M8 Simulation Model
 
-This is the exact deterministic model implemented by M0 through M6. M1 adds immutable deterministic geography/resource definitions, M2 adds founders and movement, M3 adds the survival loop over mutable resource quantities, stockpile, needs, gathering, health, and mortality, M4 adds deterministic settlement/construction, M5 adds social/family/lifecycle systems, and M6 adds append-only factual history, structured memories, biographies, and monthly statistics. M7 adds operational hosting and delivery around this unchanged deterministic boundary.
+This is the exact deterministic model implemented by M0 through M8 candidate acceptance. M1 adds immutable deterministic geography/resource definitions, M2 adds founders and movement, M3 adds the survival loop over mutable resource quantities, stockpile, needs, gathering, health, and mortality, M4 adds deterministic settlement/construction, M5 adds social/family/lifecycle systems, and M6 adds append-only factual history, structured memories, biographies, and monthly statistics. M7 adds operational hosting and delivery; M8 adds headless/MAX execution, acceptance checkpoint comparison, and the versioned sampled shortage-recovery boundary around this unchanged event engine.
 
 ## World minute and calendar
 
@@ -59,7 +59,8 @@ The current compatibility values are:
 
 ```text
 WorldSchemaVersion:        0.1
-SimulationRulesVersion:    m6-rng1-history1
+SimulationRulesVersion:    m8-rng1-balance1 (fresh worlds)
+M6 compatibility version:   m6-rng1-history1
 M4 rules version:          m4-rng1-settlement1
 M3 rules version:          m3-rng1-survival1
 M2 rules version:          m2-rng1-citizen1
@@ -176,7 +177,7 @@ Canonical Domain/Simulation behavior must not depend on:
 
 Wall-clock UTC is used only for operational checkpoint metadata and server lifecycle logging. The browser's refresh rate, connection state, and Vite proxy do not participate in canonical simulation state.
 
-M5 social/family/aging and M6 historical gameplay are implemented below. M7 operational hosting, deployment, and reconnect behavior are described in the final section; headless/MAX, scale, profiling, tuning, and 100-year validation remain M8.
+M5 social/family/aging and M6 historical gameplay are implemented below. M7 operational hosting, deployment, and reconnect behavior are described in the final section; M8 headless/MAX, scale fixtures, profiling, tuning, and 100-year acceptance are described after it.
 
 ## M1 immutable world model
 
@@ -375,7 +376,7 @@ M3 non-goals are structures/shelters (M4), social/family/aging (M5), history (M6
 
 ## M4 settlement and construction contract
 
-M4 is the settlement compatibility layer: `SimulationRulesVersion = m4-rng1-settlement1` and `SettlementVersion = 1`. M6 is the current deterministic boundary (`m6-rng1-history1`). The retained M3 predecessor is `m3-rng1-survival1`; M2 remains `m2-rng1-citizen1`. World, RNG, and founder generation versions are unchanged. A fresh M4 engine starts with 20 founders, settlement stores `Food=400`, `Wood=0`, `Stone=0`, base storage capacity `800`, and exposure consequences beginning exactly `7 * 1440 = 10080` minutes after its creation minute.
+M4 is the settlement compatibility layer: `SimulationRulesVersion = m4-rng1-settlement1` and `SettlementVersion = 1`. M6 remains the explicit compatibility boundary (`m6-rng1-history1`), while fresh worlds use M8 `m8-rng1-balance1`; both preserve the same gameplay engine outside the versioned shortage-history boundary. The retained M3 predecessor is `m3-rng1-survival1`; M2 remains `m2-rng1-citizen1`. World, RNG, and founder generation versions are unchanged. A fresh M4 engine starts with 20 founders, settlement stores `Food=400`, `Wood=0`, `Stone=0`, base storage capacity `800`, and exposure consequences beginning exactly `7 * 1440 = 10080` minutes after its creation minute.
 
 ### Structures, capacity, and demand
 
@@ -449,7 +450,7 @@ At the M4 boundary, M5 relationships, households, reproduction, aging, and famil
 
 ## M6 history and statistics contract
 
-M6 is the current rules boundary: `SimulationRulesVersion = m6-rng1-history1`, `HistoryVersion = 1`, and `HistoricalEventSchemaVersion = 1`. Explicit predecessor values remain stable and selectable: `M2SimulationRulesVersion = m2-rng1-citizen1`, `M3SimulationRulesVersion = m3-rng1-survival1`, `M4SimulationRulesVersion = m4-rng1-settlement1`, and `M5SimulationRulesVersion = m5-rng1-social1`. M5 behavior is enabled for M5 and M6 snapshots; history behavior is enabled only for M6. Unknown versions reject.
+M6 is the locked compatibility boundary: `SimulationRulesVersion = m6-rng1-history1`, `HistoryVersion = 1`, and `HistoricalEventSchemaVersion = 1`. Fresh M8 worlds use `m8-rng1-balance1` with the same history/schema sentinels. Explicit predecessor values remain stable and selectable: `M2SimulationRulesVersion = m2-rng1-citizen1`, `M3SimulationRulesVersion = m3-rng1-survival1`, `M4SimulationRulesVersion = m4-rng1-settlement1`, and `M5SimulationRulesVersion = m5-rng1-social1`. M5 behavior is enabled for M5, M6, and M8 snapshots; history behavior is enabled for M6 and M8. Unknown versions reject, and there is no silent M6→M8 migration.
 
 ### Historical event vocabulary and schema
 
@@ -476,7 +477,7 @@ Payload builders/parsers are event-specific and schema-controlled. They use inva
 
 Fresh M6 state immediately emits `WorldCreated`, `SettlementFounded`, and `SeasonStarted(Spring/Year 0)` at minute 0. Live births emit `CitizenBorn` with child subject and both parent links, household payload, and birth location; population milestones are emitted after the birth event in threshold order. Every survival/natural death path emits one `CitizenDied` with subject link, exact cause/age payload, and persistent death location. Partnership emits `PartnershipFormed` then `HouseholdCreated` at the same minute, with partner/member links. A social interaction emits one `FriendshipFormed` or `RivalryFormed` only when the ordinary relationship label newly crosses the threshold and no formation event exists for that pair; a pair may legitimately have both over time. Occupation updates compare the derived label before/after work and emit `CitizenSpecializationChanged` only on an actual change.
 
-Demand creation emits `StructureStarted` once with subject structure link and canonical type/cost/work payload. Completion emits `StructureCompleted` with structure subject plus non-zero contributor links in ascending citizen-ID order; individual build shifts have no history. Food shortage history uses hysteresis: start when `FoodStored < living population × 10`, end when `FoodStored >= living population × 20`, and inactive when living population is zero. Emit only transitions, including a single `preexistingAtHistoryStart=true` start at M5→M6 upgrade when already below threshold. `SeasonStarted` uses exact calendar boundaries and shares its minute with the monthly sample.
+Demand creation emits `StructureStarted` once with subject structure link and canonical type/cost/work payload. Completion emits `StructureCompleted` with structure subject plus non-zero contributor links in ascending citizen-ID order; individual build shifts have no history. M6 shortage history uses immediate hysteresis: start when `FoodStored < living population × 10`, end when `FoodStored >= living population × 20`, and inactive when living population is zero. M8 starts at the same threshold, remains active through ordinary food/population reevaluations, and confirms a non-zero-population end only at the 30-day statistics sample when food reaches `living population × 20`; zero population ends immediately. Emit only transitions, including a single `preexistingAtHistoryStart=true` start at M5→M6 upgrade when already below threshold. `SeasonStarted` uses exact calendar boundaries and shares its minute with the monthly sample.
 
 ### Statistics scheduler and state
 
@@ -509,14 +510,43 @@ The direct upgrade requires a complete M5 snapshot with `SimulationRulesVersion=
 
 The host atomically publishes an immutable history observation from the simulation; HTTP never reads the mutable engine or latest SQLite checkpoint directly. `GET /api/v1/history` defaults to `minimumImportance=2`, `limit=50`, and descending `WorldMinute`/event ID ordering. It accepts bounded `fromMinute`, `toMinute`, `eventType`, `minimumImportance`, `citizenId`, `familyCitizenId`, `structureId`, `beforeEventId`, and `limit` (maximum 100). Family closure is root, ancestors, descendants, siblings sharing a parent, and persistent partner. Detail, biography, and memory routes validate canonical positive decimal IDs; malformed IDs are 400 and unknown IDs 404. `GET /api/v1/statistics` accepts bounded minute ranges and limit and returns samples ascending by minute. Every route is read-only.
 
-The React observer uses strict DTO parsers, retains decimal IDs as strings, limits requests to server pagination, and protects state from stale responses/unmounts. It provides a newest-first factual history feed with citizen/family/type/importance/structure/time filters and older-page loading; selected citizen biography facts, notable timeline, and structured memories; and a bounded monthly statistics table plus lightweight population trend. It sends GET requests only. M7 owns persistent-host/reconnect/service hardening; M8 owns scale, performance tuning, long-run profiling, and 100-year acceptance. M6 does not add AI narration, full-text search, replay/event sourcing, user accounts, cloud sync, SignalR, mutation controls, or population retuning.
+The React observer uses strict DTO parsers, retains decimal IDs as strings, limits requests to server pagination, and protects state from stale responses/unmounts. It provides a newest-first factual history feed with citizen/family/type/importance/structure/time filters and older-page loading; selected citizen biography facts, notable timeline, and structured memories; a bounded monthly statistics table plus lightweight population trend; and operational pause/resume/safe-positive-speed controls. Control requests are host commands and never canonical simulation writes. M7 owns persistent-host/reconnect/service hardening; M8 owns headless/MAX, scale, performance tuning, long-run profiling, and 100-year acceptance. M6 does not add AI narration, full-text search, replay/event sourcing, user accounts, cloud sync, SignalR mutation, or population retuning.
 
 ## M7 persistent-host timing and observer contract
 
-M7 changes operational delivery around the unchanged `m6-rng1-history1` simulation boundary. The operational driver defaults to `SimulationMinutesPerSecond=10`; setting it to `0` pauses advancement without changing canonical state. A periodic checkpoint is considered after serialized advancement when both boundaries are met: at least `360` simulation minutes since the last successful checkpoint and at least `30` real seconds since the last checkpoint attempt. Checkpoints are transactional and batched at the host boundary, not emitted per simulation event. `CheckpointRetryCount=3` means three bounded retries after the initial attempt, with `CheckpointRetryDelaySeconds=2` between attempts. The first failed attempt publishes persistence `Degraded`; exhausting the bounded attempts publishes `Faulted` and stops the host under the configured host policy. `BrowserUpdateIntervalMilliseconds=500` controls observer notification cadence.
+M7 changes operational delivery around the unchanged canonical engine boundary. M6 snapshots retain `m6-rng1-history1`; fresh M8 snapshots use `m8-rng1-balance1`. The operational driver defaults to `SimulationMinutesPerSecond=10`; a zero startup speed is paused, and bounded host commands can pause, resume, or change to a finite positive speed without changing canonical state. A periodic checkpoint is considered after serialized advancement when both boundaries are met: at least `360` simulation minutes since the last successful checkpoint and at least `30` real seconds since the last checkpoint attempt. Checkpoints are transactional and batched at the host boundary, not emitted per simulation event. `CheckpointRetryCount=3` means three bounded retries after the initial attempt, with `CheckpointRetryDelaySeconds=2` between attempts. The first failed attempt publishes persistence `Degraded`; exhausting the bounded attempts publishes `Faulted` and stops the host under the configured host policy. `BrowserUpdateIntervalMilliseconds=500` controls observer notification cadence.
 
 Graceful shutdown drains queued commands, performs a final checkpoint, and then disposes the database. A crash, forced termination, or power loss has no final-checkpoint guarantee; SQLite may recover its WAL on the next open, and the host resumes only the last committed valid snapshot. Suspended or stopped wall time never becomes simulation-minute catch-up. Browser disconnects do not affect simulation; after reconnect, REST `GET /api/v1/*` reads are authoritative and the browser can fall back to them if the observer-only SignalR connection is unavailable.
 
 The published ASP.NET Core server serves the Vite build from static `wwwroot` files and uses the published `index.html` for non-API/non-hub client routes. `/hubs/world` is an observer-only SignalR endpoint. It emits only the newest coalesced `worldChanged` invalidation at the configured browser interval; it never carries canonical state ownership or mutation commands. The default listen URL remains loopback-only at `http://127.0.0.1:5274`. A trusted-LAN deployment must explicitly bind, for example, `http://0.0.0.0:5274`, and separately configure a Private-profile firewall rule restricted to the actual private subnet. There is no built-in authentication or TLS, and the server is not designed for public Internet exposure.
 
 The fast pull-request CI path excludes tests tagged `Category=Long` on Ubuntu and Windows while retaining the existing frontend checks. The separate long-test path is manual or weekly only, uses locked restore and a Release no-restore build, runs `Category=Long` on both operating systems, and has a 180-minute job timeout. See [`docs/windows-service.md`](windows-service.md), [`docs/backup-and-recovery.md`](backup-and-recovery.md), and [`docs/sleep-resume-checklist.md`](sleep-resume-checklist.md) for operational procedures.
+
+## M8 headless/MAX and acceptance model
+
+`LittleAges.Headless` calls the same `SimulationEngine.AdvanceUntil` path as
+the host. MAX removes wall-clock pacing only; it does not alter event ordering,
+RNG derivation, decisions, mutation ownership, or history. The CLI validates
+invariant numeric input and supports only 1, 10, 100, and 500-year public
+horizons. `run` and `benchmark` emit stable JSON/Markdown projections with
+operational timing clearly separated from canonical fingerprints.
+
+The `acceptance` command performs two runs for a requested checkpoint: Run A
+continues uninterrupted; Run B writes a real SQLite persistence snapshot at the
+checkpoint, disposes and reopens it, then constructs the existing engine from
+the loaded snapshot and continues. Equivalence compares world minute, counters,
+resources, citizens, settlement/social state, queue, complete history and links,
+statistics, memories, rules/schema sentinels, and both persistence and history
+fingerprints. Invariant failures or mismatches are non-zero outcomes. The
+manual workflow uses `workflow_dispatch` on Windows with locked restore, a
+Release build, a 180-minute timeout, seed 42, M8 rules, a 100-year target, and
+a year-37 checkpoint; its candidate evidence is in
+[`v0.1-acceptance-report.md`](v0.1-acceptance-report.md).
+
+M8 reports exact peak living population from the minute-zero founder baseline
+and ordered retained birth/death facts. It reports decade population trajectory,
+shortage starts and ends by year, deterministic representative evidence, and
+the historical event/statistics/memory totals without adding reporting data to
+canonical state. Bounded 250/500 synthetic-adult scale fixtures measure engine
+advance, read-snapshot, and server projection costs separately; they are
+non-persistent one-day tests and do not represent 100/500-year runs.

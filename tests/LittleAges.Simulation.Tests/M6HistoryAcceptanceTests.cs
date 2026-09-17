@@ -15,7 +15,7 @@ public sealed class M6HistoryAcceptanceTests
     public void FreshM6InitializationHasCanonicalHistoryOrderPayloadsAndIsolatedCounters()
     {
         var m5 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
-        var m6 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var m6 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         var history = m6.CreateHistoryReadSnapshot();
         Assert.NotNull(history);
 
@@ -93,7 +93,7 @@ public sealed class M6HistoryAcceptanceTests
     [Fact]
     public void M6StatisticsUseExactMonthlyCadenceAndResetPeriodCounters()
     {
-        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         var before = engine.CounterSnapshot;
         var control = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(30L * WorldCalendar.MinutesPerDay));
@@ -119,7 +119,7 @@ public sealed class M6HistoryAcceptanceTests
     [Fact]
     public void FreshM6RejectsNonzeroInitialMinuteButM5RetainsCompatibility()
     {
-        Assert.Throws<ArgumentException>(() => new SimulationEngine(new WorldSeed(0), new WorldMinute(1), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion));
+        Assert.Throws<ArgumentException>(() => new SimulationEngine(new WorldSeed(0), new WorldMinute(1), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion));
 
         var m5 = new SimulationEngine(new WorldSeed(0), new WorldMinute(1), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
         Assert.Equal(1, m5.CurrentMinute.Value);
@@ -128,7 +128,7 @@ public sealed class M6HistoryAcceptanceTests
     [Fact]
     public void SameMinuteBirthsEmitMilestoneBetweenIndividualBirthTransitions()
     {
-        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
         var citizens = Citizens(engine);
         for (var index = 0; index < 4; index++)
@@ -154,7 +154,7 @@ public sealed class M6HistoryAcceptanceTests
     [Fact]
     public void PopulationShortageUsesIndividualDeathPopulationBeforeGlobalEventSettles()
     {
-        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
         var citizens = Citizens(engine);
         for (var index = 0; index < 4; index++)
@@ -183,6 +183,54 @@ public sealed class M6HistoryAcceptanceTests
     }
 
     [Fact]
+    public void LiveCitizenBornValidationUsesBirthHouseholdAfterCurrentHouseholdChanges()
+    {
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
+        var counters = Assert.IsType<DeterministicCounters>(typeof(SimulationEngine).GetField("_counters", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var citizens = Citizens(engine);
+        var households = Households(engine);
+        var relationships = Assert.IsType<Dictionary<(long CitizenAId, long CitizenBId), RelationshipState>>(typeof(SimulationEngine).GetField("_relationships", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var parents = citizens.Values.Where(x => x.FounderOrdinal is not null).OrderBy(x => x.Id.Value).Take(2).ToArray();
+        var birthHousehold = new Household(counters.AllocateHouseholdId(), 0);
+        households.Add(birthHousehold.Id.Value, birthHousehold);
+        parents[0].PartnerId = parents[1].Id;
+        parents[1].PartnerId = parents[0].Id;
+        parents[0].HouseholdId = birthHousehold.Id;
+        parents[1].HouseholdId = birthHousehold.Id;
+        var pair = RelationshipState.Normalize(parents[0].Id, parents[1].Id);
+        relationships.Add((pair.A.Value, pair.B.Value), new RelationshipState(pair.A, pair.B, 6000, 6000, 5000, 0, 0, 1));
+        InvokePrivate(engine, "RecordPartnershipHistory", parents[0], parents[1]);
+
+        var child = new Citizen(counters.AllocateCitizenId(), (int?)null, "BirthProof", parents[0].FamilyName, 0, parents[0].Location,
+            new CitizenTraits(0, 0, 0, 0, 0, 0), new CitizenSkills(0, 0, 0, 0, 0, 0))
+        {
+            ParentAId = parents[0].Id,
+            ParentBId = parents[1].Id,
+            HouseholdId = birthHousehold.Id,
+            NeedsUpdatedMinute = 0,
+            HealthUpdatedMinute = 0
+        };
+        citizens.Add(child.Id.Value, child);
+        InvokePrivate(engine, "RecordBirthHistory", child);
+        InvokePrivate(engine, "ScheduleCitizen", child, CitizenEventNames.Decision, new WorldMinute(0), CitizenEventNames.DecisionPriority);
+        InvokePrivate(engine, "ScheduleSurvival", child);
+
+        var birth = Assert.Single(engine.HistoricalEvents, item => item.EventType == HistoricalEventType.CitizenBorn && engine.HistoricalEventCitizens.Any(link => link.HistoricalEventId == item.Id && link.CitizenId == child.Id && link.Role == "subject"));
+        Assert.Equal(HistoricalEventPayloads.CitizenBorn(birthHousehold.Id), birth.PayloadJson);
+
+        var currentHousehold = new Household(counters.AllocateHouseholdId(), 0);
+        households.Add(currentHousehold.Id.Value, currentHousehold);
+        child.HouseholdId = currentHousehold.Id;
+        var historyFingerprint = engine.HistoryFingerprint;
+
+        var restored = SimulationEngine.FromPersistenceSnapshot(engine.CreatePersistenceSnapshot());
+        var restoredBirth = Assert.Single(restored.HistoricalEvents, item => item.Id == birth.Id);
+        Assert.Equal(HistoricalEventPayloads.CitizenBorn(birthHousehold.Id), restoredBirth.PayloadJson);
+        Assert.Equal(historyFingerprint, restored.HistoryFingerprint);
+        Assert.Equal(currentHousehold.Id, restored.Citizens.Single(item => item.Id == child.Id).HouseholdId);
+    }
+
+    [Fact]
     public void ExplicitM5RulesRetainNoHistoryAndTheLockedM5Golden()
     {
         var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M5SimulationRulesVersion);
@@ -198,7 +246,7 @@ public sealed class M6HistoryAcceptanceTests
     public void Seed42TenYearHistoryReportPath()
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(10L * WorldCalendar.MinutesPerYear));
         stopwatch.Stop();
 
@@ -237,7 +285,7 @@ public sealed class M6HistoryAcceptanceTests
 
     private static SimulationEngine Advance(WorldSeed seed, long days)
     {
-        var engine = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(checked(days * WorldCalendar.MinutesPerDay)));
         return engine;
     }

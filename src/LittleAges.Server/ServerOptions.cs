@@ -12,12 +12,14 @@ public sealed record ServerOptions
     public const int DefaultCheckpointRetryCount = 3;
     public const int DefaultCheckpointRetryDelaySeconds = 2;
     public const int DefaultBrowserUpdateIntervalMilliseconds = 500;
+    public const double DefaultSimulationMinutesPerSecond = 10;
+    public const double MaximumSimulationMinutesPerSecond = 1_000;
 
     public required string DataRoot { get; init; }
     public required string ActiveWorld { get; init; }
     public required WorldSeed WorldSeed { get; init; }
     public required string ListenUrls { get; init; }
-    public double SimulationMinutesPerSecond { get; init; } = 10;
+    public double SimulationMinutesPerSecond { get; init; } = DefaultSimulationMinutesPerSecond;
     public int CheckpointSimulationMinutes { get; init; } = DefaultCheckpointSimulationMinutes;
     public int CheckpointMinimumRealSeconds { get; init; } = DefaultCheckpointMinimumRealSeconds;
     public int CheckpointRetryCount { get; init; } = DefaultCheckpointRetryCount;
@@ -48,8 +50,8 @@ public sealed record ServerOptions
         }
 
         var configuredRate = configuration["SimulationMinutesPerSecond"];
-        var rate = 10d;
-        if (configuredRate is not null && (!double.TryParse(configuredRate, NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || !double.IsFinite(rate) || rate < 0)) throw new ArgumentException("SimulationMinutesPerSecond must be a finite non-negative number.", nameof(configuration));
+        var rate = DefaultSimulationMinutesPerSecond;
+        if (configuredRate is not null && (!double.TryParse(configuredRate, NumberStyles.Float, CultureInfo.InvariantCulture, out rate) || !double.IsFinite(rate) || rate < 0 || rate > MaximumSimulationMinutesPerSecond)) throw new ArgumentException($"SimulationMinutesPerSecond must be a finite invariant number between zero and {MaximumSimulationMinutesPerSecond.ToString(CultureInfo.InvariantCulture)}.", nameof(configuration));
         var options = new ServerOptions
         {
             DataRoot = Path.GetFullPath(dataRoot),
@@ -79,7 +81,7 @@ public sealed record ServerOptions
     {
         if (string.IsNullOrWhiteSpace(DataRoot)) throw new ArgumentException("DataRoot is required.", nameof(DataRoot));
         if (string.IsNullOrWhiteSpace(ActiveWorld) || ActiveWorld != Path.GetFileName(ActiveWorld) || ActiveWorld.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("ActiveWorld must be a simple file-safe world name.", nameof(ActiveWorld));
-        if (!double.IsFinite(SimulationMinutesPerSecond) || SimulationMinutesPerSecond < 0) throw new ArgumentOutOfRangeException(nameof(SimulationMinutesPerSecond), "Simulation advancement must be finite and non-negative.");
+        if (!double.IsFinite(SimulationMinutesPerSecond) || SimulationMinutesPerSecond < 0 || SimulationMinutesPerSecond > MaximumSimulationMinutesPerSecond) throw new ArgumentOutOfRangeException(nameof(SimulationMinutesPerSecond), $"Simulation advancement must be finite, non-negative, and no greater than {MaximumSimulationMinutesPerSecond.ToString(CultureInfo.InvariantCulture)}.");
         if (CheckpointSimulationMinutes < 0) throw new ArgumentOutOfRangeException(nameof(CheckpointSimulationMinutes), "CheckpointSimulationMinutes must be non-negative.");
         if (CheckpointMinimumRealSeconds < 0) throw new ArgumentOutOfRangeException(nameof(CheckpointMinimumRealSeconds), "CheckpointMinimumRealSeconds must be non-negative.");
         if (CheckpointRetryCount < 0 || CheckpointRetryCount == int.MaxValue) throw new ArgumentOutOfRangeException(nameof(CheckpointRetryCount), "CheckpointRetryCount must be between zero and Int32.MaxValue - 1 so the total attempt count can be represented safely.");
