@@ -144,6 +144,19 @@ function Test-LanListenUrl {
     return $false
 }
 
+function Resolve-EffectiveLan {
+    param(
+        [Parameter(Mandatory)] [bool] $ExplicitChoice,
+        [Parameter(Mandatory)] [bool] $RequestedLan,
+        [Parameter(Mandatory)] [bool] $ExistingInstall,
+        [Parameter(Mandatory)] [bool] $ExistingLan
+    )
+
+    if ($ExplicitChoice) { return $RequestedLan }
+    if ($ExistingInstall) { return $ExistingLan }
+    return $false
+}
+
 function Invoke-NativeChecked {
     param(
         [Parameter(Mandatory)] [string] $FilePath,
@@ -237,6 +250,47 @@ function Get-ManagedFirewallRules {
     }
 }
 
+function Get-ManagedFirewallState {
+    try {
+        $rules = @(Get-ManagedFirewallRules)
+        if ($rules.Count -eq 0) {
+            return [pscustomobject]@{
+                Exists = $false
+                Rules = @()
+            }
+        }
+
+        $capturedRules = foreach ($rule in $rules) {
+            $portFilter = @(Get-NetFirewallPortFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop | Select-Object -First 1)[0]
+            $addressFilter = @(Get-NetFirewallAddressFilter -AssociatedNetFirewallRule $rule -ErrorAction Stop | Select-Object -First 1)[0]
+            if ($null -eq $portFilter -or $null -eq $addressFilter) {
+                throw "The installer-owned firewall rule '$($rule.Name)' has no readable port/address filters."
+            }
+
+            [pscustomobject]@{
+                Name = [string] $rule.Name
+                DisplayName = [string] $rule.DisplayName
+                Group = [string] $rule.Group
+                Enabled = $rule.Enabled
+                Direction = $rule.Direction
+                Action = $rule.Action
+                Protocol = $portFilter.Protocol
+                LocalPort = $portFilter.LocalPort
+                Profile = $rule.Profile
+                RemoteAddress = $addressFilter.RemoteAddress
+            }
+        }
+
+        return [pscustomobject]@{
+            Exists = $true
+            Rules = @($capturedRules)
+        }
+    }
+    catch {
+        throw "Windows Firewall state could not be captured safely: $($_.Exception.Message)"
+    }
+}
+
 function Remove-ManagedFirewallRules {
     foreach ($rule in @(Get-ManagedFirewallRules)) {
         Remove-NetFirewallRule -Name $rule.Name -ErrorAction Stop
@@ -258,6 +312,32 @@ function Set-ManagedFirewallRule {
     New-NetFirewallRule -Name $script:ManagedFirewallName -DisplayName $displayName -Group $script:ManagedFirewallGroup `
         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $PortNumber `
         -Profile Private -RemoteAddress 'LocalSubnet' -ErrorAction Stop | Out-Null
+}
+
+function Restore-ManagedFirewallState {
+    param([Parameter()] [object] $State)
+
+    Remove-ManagedFirewallRules
+    if ($null -eq $State -or -not $State.Exists) { return }
+
+    foreach ($rule in @($State.Rules)) {
+        $restoreArguments = @{
+            Name = $script:ManagedFirewallName
+            DisplayName = $rule.DisplayName
+            Group = $rule.Group
+            Direction = $rule.Direction
+            Action = $rule.Action
+            Protocol = $rule.Protocol
+            LocalPort = $rule.LocalPort
+            Profile = $rule.Profile
+            RemoteAddress = $rule.RemoteAddress
+            ErrorAction = 'Stop'
+        }
+        if ($null -ne $rule.Enabled) {
+            $restoreArguments['Enabled'] = $rule.Enabled
+        }
+        New-NetFirewallRule @restoreArguments | Out-Null
+    }
 }
 
 function Set-DataDirectoryAcl {
@@ -347,6 +427,9 @@ $oldStartMode = if ($null -ne $existingServiceDetails) { [string] $existingServi
 $oldAccount = if ($null -ne $existingServiceDetails -and -not [string]::IsNullOrWhiteSpace([string] $existingServiceDetails.StartName)) { [string] $existingServiceDetails.StartName } else { 'NT AUTHORITY\LocalService' }
 $oldPort = Get-ListenPort -Configuration $existingConfiguration -Fallback $Port
 $oldLan = Test-LanListenUrl -Configuration $existingConfiguration
+$existingInstall = (Test-Path -LiteralPath $installPath -PathType Container) -or $null -ne $existingService
+$effectiveEnableLan = Resolve-EffectiveLan -ExplicitChoice $PSBoundParameters.ContainsKey('EnableLan') -RequestedLan $EnableLan.IsPresent -ExistingInstall $existingInstall -ExistingLan $oldLan
+$oldFirewallState = Get-ManagedFirewallState
 
 $dataValue = if ($PSBoundParameters.ContainsKey('DataDirectory')) { $dataPath } else { [string] (Get-ConfigProperty -Configuration $existingConfiguration -Name 'DataRoot' -Fallback $dataPath) }
 if ([string]::IsNullOrWhiteSpace($dataValue)) { $dataValue = $dataPath }
@@ -361,7 +444,7 @@ $activeWorldValue = if ($PSBoundParameters.ContainsKey('ActiveWorld')) { $Active
 $seedValue = if ($PSBoundParameters.ContainsKey('WorldSeed')) { $WorldSeed } else { Get-ConfigProperty -Configuration $existingConfiguration -Name 'WorldSeed' -Fallback $WorldSeed }
 $speedValue = if ($PSBoundParameters.ContainsKey('SimulationMinutesPerSecond')) { $SimulationMinutesPerSecond } else { Get-ConfigProperty -Configuration $existingConfiguration -Name 'SimulationMinutesPerSecond' -Fallback $SimulationMinutesPerSecond }
 $selectedPort = if ($PSBoundParameters.ContainsKey('Port')) { $Port } else { $oldPort }
-$listenHost = if ($EnableLan) { '0.0.0.0' } else { '127.0.0.1' }
+$listenHost = if ($effectiveEnableLan) { '0.0.0.0' } else { '127.0.0.1' }
 $listenValue = 'http://{0}:{1}' -f $listenHost, $selectedPort
 
 $checkpointSimulationMinutes = Get-ConfigProperty -Configuration $existingConfiguration -Name 'CheckpointSimulationMinutes' -Fallback 360
@@ -441,7 +524,7 @@ try {
     # This is the only firewall resource owned by the installer. Local mode
     # removes a prior installer rule, while LAN mode replaces it deterministically.
     $firewallTouched = $true
-    Set-ManagedFirewallRule -Enable $EnableLan.IsPresent -PortNumber $selectedPort
+    Set-ManagedFirewallRule -Enable $effectiveEnableLan -PortNumber $selectedPort
 
     $null = Start-AndVerifyService -Name $ServiceName -PortNumber $selectedPort
     $installSucceeded = $true
@@ -462,7 +545,7 @@ catch {
 
     try {
         if ($firewallTouched) {
-            Set-ManagedFirewallRule -Enable $oldLan -PortNumber $oldPort
+            Restore-ManagedFirewallState -State $oldFirewallState
         }
     }
     catch { [void] $rollbackErrors.Add("Could not restore the previous firewall rule: $($_.Exception.Message)") }
@@ -530,7 +613,7 @@ Write-Host ('Application:   {0}' -f $installPath)
 Write-Host ('World data:    {0}' -f $dataValue)
 Write-Host ''
 Write-Host ('Local:         {0}' -f $localUrl)
-if ($EnableLan) {
+if ($effectiveEnableLan) {
     $privateAddress = Get-PrivateIPv4Address
     if ($null -ne $privateAddress) { Write-Host ('LAN:           http://{0}:{1}' -f $privateAddress, $selectedPort) }
     else { Write-Host ('LAN:           enabled on port {0} (private address could not be detected)' -f $selectedPort) }

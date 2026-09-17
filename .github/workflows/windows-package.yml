@@ -33,12 +33,27 @@ jobs:
           cache-dependency-path: src/LittleAges.Web/package-lock.json
 
       - name: Build Windows package
+        id: package
         shell: pwsh
-        run: .\scripts\package-windows.ps1 -Version '${{ inputs.version }}'
+        env:
+          LITTLEAGES_PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          $version = $env:LITTLEAGES_PACKAGE_VERSION
+          .\scripts\package-windows.ps1 -Version $version
+
+          # package-windows.ps1 validates the version before constructing this
+          # known artifact path. Do not derive upload paths from raw workflow
+          # input expressions.
+          $artifactName = 'LittleAges-v{0}-win-x64.zip' -f $version
+          $artifactPath = Join-Path -Path 'artifacts' -ChildPath $artifactName
+          if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+            throw "Expected Windows package was not produced: $artifactPath"
+          }
+          "artifact_path=$artifactPath" >> $env:GITHUB_OUTPUT
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: LittleAges-v${{ inputs.version }}-win-x64
-          path: artifacts/LittleAges-v${{ inputs.version }}-win-x64.zip
+          name: LittleAges-Windows
+          path: ${{ steps.package.outputs.artifact_path }}
           if-no-files-found: error
