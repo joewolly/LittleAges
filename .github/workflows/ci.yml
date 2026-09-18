@@ -32,6 +32,16 @@ jobs:
       - name: Build Release
         run: dotnet build --configuration Release --no-restore
 
+      - name: Test Windows installer (PowerShell 7)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\test-install-windows.ps1
+
+      - name: Test Windows installer (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\test-install-windows.ps1
+
       - name: Test Domain
         run: dotnet test tests/LittleAges.Domain.Tests/LittleAges.Domain.Tests.csproj --configuration Release --no-build --no-restore --filter "Category!=Long"
 

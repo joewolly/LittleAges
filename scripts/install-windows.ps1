@@ -34,6 +34,8 @@ Set-StrictMode -Version 2.0
 $script:ManagedFirewallDisplayPrefix = 'Little Ages (Private TCP '
 $script:ManagedFirewallGroup = 'Little Ages'
 $script:ManagedFirewallName = 'LittleAges-Private-LAN'
+$script:InstallMarkerFileName = 'littleages-install.json'
+$script:InstallMarkerSchemaVersion = 1
 $script:ServiceWaitSeconds = 60
 $script:HealthWaitAttempts = 30
 
@@ -69,6 +71,105 @@ function Assert-SafeDirectoryPath {
     }
 
     return $fullPath.TrimEnd('\', '/')
+}
+
+function New-InstallOwnershipMarker {
+    param(
+        [Parameter(Mandatory)] [string] $InstallPath,
+        [Parameter(Mandatory)] [string] $ServiceName
+    )
+
+    return [ordered]@{
+        ProductIdentifier = 'LittleAges'
+        InstallerSchemaVersion = $script:InstallMarkerSchemaVersion
+        ServiceName = $ServiceName
+        InstallDirectory = $InstallPath
+    }
+}
+
+function Read-InstallOwnershipMarker {
+    param(
+        [Parameter(Mandatory)] [string] $InstallPath,
+        [Parameter(Mandatory)] [string] $MarkerPath
+    )
+
+    try {
+        $raw = Get-Content -LiteralPath $MarkerPath -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { throw 'The marker is empty.' }
+        $marker = $raw | ConvertFrom-Json
+    }
+    catch {
+        throw "The installer ownership marker could not be safely parsed: $MarkerPath. $($_.Exception.Message)"
+    }
+
+    $productProperty = $marker.PSObject.Properties['ProductIdentifier']
+    $schemaProperty = $marker.PSObject.Properties['InstallerSchemaVersion']
+    $serviceProperty = $marker.PSObject.Properties['ServiceName']
+    $installDirectoryProperty = $marker.PSObject.Properties['InstallDirectory']
+    if ($null -eq $productProperty -or [string] $productProperty.Value -ne 'LittleAges') {
+        throw "The installer ownership marker has an unexpected product identifier: $MarkerPath"
+    }
+    if ($null -eq $schemaProperty -or [int] $schemaProperty.Value -ne $script:InstallMarkerSchemaVersion) {
+        throw "The installer ownership marker has an unsupported schema version: $MarkerPath"
+    }
+    if ($null -eq $serviceProperty -or [string]::IsNullOrWhiteSpace([string] $serviceProperty.Value)) {
+        throw "The installer ownership marker has no service name: $MarkerPath"
+    }
+    if ($null -eq $installDirectoryProperty -or [string]::IsNullOrWhiteSpace([string] $installDirectoryProperty.Value)) {
+        throw "The installer ownership marker has no install directory: $MarkerPath"
+    }
+    try {
+        $normalizedMarkerPath = ([System.IO.Path]::GetFullPath([string] $installDirectoryProperty.Value)).TrimEnd('\', '/')
+        $normalizedInstallPath = ([System.IO.Path]::GetFullPath($InstallPath)).TrimEnd('\', '/')
+    }
+    catch {
+        throw "The installer ownership marker has an invalid install directory: $MarkerPath. $($_.Exception.Message)"
+    }
+    if (-not [string]::Equals($normalizedMarkerPath, $normalizedInstallPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The installer ownership marker belongs to a different install directory: $MarkerPath"
+    }
+
+    return $marker
+}
+
+function Get-InstallDirectoryOwnership {
+    param([Parameter(Mandatory)] [string] $InstallPath)
+
+    if (-not (Test-Path -LiteralPath $InstallPath)) {
+        return [pscustomobject]@{ Kind = 'Missing'; Reason = $null; Marker = $null }
+    }
+    if (-not (Test-Path -LiteralPath $InstallPath -PathType Container)) {
+        return [pscustomobject]@{ Kind = 'Invalid'; Reason = "InstallDirectory is not a directory: $InstallPath"; Marker = $null }
+    }
+
+    $markerPath = Join-Path -Path $InstallPath -ChildPath $script:InstallMarkerFileName
+    if (Test-Path -LiteralPath $markerPath) {
+        if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
+            return [pscustomobject]@{ Kind = 'Invalid'; Reason = "The installer ownership marker is not a file: $markerPath"; Marker = $null }
+        }
+        try {
+            $marker = Read-InstallOwnershipMarker -InstallPath $InstallPath -MarkerPath $markerPath
+            return [pscustomobject]@{ Kind = 'Owned'; Reason = $null; Marker = $marker }
+        }
+        catch {
+            return [pscustomobject]@{ Kind = 'Invalid'; Reason = $_.Exception.Message; Marker = $null }
+        }
+    }
+
+    try {
+        $legacyExecutable = Join-Path -Path $InstallPath -ChildPath 'LittleAges.Server.exe'
+        if (Test-Path -LiteralPath $legacyExecutable -PathType Leaf) {
+            return [pscustomobject]@{ Kind = 'Legacy'; Reason = $null; Marker = $null }
+        }
+        $entries = @(Get-ChildItem -LiteralPath $InstallPath -Force -ErrorAction Stop)
+        if ($entries.Count -eq 0) {
+            return [pscustomobject]@{ Kind = 'Empty'; Reason = $null; Marker = $null }
+        }
+        return [pscustomobject]@{ Kind = 'Unrecognized'; Reason = "InstallDirectory exists but is not recognized as a Little Ages installation. No files were changed: $InstallPath"; Marker = $null }
+    }
+    catch {
+        return [pscustomobject]@{ Kind = 'Invalid'; Reason = "InstallDirectory could not be inspected safely: $InstallPath. $($_.Exception.Message)"; Marker = $null }
+    }
 }
 
 function Get-ConfigProperty {
@@ -416,6 +517,13 @@ if ([string]::IsNullOrWhiteSpace($ActiveWorld) -or $ActiveWorld -in @('.', '..')
     throw "ActiveWorld must be a simple file-safe world name: $ActiveWorld"
 }
 
+# Validate the existing application directory before reading its configuration
+# or touching its service. An unrecognized directory is never moved or deleted.
+$installDirectoryOwnership = Get-InstallDirectoryOwnership -InstallPath $installPath
+if ($installDirectoryOwnership.Kind -in @('Invalid', 'Unrecognized')) {
+    throw [string] $installDirectoryOwnership.Reason
+}
+
 $configPath = Join-Path -Path $installPath -ChildPath 'appsettings.json'
 # Package validation happens before reading or changing an existing install.
 $existingConfiguration = Read-ExistingConfiguration -Path $configPath
@@ -503,6 +611,8 @@ try {
         Copy-Item -LiteralPath $item.FullName -Destination $newDeployment -Recurse -Force
     }
     Set-Content -LiteralPath (Join-Path -Path $newDeployment -ChildPath 'appsettings.json') -Value $configurationJson -Encoding UTF8
+    $markerJson = (New-InstallOwnershipMarker -InstallPath $installPath -ServiceName $ServiceName) | ConvertTo-Json -Depth 4
+    Set-Content -LiteralPath (Join-Path -Path $newDeployment -ChildPath $script:InstallMarkerFileName) -Value $markerJson -Encoding UTF8
 
     if (Test-Path -LiteralPath $installPath) {
         if (-not (Test-Path -LiteralPath $installPath -PathType Container)) { throw "InstallDirectory exists but is not a directory: $installPath" }

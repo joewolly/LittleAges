@@ -22,6 +22,8 @@ Set-StrictMode -Version 2.0
 $script:ManagedFirewallDisplayPrefix = 'Little Ages (Private TCP '
 $script:ManagedFirewallGroup = 'Little Ages'
 $script:ManagedFirewallName = 'LittleAges-Private-LAN'
+$script:InstallMarkerFileName = 'littleages-install.json'
+$script:InstallMarkerSchemaVersion = 1
 $script:ServiceWaitSeconds = 60
 
 function Assert-Administrator {
@@ -47,6 +49,91 @@ function Assert-SafeDirectoryPath {
         throw "$Name must be a dedicated directory, not a filesystem root: $fullPath"
     }
     return $fullPath.TrimEnd('\', '/')
+}
+
+function Read-InstallOwnershipMarker {
+    param(
+        [Parameter(Mandatory)] [string] $InstallPath,
+        [Parameter(Mandatory)] [string] $MarkerPath
+    )
+
+    try {
+        $raw = Get-Content -LiteralPath $MarkerPath -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { throw 'The marker is empty.' }
+        $marker = $raw | ConvertFrom-Json
+    }
+    catch {
+        throw "The installer ownership marker could not be safely parsed: $MarkerPath. $($_.Exception.Message)"
+    }
+
+    $productProperty = $marker.PSObject.Properties['ProductIdentifier']
+    $schemaProperty = $marker.PSObject.Properties['InstallerSchemaVersion']
+    $serviceProperty = $marker.PSObject.Properties['ServiceName']
+    $installDirectoryProperty = $marker.PSObject.Properties['InstallDirectory']
+    if ($null -eq $productProperty -or [string] $productProperty.Value -ne 'LittleAges') {
+        throw "The installer ownership marker has an unexpected product identifier: $MarkerPath"
+    }
+    if ($null -eq $schemaProperty -or [int] $schemaProperty.Value -ne $script:InstallMarkerSchemaVersion) {
+        throw "The installer ownership marker has an unsupported schema version: $MarkerPath"
+    }
+    if ($null -eq $serviceProperty -or [string]::IsNullOrWhiteSpace([string] $serviceProperty.Value)) {
+        throw "The installer ownership marker has no service name: $MarkerPath"
+    }
+    if ($null -eq $installDirectoryProperty -or [string]::IsNullOrWhiteSpace([string] $installDirectoryProperty.Value)) {
+        throw "The installer ownership marker has no install directory: $MarkerPath"
+    }
+    try {
+        $normalizedMarkerPath = ([System.IO.Path]::GetFullPath([string] $installDirectoryProperty.Value)).TrimEnd('\', '/')
+        $normalizedInstallPath = ([System.IO.Path]::GetFullPath($InstallPath)).TrimEnd('\', '/')
+    }
+    catch {
+        throw "The installer ownership marker has an invalid install directory: $MarkerPath. $($_.Exception.Message)"
+    }
+    if (-not [string]::Equals($normalizedMarkerPath, $normalizedInstallPath, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The installer ownership marker belongs to a different install directory: $MarkerPath"
+    }
+
+    return $marker
+}
+
+function Get-InstallDirectoryOwnership {
+    param([Parameter(Mandatory)] [string] $InstallPath)
+
+    if (-not (Test-Path -LiteralPath $InstallPath)) {
+        return [pscustomobject]@{ Kind = 'Missing'; Reason = $null; Marker = $null }
+    }
+    if (-not (Test-Path -LiteralPath $InstallPath -PathType Container)) {
+        return [pscustomobject]@{ Kind = 'Invalid'; Reason = "InstallDirectory is not a directory: $InstallPath"; Marker = $null }
+    }
+
+    $markerPath = Join-Path -Path $InstallPath -ChildPath $script:InstallMarkerFileName
+    if (Test-Path -LiteralPath $markerPath) {
+        if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
+            return [pscustomobject]@{ Kind = 'Invalid'; Reason = "The installer ownership marker is not a file: $markerPath"; Marker = $null }
+        }
+        try {
+            $marker = Read-InstallOwnershipMarker -InstallPath $InstallPath -MarkerPath $markerPath
+            return [pscustomobject]@{ Kind = 'Owned'; Reason = $null; Marker = $marker }
+        }
+        catch {
+            return [pscustomobject]@{ Kind = 'Invalid'; Reason = $_.Exception.Message; Marker = $null }
+        }
+    }
+
+    try {
+        $legacyExecutable = Join-Path -Path $InstallPath -ChildPath 'LittleAges.Server.exe'
+        if (Test-Path -LiteralPath $legacyExecutable -PathType Leaf) {
+            return [pscustomobject]@{ Kind = 'Legacy'; Reason = $null; Marker = $null }
+        }
+        $entries = @(Get-ChildItem -LiteralPath $InstallPath -Force -ErrorAction Stop)
+        if ($entries.Count -eq 0) {
+            return [pscustomobject]@{ Kind = 'Empty'; Reason = $null; Marker = $null }
+        }
+        return [pscustomobject]@{ Kind = 'Unrecognized'; Reason = "InstallDirectory exists but is not recognized as a Little Ages installation. No files were changed: $InstallPath"; Marker = $null }
+    }
+    catch {
+        return [pscustomobject]@{ Kind = 'Invalid'; Reason = "InstallDirectory could not be inspected safely: $InstallPath. $($_.Exception.Message)"; Marker = $null }
+    }
 }
 
 function Resolve-InstalledDataDirectory {
@@ -120,6 +207,16 @@ Assert-Administrator
 
 $installPath = Assert-SafeDirectoryPath -Path $InstallDirectory -Name 'InstallDirectory'
 $dataPath = Assert-SafeDirectoryPath -Path $DataDirectory -Name 'DataDirectory'
+# Refuse to delete an existing directory unless this is an owned or clearly
+# recognizable legacy Little Ages deployment. This check precedes configuration
+# parsing, service changes, and all recursive deletion.
+$installDirectoryOwnership = Get-InstallDirectoryOwnership -InstallPath $installPath
+if ($installDirectoryOwnership.Kind -eq 'Empty') {
+    throw "InstallDirectory is empty and is not a recognized Little Ages installation. No files were changed: $installPath"
+}
+if ($installDirectoryOwnership.Kind -in @('Invalid', 'Unrecognized')) {
+    throw [string] $installDirectoryOwnership.Reason
+}
 $configuredDataPath = if ($PSBoundParameters.ContainsKey('DataDirectory')) { $dataPath } else { Resolve-InstalledDataDirectory -DefaultPath $dataPath -ApplicationPath $installPath }
 if ([string]::Equals($installPath, $configuredDataPath, [StringComparison]::OrdinalIgnoreCase) -or
     $configuredDataPath.StartsWith($installPath + '\', [StringComparison]::OrdinalIgnoreCase) -or

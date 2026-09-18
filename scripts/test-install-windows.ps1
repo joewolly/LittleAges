@@ -67,8 +67,10 @@ function Get-FunctionSource {
 }
 
 $installerPath = Join-Path -Path $PSScriptRoot -ChildPath 'install-windows.ps1'
+$uninstallerPath = Join-Path -Path $PSScriptRoot -ChildPath 'uninstall-windows.ps1'
 $workflowPath = Join-Path -Path $PSScriptRoot -ChildPath '..\.github\workflows\windows-package.yml'
 $installerText = Get-Content -LiteralPath $installerPath -Raw
+$uninstallerText = Get-Content -LiteralPath $uninstallerPath -Raw
 $workflowText = Get-Content -LiteralPath $workflowPath -Raw
 
 # Parse the complete installer first, then load only the pure/isolated helper
@@ -80,8 +82,28 @@ $installerParseErrors = $null
 if ($installerParseErrors.Count -gt 0) {
     throw "PowerShell parse failed for ${installerPath}: $($installerParseErrors[0].Message)"
 }
+$uninstallerTokens = $null
+$uninstallerParseErrors = $null
+[void] [System.Management.Automation.Language.Parser]::ParseFile($uninstallerPath, [ref] $uninstallerTokens, [ref] $uninstallerParseErrors)
+if ($uninstallerParseErrors.Count -gt 0) {
+    throw "PowerShell parse failed for ${uninstallerPath}: $($uninstallerParseErrors[0].Message)"
+}
 
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Resolve-EffectiveLan')))
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'New-InstallOwnershipMarker')))
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Read-InstallOwnershipMarker')))
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-InstallDirectoryOwnership')))
+
+$script:InstallMarkerFileName = 'littleages-install.json'
+$script:InstallMarkerSchemaVersion = 1
+
+# Load the uninstaller's own standalone ownership helpers under test-only names
+# so this fixture exercises both release scripts without invoking their main
+# administrator/service/firewall paths.
+$uninstallerReadSource = (Get-FunctionSource -Path $uninstallerPath -Name 'Read-InstallOwnershipMarker').Replace('function Read-InstallOwnershipMarker', 'function Read-UninstallInstallOwnershipMarker')
+$uninstallerOwnershipSource = (Get-FunctionSource -Path $uninstallerPath -Name 'Get-InstallDirectoryOwnership').Replace('function Get-InstallDirectoryOwnership', 'function Get-UninstallInstallDirectoryOwnership').Replace('Read-InstallOwnershipMarker', 'Read-UninstallInstallOwnershipMarker')
+. ([scriptblock]::Create($uninstallerReadSource))
+. ([scriptblock]::Create($uninstallerOwnershipSource))
 
 $lanCases = @(
     [pscustomobject]@{ Name = 'fresh + omitted'; ExplicitChoice = $false; RequestedLan = $false; ExistingInstall = $false; ExistingLan = $false; Expected = $false }
@@ -98,6 +120,90 @@ foreach ($case in $lanCases) {
 }
 Assert-Contains -Text $installerText -Expected "`$PSBoundParameters.ContainsKey('EnableLan')" -Message 'LAN tri-state checks parameter binding'
 Assert-Contains -Text $installerText -Expected '$effectiveEnableLan' -Message 'LAN effective state is used'
+
+# Ownership checks use only an isolated temporary directory. No Program Files,
+# service, firewall, or world-data path is touched by this fixture.
+$ownershipTestRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ('LittleAges-ownership-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $ownershipTestRoot -Force | Out-Null
+try {
+    $missingPath = Join-Path -Path $ownershipTestRoot -ChildPath 'missing'
+    Assert-Equal -Expected 'Missing' -Actual (Get-InstallDirectoryOwnership -InstallPath $missingPath).Kind -Message 'Nonexistent install path is allowed'
+
+    $emptyPath = Join-Path -Path $ownershipTestRoot -ChildPath 'empty'
+    New-Item -ItemType Directory -Path $emptyPath -Force | Out-Null
+    Assert-Equal -Expected 'Empty' -Actual (Get-InstallDirectoryOwnership -InstallPath $emptyPath).Kind -Message 'Empty install directory is allowed'
+
+    $ownedPath = Join-Path -Path $ownershipTestRoot -ChildPath 'owned'
+    New-Item -ItemType Directory -Path $ownedPath -Force | Out-Null
+    $ownedMarker = New-InstallOwnershipMarker -InstallPath $ownedPath -ServiceName 'Little Ages' | ConvertTo-Json -Depth 4
+    Set-Content -LiteralPath (Join-Path -Path $ownedPath -ChildPath $script:InstallMarkerFileName) -Value $ownedMarker -Encoding UTF8
+    Assert-Equal -Expected 'Owned' -Actual (Get-InstallDirectoryOwnership -InstallPath $ownedPath).Kind -Message 'Installer-owned directory is allowed'
+    Assert-Equal -Expected 'Owned' -Actual (Get-UninstallInstallDirectoryOwnership -InstallPath $ownedPath).Kind -Message 'Uninstaller accepts installer-owned directory'
+
+    $legacyPath = Join-Path -Path $ownershipTestRoot -ChildPath 'legacy'
+    New-Item -ItemType Directory -Path $legacyPath -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path -Path $legacyPath -ChildPath 'LittleAges.Server.exe') -Value 'legacy placeholder' -Encoding UTF8
+    Assert-Equal -Expected 'Legacy' -Actual (Get-InstallDirectoryOwnership -InstallPath $legacyPath).Kind -Message 'Recognized legacy directory is adoptable'
+
+    $unrelatedPath = Join-Path -Path $ownershipTestRoot -ChildPath 'unrelated'
+    New-Item -ItemType Directory -Path $unrelatedPath -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path -Path $unrelatedPath -ChildPath 'notes.txt') -Value 'unrelated' -Encoding UTF8
+    Assert-Equal -Expected 'Unrecognized' -Actual (Get-InstallDirectoryOwnership -InstallPath $unrelatedPath).Kind -Message 'Unrelated non-empty directory is rejected'
+    Assert-Equal -Expected 'Unrecognized' -Actual (Get-UninstallInstallDirectoryOwnership -InstallPath $unrelatedPath).Kind -Message 'Uninstaller refuses unrelated directory'
+
+    $programFilesStylePath = Join-Path -Path $ownershipTestRoot -ChildPath 'Program Files'
+    New-Item -ItemType Directory -Path $programFilesStylePath -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path -Path $programFilesStylePath -ChildPath 'other-app.txt') -Value 'unrelated' -Encoding UTF8
+    Assert-Equal -Expected 'Unrecognized' -Actual (Get-InstallDirectoryOwnership -InstallPath $programFilesStylePath).Kind -Message 'Populated Program Files-style directory is rejected'
+
+    $malformedPath = Join-Path -Path $ownershipTestRoot -ChildPath 'malformed'
+    New-Item -ItemType Directory -Path $malformedPath -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path -Path $malformedPath -ChildPath $script:InstallMarkerFileName) -Value '{not-json' -Encoding UTF8
+    Assert-Equal -Expected 'Invalid' -Actual (Get-InstallDirectoryOwnership -InstallPath $malformedPath).Kind -Message 'Malformed ownership marker is rejected'
+
+    $wrongProductPath = Join-Path -Path $ownershipTestRoot -ChildPath 'wrong-product'
+    New-Item -ItemType Directory -Path $wrongProductPath -Force | Out-Null
+    $wrongProductMarker = [ordered]@{
+        ProductIdentifier = 'OtherProduct'
+        InstallerSchemaVersion = 1
+        ServiceName = 'Little Ages'
+        InstallDirectory = $wrongProductPath
+    } | ConvertTo-Json -Depth 4
+    Set-Content -LiteralPath (Join-Path -Path $wrongProductPath -ChildPath $script:InstallMarkerFileName) -Value $wrongProductMarker -Encoding UTF8
+    Assert-Equal -Expected 'Invalid' -Actual (Get-InstallDirectoryOwnership -InstallPath $wrongProductPath).Kind -Message 'Wrong-product ownership marker is rejected'
+
+    $mismatchedPath = Join-Path -Path $ownershipTestRoot -ChildPath 'mismatched-path'
+    New-Item -ItemType Directory -Path $mismatchedPath -Force | Out-Null
+    $mismatchedMarker = New-InstallOwnershipMarker -InstallPath (Join-Path -Path $ownershipTestRoot -ChildPath 'some-other-install') -ServiceName 'Little Ages' | ConvertTo-Json -Depth 4
+    Set-Content -LiteralPath (Join-Path -Path $mismatchedPath -ChildPath $script:InstallMarkerFileName) -Value $mismatchedMarker -Encoding UTF8
+    Assert-Equal -Expected 'Invalid' -Actual (Get-InstallDirectoryOwnership -InstallPath $mismatchedPath).Kind -Message 'Mismatched-path ownership marker is rejected'
+    Assert-Equal -Expected 'Invalid' -Actual (Get-UninstallInstallDirectoryOwnership -InstallPath $mismatchedPath).Kind -Message 'Uninstaller rejects mismatched-path ownership marker'
+}
+finally {
+    if (Test-Path -LiteralPath $ownershipTestRoot) {
+        Remove-Item -LiteralPath $ownershipTestRoot -Recurse -Force
+    }
+}
+
+$ownershipCheckIndex = $installerText.IndexOf('$installDirectoryOwnership', [StringComparison]::Ordinal)
+$serviceLookupIndex = $installerText.IndexOf('$existingService = Get-Service', [StringComparison]::Ordinal)
+if ($ownershipCheckIndex -lt 0 -or $serviceLookupIndex -lt 0 -or $ownershipCheckIndex -ge $serviceLookupIndex) {
+    throw 'Installer ownership validation must precede service inspection.'
+}
+$uninstallerOwnershipCheckIndex = $uninstallerText.IndexOf('$installDirectoryOwnership', [StringComparison]::Ordinal)
+$uninstallerConfigIndex = $uninstallerText.IndexOf('$configuredDataPath =', [StringComparison]::Ordinal)
+$uninstallerDeleteIndex = $uninstallerText.IndexOf('Remove-Item -LiteralPath $installPath -Recurse -Force', [StringComparison]::Ordinal)
+if ($uninstallerOwnershipCheckIndex -lt 0 -or $uninstallerConfigIndex -lt 0 -or $uninstallerDeleteIndex -lt 0 -or
+    $uninstallerOwnershipCheckIndex -ge $uninstallerConfigIndex -or $uninstallerOwnershipCheckIndex -ge $uninstallerDeleteIndex) {
+    throw 'Uninstaller ownership validation must precede configuration inference and application deletion.'
+}
+Assert-Contains -Text $uninstallerText -Expected 'Get-InstallDirectoryOwnership -InstallPath $installPath' -Message 'Uninstaller checks app ownership before deletion'
+Assert-Contains -Text $uninstallerText -Expected 'InstallDirectory exists but is not recognized as a Little Ages installation' -Message 'Uninstaller refuses unrelated directories'
+Assert-Contains -Text $uninstallerText -Expected "Kind = 'Owned'" -Message 'Uninstaller recognizes installer-owned directories'
+Assert-Contains -Text $uninstallerText -Expected "Kind = 'Legacy'" -Message 'Uninstaller recognizes legacy Little Ages directories'
+Assert-Contains -Text $uninstallerText -Expected "Remove-Item -LiteralPath `$installPath -Recurse -Force" -Message 'Uninstaller recursively deletes only after ownership guard'
+Assert-Contains -Text $uninstallerText -Expected '-DeleteWorldData and -ConfirmWorldDeletion' -Message 'World deletion remains explicitly guarded'
+Assert-Contains -Text $uninstallerText -Expected 'Resolve-InstalledDataDirectory' -Message 'Uninstaller keeps installed data-root handling explicit'
 
 # Capture and restore state with mocked cmdlets. The real Windows firewall is
 # never queried or modified by this test.
