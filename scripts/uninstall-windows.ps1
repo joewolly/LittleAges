@@ -7,9 +7,6 @@ param(
     [string] $DataDirectory = (Join-Path -Path $(if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }) -ChildPath 'LittleAges\worlds'),
 
     [Parameter()]
-    [string] $ServiceName = 'Little Ages',
-
-    [Parameter()]
     [switch] $DeleteWorldData,
 
     [Parameter()]
@@ -24,6 +21,7 @@ $script:ManagedFirewallGroup = 'Little Ages'
 $script:ManagedFirewallName = 'LittleAges-Private-LAN'
 $script:InstallMarkerFileName = 'littleages-install.json'
 $script:InstallMarkerSchemaVersion = 1
+$script:ServiceName = 'Little Ages'
 $script:ServiceWaitSeconds = 60
 
 function Assert-Administrator {
@@ -76,8 +74,8 @@ function Read-InstallOwnershipMarker {
     if ($null -eq $schemaProperty -or [int] $schemaProperty.Value -ne $script:InstallMarkerSchemaVersion) {
         throw "The installer ownership marker has an unsupported schema version: $MarkerPath"
     }
-    if ($null -eq $serviceProperty -or [string]::IsNullOrWhiteSpace([string] $serviceProperty.Value)) {
-        throw "The installer ownership marker has no service name: $MarkerPath"
+    if ($null -eq $serviceProperty -or -not [string]::Equals([string] $serviceProperty.Value, $script:ServiceName, [StringComparison]::Ordinal)) {
+        throw "The installer ownership marker has an unexpected service name: $MarkerPath"
     }
     if ($null -eq $installDirectoryProperty -or [string]::IsNullOrWhiteSpace([string] $installDirectoryProperty.Value)) {
         throw "The installer ownership marker has no install directory: $MarkerPath"
@@ -162,33 +160,30 @@ function Resolve-InstalledDataDirectory {
 
 function Wait-ServiceState {
     param(
-        [Parameter(Mandatory)] [string] $Name,
         [Parameter(Mandatory)] [System.ServiceProcess.ServiceControllerStatus] $Desired,
         [Parameter(Mandatory)] [int] $TimeoutSeconds
     )
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
-        $service = Get-Service -Name $Name -ErrorAction Stop
+        $service = Get-Service -Name $script:ServiceName -ErrorAction Stop
         if ($service.Status -eq $Desired) { return $service }
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw "Service '$Name' did not reach $Desired within $TimeoutSeconds seconds."
+    throw "Service '$($script:ServiceName)' did not reach $Desired within $TimeoutSeconds seconds."
 }
 
 function Stop-ServiceBounded {
-    param([Parameter(Mandatory)] [string] $Name)
-    $service = Get-Service -Name $Name -ErrorAction Stop
+    $service = Get-Service -Name $script:ServiceName -ErrorAction Stop
     if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
-    Stop-Service -Name $Name -ErrorAction Stop
-    Wait-ServiceState -Name $Name -Desired ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
+    Stop-Service -Name $script:ServiceName -ErrorAction Stop
+    Wait-ServiceState -Desired ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
 }
 
 function Remove-ServiceRegistration {
-    param([Parameter(Mandatory)] [string] $Name)
     $sc = Join-Path -Path $env:SystemRoot -ChildPath 'System32\sc.exe'
     if (-not (Test-Path -LiteralPath $sc -PathType Leaf)) { throw "Service control executable was not found: $sc" }
-    & $sc 'delete' $Name | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Removing Windows Service '$Name' failed with exit code $LASTEXITCODE." }
+    & $sc 'delete' $script:ServiceName | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Removing Windows Service '$($script:ServiceName)' failed with exit code $LASTEXITCODE." }
 }
 
 function Remove-ManagedFirewallRules {
@@ -227,14 +222,14 @@ if ($DeleteWorldData -and -not $ConfirmWorldDeletion) {
     throw 'World data deletion is deliberately disabled unless both -DeleteWorldData and -ConfirmWorldDeletion are supplied.'
 }
 
-$service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+$service = Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $service) {
-    Stop-ServiceBounded -Name $ServiceName
-    Remove-ServiceRegistration -Name $ServiceName
-    Write-Host "Removed Windows Service: $ServiceName"
+    Stop-ServiceBounded
+    Remove-ServiceRegistration
+    Write-Host "Removed Windows Service: $($script:ServiceName)"
 }
 else {
-    Write-Host "Windows Service not registered: $ServiceName"
+    Write-Host "Windows Service not registered: $($script:ServiceName)"
 }
 
 # Only the deterministic installer-owned rule name/group is managed.

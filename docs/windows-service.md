@@ -85,7 +85,6 @@ Useful supported installer parameters are:
 -Port <1..65535>
 -InstallDirectory <path>
 -DataDirectory <path>
--ServiceName <name>
 -ActiveWorld <name>
 -WorldSeed <integer>
 -SimulationMinutesPerSecond <0..1000>

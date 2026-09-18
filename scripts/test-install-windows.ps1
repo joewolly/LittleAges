@@ -78,13 +78,13 @@ $workflowText = Get-Content -LiteralPath $workflowPath -Raw
 # firewall operations.
 $installerTokens = $null
 $installerParseErrors = $null
-[void] [System.Management.Automation.Language.Parser]::ParseFile($installerPath, [ref] $installerTokens, [ref] $installerParseErrors)
+$installerAst = [System.Management.Automation.Language.Parser]::ParseFile($installerPath, [ref] $installerTokens, [ref] $installerParseErrors)
 if ($installerParseErrors.Count -gt 0) {
     throw "PowerShell parse failed for ${installerPath}: $($installerParseErrors[0].Message)"
 }
 $uninstallerTokens = $null
 $uninstallerParseErrors = $null
-[void] [System.Management.Automation.Language.Parser]::ParseFile($uninstallerPath, [ref] $uninstallerTokens, [ref] $uninstallerParseErrors)
+$uninstallerAst = [System.Management.Automation.Language.Parser]::ParseFile($uninstallerPath, [ref] $uninstallerTokens, [ref] $uninstallerParseErrors)
 if ($uninstallerParseErrors.Count -gt 0) {
     throw "PowerShell parse failed for ${uninstallerPath}: $($uninstallerParseErrors[0].Message)"
 }
@@ -96,6 +96,17 @@ if ($uninstallerParseErrors.Count -gt 0) {
 
 $script:InstallMarkerFileName = 'littleages-install.json'
 $script:InstallMarkerSchemaVersion = 1
+$script:ServiceName = 'Little Ages'
+
+$installerParameters = @($installerAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+$uninstallerParameters = @($uninstallerAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+if ($installerParameters -contains 'ServiceName') { throw 'Install script must not expose a ServiceName parameter.' }
+if ($uninstallerParameters -contains 'ServiceName') { throw 'Uninstall script must not expose a ServiceName parameter.' }
+if ($installerText -match '\$ServiceName\b' -or $uninstallerText -match '\$ServiceName\b') {
+    throw 'Deployment scripts must not use a caller-controlled ServiceName variable.'
+}
+Assert-Contains -Text $installerText -Expected "`$script:ServiceName = 'Little Ages'" -Message 'Installer fixes the owned service name'
+Assert-Contains -Text $uninstallerText -Expected "`$script:ServiceName = 'Little Ages'" -Message 'Uninstaller fixes the owned service name'
 
 # Load the uninstaller's own standalone ownership helpers under test-only names
 # so this fixture exercises both release scripts without invoking their main
@@ -135,10 +146,22 @@ try {
 
     $ownedPath = Join-Path -Path $ownershipTestRoot -ChildPath 'owned'
     New-Item -ItemType Directory -Path $ownedPath -Force | Out-Null
-    $ownedMarker = New-InstallOwnershipMarker -InstallPath $ownedPath -ServiceName 'Little Ages' | ConvertTo-Json -Depth 4
+    $ownedMarker = New-InstallOwnershipMarker -InstallPath $ownedPath | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path -Path $ownedPath -ChildPath $script:InstallMarkerFileName) -Value $ownedMarker -Encoding UTF8
     Assert-Equal -Expected 'Owned' -Actual (Get-InstallDirectoryOwnership -InstallPath $ownedPath).Kind -Message 'Installer-owned directory is allowed'
     Assert-Equal -Expected 'Owned' -Actual (Get-UninstallInstallDirectoryOwnership -InstallPath $ownedPath).Kind -Message 'Uninstaller accepts installer-owned directory'
+
+    $wrongServicePath = Join-Path -Path $ownershipTestRoot -ChildPath 'wrong-service'
+    New-Item -ItemType Directory -Path $wrongServicePath -Force | Out-Null
+    $wrongServiceMarker = [ordered]@{
+        ProductIdentifier = 'LittleAges'
+        InstallerSchemaVersion = 1
+        ServiceName = 'Spooler'
+        InstallDirectory = $wrongServicePath
+    } | ConvertTo-Json -Depth 4
+    Set-Content -LiteralPath (Join-Path -Path $wrongServicePath -ChildPath $script:InstallMarkerFileName) -Value $wrongServiceMarker -Encoding UTF8
+    Assert-Equal -Expected 'Invalid' -Actual (Get-InstallDirectoryOwnership -InstallPath $wrongServicePath).Kind -Message 'Installer rejects marker for another service'
+    Assert-Equal -Expected 'Invalid' -Actual (Get-UninstallInstallDirectoryOwnership -InstallPath $wrongServicePath).Kind -Message 'Uninstaller rejects marker for another service'
 
     $legacyPath = Join-Path -Path $ownershipTestRoot -ChildPath 'legacy'
     New-Item -ItemType Directory -Path $legacyPath -Force | Out-Null
@@ -174,7 +197,7 @@ try {
 
     $mismatchedPath = Join-Path -Path $ownershipTestRoot -ChildPath 'mismatched-path'
     New-Item -ItemType Directory -Path $mismatchedPath -Force | Out-Null
-    $mismatchedMarker = New-InstallOwnershipMarker -InstallPath (Join-Path -Path $ownershipTestRoot -ChildPath 'some-other-install') -ServiceName 'Little Ages' | ConvertTo-Json -Depth 4
+    $mismatchedMarker = New-InstallOwnershipMarker -InstallPath (Join-Path -Path $ownershipTestRoot -ChildPath 'some-other-install') | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path -Path $mismatchedPath -ChildPath $script:InstallMarkerFileName) -Value $mismatchedMarker -Encoding UTF8
     Assert-Equal -Expected 'Invalid' -Actual (Get-InstallDirectoryOwnership -InstallPath $mismatchedPath).Kind -Message 'Mismatched-path ownership marker is rejected'
     Assert-Equal -Expected 'Invalid' -Actual (Get-UninstallInstallDirectoryOwnership -InstallPath $mismatchedPath).Kind -Message 'Uninstaller rejects mismatched-path ownership marker'
@@ -289,7 +312,8 @@ function Invoke-NativeChecked {
 }
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Set-ServiceRegistration')))
 $spaceExecutable = 'C:\Program Files\LittleAges\LittleAges.Server.exe'
-Set-ServiceRegistration -Name 'Little Ages' -ExecutablePath $spaceExecutable -SetAccount
+Set-ServiceRegistration -ExecutablePath $spaceExecutable -SetAccount
+Assert-Equal -Expected 'Little Ages' -Actual $script:NativeInvocation.Arguments[1] -Message 'Service registration targets fixed installer-owned identity'
 Assert-Equal -Expected ('"{0}"' -f $spaceExecutable) -Actual $script:NativeInvocation.Arguments[3] -Message 'Service path with spaces remains quoted'
 
 # Keep workflow input interpolation out of executable PowerShell and artifact

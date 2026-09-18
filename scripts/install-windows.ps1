@@ -14,9 +14,6 @@ param(
     [string] $DataDirectory = (Join-Path -Path $(if ($env:ProgramData) { $env:ProgramData } else { 'C:\ProgramData' }) -ChildPath 'LittleAges\worlds'),
 
     [Parameter()]
-    [string] $ServiceName = 'Little Ages',
-
-    [Parameter()]
     [string] $ActiveWorld = 'default-world',
 
     [Parameter()]
@@ -36,6 +33,7 @@ $script:ManagedFirewallGroup = 'Little Ages'
 $script:ManagedFirewallName = 'LittleAges-Private-LAN'
 $script:InstallMarkerFileName = 'littleages-install.json'
 $script:InstallMarkerSchemaVersion = 1
+$script:ServiceName = 'Little Ages'
 $script:ServiceWaitSeconds = 60
 $script:HealthWaitAttempts = 30
 
@@ -74,15 +72,12 @@ function Assert-SafeDirectoryPath {
 }
 
 function New-InstallOwnershipMarker {
-    param(
-        [Parameter(Mandatory)] [string] $InstallPath,
-        [Parameter(Mandatory)] [string] $ServiceName
-    )
+    param([Parameter(Mandatory)] [string] $InstallPath)
 
     return [ordered]@{
         ProductIdentifier = 'LittleAges'
         InstallerSchemaVersion = $script:InstallMarkerSchemaVersion
-        ServiceName = $ServiceName
+        ServiceName = $script:ServiceName
         InstallDirectory = $InstallPath
     }
 }
@@ -112,8 +107,8 @@ function Read-InstallOwnershipMarker {
     if ($null -eq $schemaProperty -or [int] $schemaProperty.Value -ne $script:InstallMarkerSchemaVersion) {
         throw "The installer ownership marker has an unsupported schema version: $MarkerPath"
     }
-    if ($null -eq $serviceProperty -or [string]::IsNullOrWhiteSpace([string] $serviceProperty.Value)) {
-        throw "The installer ownership marker has no service name: $MarkerPath"
+    if ($null -eq $serviceProperty -or -not [string]::Equals([string] $serviceProperty.Value, $script:ServiceName, [StringComparison]::Ordinal)) {
+        throw "The installer ownership marker has an unexpected service name: $MarkerPath"
     }
     if ($null -eq $installDirectoryProperty -or [string]::IsNullOrWhiteSpace([string] $installDirectoryProperty.Value)) {
         throw "The installer ownership marker has no install directory: $MarkerPath"
@@ -272,16 +267,14 @@ function Invoke-NativeChecked {
 }
 
 function Get-ServiceDetails {
-    param([Parameter(Mandatory)] [string] $Name)
-
     try {
-        return @(Get-CimInstance -ClassName Win32_Service -ErrorAction Stop | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)[0]
+        return @(Get-CimInstance -ClassName Win32_Service -ErrorAction Stop | Where-Object { $_.Name -eq $script:ServiceName } | Select-Object -First 1)[0]
     }
     catch {
         # Windows PowerShell 5.1 has Get-WmiObject even when the newer CIM
         # cmdlets are unavailable. This is read-only rollback metadata.
         try {
-            return @(Get-WmiObject -Class Win32_Service -ErrorAction Stop | Where-Object { $_.Name -eq $Name } | Select-Object -First 1)[0]
+            return @(Get-WmiObject -Class Win32_Service -ErrorAction Stop | Where-Object { $_.Name -eq $script:ServiceName } | Select-Object -First 1)[0]
         }
         catch {
             return $null
@@ -291,34 +284,30 @@ function Get-ServiceDetails {
 
 function Wait-ServiceState {
     param(
-        [Parameter(Mandatory)] [string] $Name,
         [Parameter(Mandatory)] [System.ServiceProcess.ServiceControllerStatus] $Desired,
         [Parameter(Mandatory)] [int] $TimeoutSeconds
     )
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
-        $service = Get-Service -Name $Name -ErrorAction Stop
+        $service = Get-Service -Name $script:ServiceName -ErrorAction Stop
         if ($service.Status -eq $Desired) { return $service }
         Start-Sleep -Milliseconds 250
     } while ([DateTime]::UtcNow -lt $deadline)
 
-    $current = (Get-Service -Name $Name -ErrorAction Stop).Status
-    throw "Service '$Name' did not reach $Desired within $TimeoutSeconds seconds (current state: $current)."
+    $current = (Get-Service -Name $script:ServiceName -ErrorAction Stop).Status
+    throw "Service '$($script:ServiceName)' did not reach $Desired within $TimeoutSeconds seconds (current state: $current)."
 }
 
 function Stop-ServiceBounded {
-    param([Parameter(Mandatory)] [string] $Name)
-
-    $service = Get-Service -Name $Name -ErrorAction Stop
+    $service = Get-Service -Name $script:ServiceName -ErrorAction Stop
     if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
-    Stop-Service -Name $Name -ErrorAction Stop
-    Wait-ServiceState -Name $Name -Desired ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
+    Stop-Service -Name $script:ServiceName -ErrorAction Stop
+    Wait-ServiceState -Desired ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
 }
 
 function Set-ServiceRegistration {
     param(
-        [Parameter(Mandatory)] [string] $Name,
         [Parameter(Mandatory)] [string] $ExecutablePath,
         [Parameter()] [string] $StartMode = 'auto',
         [Parameter()] [string] $Account = 'NT AUTHORITY\LocalService',
@@ -328,18 +317,16 @@ function Set-ServiceRegistration {
     $sc = Join-Path -Path $env:SystemRoot -ChildPath 'System32\sc.exe'
     if (-not (Test-Path -LiteralPath $sc -PathType Leaf)) { throw "Service control executable was not found: $sc" }
     $quotedExecutable = '"{0}"' -f $ExecutablePath
-    $arguments = @('config', $Name, 'binPath=', $quotedExecutable, 'start=', $StartMode)
+    $arguments = @('config', $script:ServiceName, 'binPath=', $quotedExecutable, 'start=', $StartMode)
     if ($SetAccount) {
         $arguments += @('obj=', $Account)
     }
-    Invoke-NativeChecked -FilePath $sc -Arguments $arguments -Operation "Updating Windows Service '$Name'"
+    Invoke-NativeChecked -FilePath $sc -Arguments $arguments -Operation "Updating Windows Service '$($script:ServiceName)'"
 }
 
 function Remove-ServiceRegistration {
-    param([Parameter(Mandatory)] [string] $Name)
-
     $sc = Join-Path -Path $env:SystemRoot -ChildPath 'System32\sc.exe'
-    Invoke-NativeChecked -FilePath $sc -Arguments @('delete', $Name) -Operation "Removing Windows Service '$Name'"
+    Invoke-NativeChecked -FilePath $sc -Arguments @('delete', $script:ServiceName) -Operation "Removing Windows Service '$($script:ServiceName)'"
 }
 
 function Get-ManagedFirewallRules {
@@ -452,13 +439,10 @@ function Set-DataDirectoryAcl {
 }
 
 function Start-AndVerifyService {
-    param(
-        [Parameter(Mandatory)] [string] $Name,
-        [Parameter(Mandatory)] [int] $PortNumber
-    )
+    param([Parameter(Mandatory)] [int] $PortNumber)
 
-    Start-Service -Name $Name -ErrorAction Stop
-    Wait-ServiceState -Name $Name -Desired ([System.ServiceProcess.ServiceControllerStatus]::Running) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
+    Start-Service -Name $script:ServiceName -ErrorAction Stop
+    Wait-ServiceState -Desired ([System.ServiceProcess.ServiceControllerStatus]::Running) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
 
     $baseUri = 'http://127.0.0.1:{0}' -f $PortNumber
     $lastFailure = $null
@@ -527,8 +511,8 @@ if ($installDirectoryOwnership.Kind -in @('Invalid', 'Unrecognized')) {
 $configPath = Join-Path -Path $installPath -ChildPath 'appsettings.json'
 # Package validation happens before reading or changing an existing install.
 $existingConfiguration = Read-ExistingConfiguration -Path $configPath
-$existingService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-$existingServiceDetails = if ($null -ne $existingService) { Get-ServiceDetails -Name $ServiceName } else { $null }
+$existingService = Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue
+$existingServiceDetails = if ($null -ne $existingService) { Get-ServiceDetails } else { $null }
 $existingServiceWasRunning = $null -ne $existingService -and $existingService.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running
 $oldBinaryPath = if ($null -ne $existingServiceDetails) { [string] $existingServiceDetails.PathName } else { $null }
 $oldStartMode = if ($null -ne $existingServiceDetails) { [string] $existingServiceDetails.StartMode } else { 'Auto' }
@@ -603,7 +587,7 @@ try {
     Set-DataDirectoryAcl -Path $effectiveDataPath
 
     if ($null -ne $existingService) {
-        Stop-ServiceBounded -Name $ServiceName
+        Stop-ServiceBounded
     }
 
     New-Item -ItemType Directory -Path $newDeployment -Force | Out-Null
@@ -611,7 +595,7 @@ try {
         Copy-Item -LiteralPath $item.FullName -Destination $newDeployment -Recurse -Force
     }
     Set-Content -LiteralPath (Join-Path -Path $newDeployment -ChildPath 'appsettings.json') -Value $configurationJson -Encoding UTF8
-    $markerJson = (New-InstallOwnershipMarker -InstallPath $installPath -ServiceName $ServiceName) | ConvertTo-Json -Depth 4
+    $markerJson = (New-InstallOwnershipMarker -InstallPath $installPath) | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path -Path $newDeployment -ChildPath $script:InstallMarkerFileName) -Value $markerJson -Encoding UTF8
 
     if (Test-Path -LiteralPath $installPath) {
@@ -625,18 +609,18 @@ try {
 
     $serviceExecutable = Join-Path -Path $installPath -ChildPath 'LittleAges.Server.exe'
     if ($null -eq $existingService) {
-        New-Service -Name $ServiceName -DisplayName $ServiceName -Description 'Persistent Little Ages simulation host' -BinaryPathName ('"{0}"' -f $serviceExecutable) -StartupType Automatic | Out-Null
+        New-Service -Name $script:ServiceName -DisplayName $script:ServiceName -Description 'Persistent Little Ages simulation host' -BinaryPathName ('"{0}"' -f $serviceExecutable) -StartupType Automatic | Out-Null
         $serviceCreated = $true
     }
     $serviceRegistrationTouched = $true
-    Set-ServiceRegistration -Name $ServiceName -ExecutablePath $serviceExecutable -SetAccount
+    Set-ServiceRegistration -ExecutablePath $serviceExecutable -SetAccount
 
     # This is the only firewall resource owned by the installer. Local mode
     # removes a prior installer rule, while LAN mode replaces it deterministically.
     $firewallTouched = $true
     Set-ManagedFirewallRule -Enable $effectiveEnableLan -PortNumber $selectedPort
 
-    $null = Start-AndVerifyService -Name $ServiceName -PortNumber $selectedPort
+    $null = Start-AndVerifyService -PortNumber $selectedPort
     $installSucceeded = $true
 }
 catch {
@@ -645,9 +629,9 @@ catch {
 
     try {
         if ($serviceRegistrationTouched -or $serviceCreated) {
-            $current = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+            $current = Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue
             if ($null -ne $current -and $current.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
-                Stop-ServiceBounded -Name $ServiceName
+                Stop-ServiceBounded
             }
         }
     }
@@ -662,7 +646,7 @@ catch {
 
     try {
         if ($serviceCreated) {
-            Remove-ServiceRegistration -Name $ServiceName
+            Remove-ServiceRegistration
         }
     }
     catch { [void] $rollbackErrors.Add("Could not remove the new service registration: $($_.Exception.Message)") }
@@ -687,11 +671,11 @@ catch {
                 '^Manual$' { 'demand'; break }
                 default { 'auto' }
             }
-            Set-ServiceRegistration -Name $ServiceName -ExecutablePath $oldBinaryPath.Trim('"') -StartMode $restoreStart -Account $oldAccount -SetAccount
+            Set-ServiceRegistration -ExecutablePath $oldBinaryPath.Trim('"') -StartMode $restoreStart -Account $oldAccount -SetAccount
         }
         if ($null -ne $existingService -and $existingServiceWasRunning) {
-            Start-Service -Name $ServiceName -ErrorAction Stop
-            Wait-ServiceState -Name $ServiceName -Desired ([System.ServiceProcess.ServiceControllerStatus]::Running) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
+            Start-Service -Name $script:ServiceName -ErrorAction Stop
+            Wait-ServiceState -Desired ([System.ServiceProcess.ServiceControllerStatus]::Running) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
         }
     }
     catch { [void] $rollbackErrors.Add("Could not fully restore the previous service: $($_.Exception.Message)") }
@@ -714,7 +698,7 @@ $localUrl = 'http://127.0.0.1:{0}' -f $selectedPort
 Write-Host ''
 Write-Host 'Little Ages installed successfully.'
 Write-Host ''
-Write-Host ('Service:       {0}' -f (Get-Service -Name $ServiceName).Status)
+Write-Host ('Service:       {0}' -f (Get-Service -Name $script:ServiceName).Status)
 Write-Host 'Persistence:   Healthy'
 Write-Host 'Version:       v0.1.0 candidate'
 Write-Host ('World:         {0}' -f $activeWorldValue)
