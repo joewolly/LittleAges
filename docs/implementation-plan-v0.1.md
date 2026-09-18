@@ -7,6 +7,11 @@
 
 This document translates the v0.1 product design into an implementation plan. When this document and the product design disagree about product behavior or scope, **`design-v0.1.md` wins**. This plan may be revised as implementation evidence appears, but it must not silently expand v0.1 scope.
 
+The plan is retained as a design and decision record, including its milestone
+gates and candidate implementation notes. It is not the current deployment
+runbook or a substitute for the implementation references in
+[`architecture.md`](./architecture.md) and [`simulation-model.md`](./simulation-model.md).
+
 ---
 
 ## 1. Engineering Objectives
