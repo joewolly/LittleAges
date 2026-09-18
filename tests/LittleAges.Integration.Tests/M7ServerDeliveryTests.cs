@@ -65,6 +65,9 @@ public sealed class M7ServerDeliveryTests
         var root = CreateDataRoot();
         var webRoot = CreateWebRoot();
         File.WriteAllText(Path.Combine(webRoot, "index.html"), "<!doctype html><html><body>M7 test shell</body></html>");
+        var dioramaRoot = Path.Combine(webRoot, "assets", "diorama");
+        Directory.CreateDirectory(dioramaRoot);
+        File.WriteAllBytes(Path.Combine(dioramaRoot, "villager.glb"), [0x67, 0x6c, 0x54, 0x46]);
         using var factory = new ServerFactory(root, webRoot);
         try
         {
@@ -81,6 +84,11 @@ public sealed class M7ServerDeliveryTests
             using var deepResponse = await client.GetAsync("/world/unknown-route");
             Assert.Equal(HttpStatusCode.OK, deepResponse.StatusCode);
             Assert.Equal(rootBody, await deepResponse.Content.ReadAsStringAsync());
+
+            using var glbResponse = await client.GetAsync("/assets/diorama/villager.glb");
+            Assert.Equal(HttpStatusCode.OK, glbResponse.StatusCode);
+            Assert.Equal("model/gltf-binary", glbResponse.Content.Headers.ContentType?.MediaType);
+            Assert.Equal([0x67, 0x6c, 0x54, 0x46], await glbResponse.Content.ReadAsByteArrayAsync());
 
             using var unknownApi = await client.GetAsync("/api/v1/unknown");
             Assert.Equal(HttpStatusCode.NotFound, unknownApi.StatusCode);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Citizen, Map as WorldMap } from '../api'
-import { citizenPaletteIndex, detailVariant, elevationAt, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, containMap, detailVariant, elevationAt, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
 
 const map: WorldMap = { width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 5000, 10000, 2500], resources: [], startingSite: { x: 0, y: 0 } }
 const citizen = { citizenId: '7', location: { x: 0, y: 0 }, actionSequence: 3 } as Citizen
@@ -16,6 +16,13 @@ describe('diorama visual projection', () => {
   it('maps canonical coordinates into centered scene coordinates with compressed relief', () => {
     expect(elevationAt(map, 1, 0)).toBe(1.5)
     expect(worldToScene(map, 1, 1, 0.2)).toEqual({ x: 0.5, y: 0.95, z: 0.5 })
+  })
+
+  it('fits the fallback map without stretching it to the viewport aspect ratio', () => {
+    const layout = containMap(1440, 658, 160, 160)
+    expect(layout.drawWidth).toBe(layout.drawHeight)
+    expect(layout.offsetX).toBeGreaterThan(layout.offsetY)
+    expect(layout.drawHeight).toBeLessThanOrEqual(658)
   })
 
   it('interpolates only short same-action moves at readable speeds', () => {

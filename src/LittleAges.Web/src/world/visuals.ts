@@ -3,6 +3,7 @@ import type { Citizen, Map as WorldMap } from '../api'
 export const MAX_TERRAIN_RELIEF = 3
 
 export type ScenePoint = { x: number; y: number; z: number }
+export type ContainedMapLayout = { scale: number; offsetX: number; offsetY: number; drawWidth: number; drawHeight: number }
 
 export function stableVisualHash(...parts: Array<string | number>): number {
   let hash = 2166136261
@@ -29,6 +30,21 @@ export function worldToScene(map: WorldMap, x: number, y: number, lift = 0): Sce
     x: x - (map.width - 1) / 2,
     y: elevationAt(map, x, y) + lift,
     z: y - (map.height - 1) / 2,
+  }
+}
+
+export function containMap(width: number, height: number, mapWidth: number, mapHeight: number): ContainedMapLayout {
+  const shortestSide = Math.max(1, Math.min(width, height))
+  const padding = Math.min(20, shortestSide * 0.04)
+  const scale = Math.max(0.01, Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight))
+  const drawWidth = mapWidth * scale
+  const drawHeight = mapHeight * scale
+  return {
+    scale,
+    drawWidth,
+    drawHeight,
+    offsetX: (width - drawWidth) / 2,
+    offsetY: (height - drawHeight) / 2,
   }
 }
 

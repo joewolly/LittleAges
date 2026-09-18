@@ -3,6 +3,7 @@ using LittleAges.Server;
 using LittleAges.Domain;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.StaticFiles;
 
 var builder = WebApplication.CreateBuilder(args);
 var serverOptions = ServerOptions.FromConfiguration(builder.Configuration);
@@ -24,7 +25,9 @@ builder.Services.AddHostedService<WorldChangeBroadcasterService>();
 
 var app = builder.Build();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+var staticContentTypes = new FileExtensionContentTypeProvider();
+staticContentTypes.Mappings[".glb"] = "model/gltf-binary";
+app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = staticContentTypes });
 var hostingLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LittleAges.Server.Hosting");
 var logLanWarning = LoggerMessage.Define<string>(LogLevel.Warning, new EventId(3000), "Listening on {ListenUrl} is intended for trusted LAN use and not the public Internet.");
 foreach (var listenUri in serverOptions.GetListenUris())
