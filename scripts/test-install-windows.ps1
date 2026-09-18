@@ -93,6 +93,8 @@ if ($uninstallerParseErrors.Count -gt 0) {
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'New-InstallOwnershipMarker')))
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Read-InstallOwnershipMarker')))
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-InstallDirectoryOwnership')))
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Move-DirectoryAtomically')))
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-DeploymentLayoutState')))
 
 $script:InstallMarkerFileName = 'littleages-install.json'
 $script:InstallMarkerSchemaVersion = 1
@@ -206,6 +208,83 @@ finally {
     if (Test-Path -LiteralPath $ownershipTestRoot) {
         Remove-Item -LiteralPath $ownershipTestRoot -Recurse -Force
     }
+}
+
+# Exercise the production atomic directory helper and deployment-state
+# transitions using isolated temporary directories only. These tests never
+# touch Program Files, the Windows service, firewall rules, or world data.
+$atomicTestRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ('LittleAges-atomic-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $atomicTestRoot -Force | Out-Null
+try {
+    $sourcePath = Join-Path -Path $atomicTestRoot -ChildPath 'source'
+    $destinationPath = Join-Path -Path $atomicTestRoot -ChildPath 'destination'
+    New-Item -ItemType Directory -Path $sourcePath -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path -Path $sourcePath -ChildPath 'payload.txt') -Value 'atomic payload' -Encoding UTF8
+    Move-DirectoryAtomically -SourcePath $sourcePath -DestinationPath $destinationPath
+    Assert-Equal -Expected $false -Actual (Test-Path -LiteralPath $sourcePath) -Message 'Atomic rename removes source path'
+    Assert-Equal -Expected $true -Actual (Test-Path -LiteralPath (Join-Path -Path $destinationPath -ChildPath 'payload.txt') -PathType Leaf) -Message 'Atomic rename preserves destination contents'
+
+    $lockedSource = Join-Path -Path $atomicTestRoot -ChildPath 'locked-source'
+    $lockedDestination = Join-Path -Path $atomicTestRoot -ChildPath 'locked-destination'
+    New-Item -ItemType Directory -Path $lockedSource -Force | Out-Null
+    $lockedFile = Join-Path -Path $lockedSource -ChildPath 'held.txt'
+    Set-Content -LiteralPath $lockedFile -Value 'held payload' -Encoding UTF8
+    $heldStream = [System.IO.File]::Open($lockedFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $lockedFailure = $false
+        try {
+            Move-DirectoryAtomically -SourcePath $lockedSource -DestinationPath $lockedDestination -RetryCount 2 -RetryDelayMilliseconds 25
+        }
+        catch {
+            $lockedFailure = $true
+        }
+        Assert-Equal -Expected $true -Actual $lockedFailure -Message 'Locked atomic rename reports failure'
+        Assert-Equal -Expected $true -Actual (Test-Path -LiteralPath $lockedSource -PathType Container) -Message 'Locked rename preserves complete source'
+        Assert-Equal -Expected $false -Actual (Test-Path -LiteralPath $lockedDestination) -Message 'Locked rename leaves destination absent'
+        Assert-Equal -Expected 'held payload' -Actual (Get-Content -LiteralPath $lockedFile -Raw).Trim() -Message 'Locked rename preserves source file content'
+    }
+    finally {
+        $heldStream.Dispose()
+    }
+    Move-DirectoryAtomically -SourcePath $lockedSource -DestinationPath $lockedDestination
+    Assert-Equal -Expected $false -Actual (Test-Path -LiteralPath $lockedSource) -Message 'Atomic rename succeeds after handle release'
+    Assert-Equal -Expected $true -Actual (Test-Path -LiteralPath (Join-Path -Path $lockedDestination -ChildPath 'held.txt') -PathType Leaf) -Message 'Released rename preserves file'
+
+    $stateInstall = Join-Path -Path $atomicTestRoot -ChildPath 'install'
+    $stateNew = Join-Path -Path $atomicTestRoot -ChildPath 'new'
+    $stateBackup = Join-Path -Path $atomicTestRoot -ChildPath 'backup'
+    $stateFailed = Join-Path -Path $atomicTestRoot -ChildPath 'failed'
+    New-Item -ItemType Directory -Path $stateInstall -Force | Out-Null
+    Assert-Equal -Expected 'OLD' -Actual (Get-DeploymentLayoutState -InstallPath $stateInstall -NewPath $stateNew -BackupPath $stateBackup -FailedPath $stateFailed) -Message 'Deployment state recognizes OLD'
+    New-Item -ItemType Directory -Path $stateNew -Force | Out-Null
+    Assert-Equal -Expected 'NEW' -Actual (Get-DeploymentLayoutState -InstallPath $stateInstall -NewPath $stateNew -BackupPath $stateBackup -FailedPath $stateFailed) -Message 'Deployment state recognizes NEW'
+    Move-DirectoryAtomically -SourcePath $stateInstall -DestinationPath $stateBackup
+    Assert-Equal -Expected 'BACKUP' -Actual (Get-DeploymentLayoutState -InstallPath $stateInstall -NewPath $stateNew -BackupPath $stateBackup -FailedPath $stateFailed) -Message 'Deployment state recognizes BACKUP'
+    Move-DirectoryAtomically -SourcePath $stateNew -DestinationPath $stateInstall
+    Assert-Equal -Expected 'BACKUP' -Actual (Get-DeploymentLayoutState -InstallPath $stateInstall -NewPath $stateNew -BackupPath $stateBackup -FailedPath $stateFailed) -Message 'Backup remains authoritative until commit cleanup'
+    Move-DirectoryAtomically -SourcePath $stateInstall -DestinationPath $stateFailed
+    Assert-Equal -Expected 'FAILED' -Actual (Get-DeploymentLayoutState -InstallPath $stateInstall -NewPath $stateNew -BackupPath $stateBackup -FailedPath $stateFailed) -Message 'Deployment state recognizes FAILED'
+    Move-DirectoryAtomically -SourcePath $stateBackup -DestinationPath $stateInstall
+    Assert-Equal -Expected 'FAILED' -Actual (Get-DeploymentLayoutState -InstallPath $stateInstall -NewPath $stateNew -BackupPath $stateBackup -FailedPath $stateFailed) -Message 'Failed tree is preserved after previous deployment restore'
+}
+finally {
+    if (Test-Path -LiteralPath $atomicTestRoot) {
+        Remove-Item -LiteralPath $atomicTestRoot -Recurse -Force
+    }
+}
+
+Assert-Contains -Text $installerText -Expected '[System.IO.Directory]::Move' -Message 'Installer uses the atomic directory move primitive'
+Assert-Contains -Text $installerText -Expected 'Move-DirectoryAtomically' -Message 'Installer routes deployment swaps through atomic helper'
+Assert-Contains -Text $installerText -Expected 'Wait-ProcessExitBounded' -Message 'Installer waits for service process exit'
+Assert-Contains -Text $installerText -Expected "Write-DeploymentState -State 'FAILED'" -Message 'Installer records failed deployment state'
+Assert-Contains -Text $installerText -Expected "Write-DeploymentState -State 'BACKUP'" -Message 'Installer records backup deployment state'
+Assert-NotContains -Text $installerText -Unexpected 'Move-Item -LiteralPath $installPath' -Message 'Installer does not live-swap the install directory with Move-Item'
+Assert-NotContains -Text $installerText -Unexpected 'Move-Item -LiteralPath $newDeployment' -Message 'Installer does not promote staging with Move-Item'
+Assert-NotContains -Text $installerText -Unexpected 'Remove-Item -LiteralPath $installPath -Recurse -Force' -Message 'Installer never recursively deletes the live install before restore'
+$stagingIndex = $installerText.IndexOf('New-Item -ItemType Directory -Path $newDeployment', [StringComparison]::Ordinal)
+$stopIndex = $installerText.IndexOf('$serviceProcessId = Stop-ServiceBounded', [StringComparison]::Ordinal)
+if ($stagingIndex -lt 0 -or $stopIndex -lt 0 -or $stagingIndex -ge $stopIndex) {
+    throw 'Installer must finish staging before stopping the service.'
 }
 
 $ownershipCheckIndex = $installerText.IndexOf('$installDirectoryOwnership', [StringComparison]::Ordinal)
