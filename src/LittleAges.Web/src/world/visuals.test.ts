@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Citizen, Map as WorldMap } from '../api'
-import { citizenPaletteIndex, containMap, detailVariant, elevationAt, positionAlongMovementPlan, scenePointAlongMovementPlan, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, containMap, detailVariant, elevationAt, movementPlanIdentity, positionAlongMovementPlan, reconcileVisualMinute, scenePointAlongMovementPlan, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
 
 const map: WorldMap = { width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 5000, 10000, 2500], resources: [], startingSite: { x: 0, y: 0 } }
 const citizen = { citizenId: '7', location: { x: 0, y: 0 }, actionSequence: 3 } as Citizen
@@ -40,5 +40,14 @@ describe('diorama visual projection', () => {
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 }, actionSequence: 4 }, 10, false)).toBe(false)
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 } }, 50, false)).toBe(false)
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 } }, 10, true)).toBe(false)
+  })
+
+  it('keeps the visual clock continuous when authority refreshes the same route', () => {
+    const first = { actionSequence: 7, observedMinute: 100, waypoints: [{ x: 1, y: 1, arriveMinute: 100 }, { x: 2, y: 1, arriveMinute: 110 }, { x: 3, y: 1, arriveMinute: 120 }] }
+    const refreshed = { actionSequence: 7, observedMinute: 104, waypoints: [{ x: 1, y: 1, arriveMinute: 104 }, { x: 2, y: 1, arriveMinute: 110 }, { x: 3, y: 1, arriveMinute: 120 }] }
+    const changed = { actionSequence: 8, observedMinute: 106, waypoints: [{ x: 1, y: 1, arriveMinute: 106 }, { x: 1, y: 2, arriveMinute: 116 }] }
+    expect(movementPlanIdentity(first)).toBe(movementPlanIdentity(refreshed))
+    expect(reconcileVisualMinute(107.5, movementPlanIdentity(first), refreshed)).toBe(107.5)
+    expect(reconcileVisualMinute(107.5, movementPlanIdentity(first), changed)).toBe(106)
   })
 })

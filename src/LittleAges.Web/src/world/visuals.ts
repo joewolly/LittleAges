@@ -6,6 +6,16 @@ export type ScenePoint = { x: number; y: number; z: number }
 export type ContainedMapLayout = { scale: number; offsetX: number; offsetY: number; drawWidth: number; drawHeight: number }
 export type WorldPoint = { x: number; y: number }
 
+export function movementPlanIdentity(plan: CitizenMovementPlan | null): string {
+  if (plan === null) return 'none'
+  const destination = plan.waypoints[plan.waypoints.length - 1]
+  return `${plan.actionSequence}:${destination.x},${destination.y}`
+}
+
+export function reconcileVisualMinute(currentMinute: number, currentIdentity: string, nextPlan: CitizenMovementPlan): number {
+  return currentIdentity === movementPlanIdentity(nextPlan) ? Math.max(currentMinute, nextPlan.observedMinute) : nextPlan.observedMinute
+}
+
 export function stableVisualHash(...parts: Array<string | number>): number {
   let hash = 2166136261
   for (const part of parts) {

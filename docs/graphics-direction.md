@@ -21,8 +21,9 @@ entity IDs. Cosmetic values are neither persisted nor fingerprinted.
 - Normalized canonical elevation is compressed to at most three scene units.
 - The complete 160×160 terrain is one indexed mesh. Water is a separate batched
   surface and resource nodes are instanced by type.
-- The initial orthographic camera frames living citizens and structures, or the
-  starting site when the settlement is empty.
+- The initial orthographic camera frames structures when any exist, keeping
+  distant gatherers from pulling the settlement off-center. Before the first
+  structure it remains anchored on the starting site.
 - Pointer drag pans, the wheel zooms, buttons and `R` rotate in 90-degree steps,
   arrow keys pan, and selecting a living citizen enables follow mode.
 - Moving citizen observations may include a non-persisted `movementPlan` made
@@ -50,7 +51,7 @@ domains. Terrain tint, prop placement, clothing, scale, and accessories use a
 stable FNV-1a-derived visual hash rather than `Math.random`.
 
 The initial compressed GLB set must remain below 5 MB. The current generated
-seven-model Meshopt-compressed kit is approximately 65 KB and includes rounded timber framing,
+seven-model Meshopt-compressed kit is approximately 74 KB and includes rounded timber framing,
 awnings, workshop props, layered clothing, and stronger building silhouettes.
 
 ## Performance and accessibility

@@ -5,10 +5,10 @@ import type { MapControls as MapControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import type { Citizen, Map, Settlement, Structure } from '../api'
 import { LegacyMap } from './LegacyMap'
-import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, detailVariant, movementPlanIdentity, reconcileVisualMinute, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
 
 type DetailTier = 'full' | 'reduced'
-const DIORAMA_ASSET_BYTES = 65_152
+const DIORAMA_ASSET_BYTES = 75_708
 type CameraNudge = { x: number; z: number; zoom: number; sequence: number }
 type PerfStats = { fps: number; calls: number; triangles: number }
 
@@ -166,7 +166,7 @@ function StructureModel({ map, structure, detailTier }: { map: Map; structure: S
   const point = worldToScene(map, structure.location.x, structure.location.y, 0.05)
   const incomplete = structure.status === 'UnderConstruction'
   const asset = useGLTF(`/assets/diorama/${structure.type.toLowerCase()}.glb`)
-  return <group position={[point.x, point.y, point.z]} rotation={[0, Math.PI / 4, 0]}>
+  return <group position={[point.x, point.y, point.z]} rotation={[0, Math.PI / 4, 0]} scale={0.62}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]} receiveShadow><circleGeometry args={[1.05, 18]} /><meshBasicMaterial color="#34251b" transparent opacity={detailTier === 'full' ? 0.2 : 0.12} depthWrite={false} /></mesh>
     <Clone object={asset.scene} deep="materialsOnly" castShadow receiveShadow />
     {incomplete && <group>{[-0.62, 0.62].map(x => <mesh key={x} position={[x, 0.55, 0]}><boxGeometry args={[0.07, 1.1, 1.35]} /><meshStandardMaterial color="#d0a16b" /></mesh>)}</group>}
@@ -187,36 +187,41 @@ function CitizenModel({ citizen, map, worldSeed, operationalSpeed, paused, reduc
   const body = useRef<THREE.Group>(null)
   const target = useRef(new THREE.Vector3())
   const previousFrame = useRef(new THREE.Vector3())
-  const planAnchor = useRef({ key: '', receivedAt: 0 })
+  const visualClock = useRef({ identity: 'none', minute: 0 })
   const asset = useGLTF('/assets/diorama/villager.glb')
   const { actions } = useAnimations(asset.animations, group)
   const point = worldToScene(map, citizen.location.x, citizen.location.y, 0.05)
   const palette = villagerPalette[citizenPaletteIndex(worldSeed, citizen.citizenId)]
   const stageScale = citizen.lifeStage === 'YoungChild' ? 0.58 : citizen.lifeStage === 'Child' ? 0.7 : citizen.lifeStage === 'Adolescent' ? 0.86 : citizen.lifeStage === 'Elder' ? 0.94 : 1
-  const planKey = citizen.movementPlan === null ? 'none' : `${citizen.movementPlan.actionSequence}:${citizen.movementPlan.observedMinute}:${citizen.movementPlan.waypoints.length}`
+  const planIdentity = movementPlanIdentity(citizen.movementPlan)
+  const animationClip = citizenAnimation(citizen)
   useEffect(() => {
     const next = new THREE.Vector3(point.x, point.y, point.z)
-    if (planAnchor.current.key !== planKey) planAnchor.current = { key: planKey, receivedAt: performance.now() }
+    if (citizen.movementPlan !== null) {
+      visualClock.current.minute = reconcileVisualMinute(visualClock.current.minute, visualClock.current.identity, citizen.movementPlan)
+      visualClock.current.identity = planIdentity
+    } else visualClock.current = { identity: 'none', minute: 0 }
     const current = group.current
-    if (current && (reducedMotion || operationalSpeed === null || operationalSpeed > 10 || citizen.movementPlan === null)) current.position.copy(next)
+    if (current && (reducedMotion || operationalSpeed === null || citizen.movementPlan === null)) current.position.copy(next)
     target.current.copy(next)
-  }, [citizen.movementPlan, operationalSpeed, planKey, point.x, point.y, point.z, reducedMotion])
+  }, [citizen.movementPlan, operationalSpeed, planIdentity, point.x, point.y, point.z, reducedMotion])
   useEffect(() => {
     for (const action of Object.values(actions)) action?.stop()
     if (reducedMotion) return
-    const prefix = `${citizenAnimation(citizen)}_`
+    const prefix = `${animationClip}_`
     const active = Object.entries(actions).filter(([name]) => name.startsWith(prefix)).map(([, action]) => action).filter(action => action !== null)
     for (const action of active) action?.reset().fadeIn(0.12).play()
     return () => { for (const action of active) action?.fadeOut(0.12) }
-  }, [actions, citizen, reducedMotion])
+  }, [actions, animationClip, reducedMotion])
   useFrame(({ clock }, delta) => {
     const current = group.current
     if (!current) return
     const plan = citizen.movementPlan
-    const routeMotion = !paused && !reducedMotion && plan !== null && operationalSpeed !== null && operationalSpeed > 0 && operationalSpeed <= 10
+    if (paused) { previousFrame.current.copy(current.position); return }
+    const routeMotion = !reducedMotion && plan !== null && operationalSpeed !== null && operationalSpeed > 0 && operationalSpeed <= 10
     if (routeMotion) {
-      const visualMinute = plan.observedMinute + Math.max(0, performance.now() - planAnchor.current.receivedAt) / 1000 * operationalSpeed
-      const planned = scenePointAlongMovementPlan(map, plan, visualMinute, 0.05)
+      visualClock.current.minute = Math.max(visualClock.current.minute, plan.observedMinute) + delta * operationalSpeed
+      const planned = scenePointAlongMovementPlan(map, plan, visualClock.current.minute, 0.05)
       target.current.set(planned.x, planned.y, planned.z)
       current.position.lerp(target.current, 1 - Math.exp(-delta * 14))
       const dx = current.position.x - previousFrame.current.x
@@ -231,16 +236,21 @@ function CitizenModel({ citizen, map, worldSeed, operationalSpeed, paused, reduc
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}><circleGeometry args={[0.3, 16]} /><meshBasicMaterial color="#2c2018" transparent opacity={0.2} depthWrite={false} /></mesh>
     {selected && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}><ringGeometry args={[0.36, 0.48, 24]} /><meshBasicMaterial color="#f3d287" side={THREE.DoubleSide} /></mesh>}
     <group ref={body}>
-      <Clone object={asset.scene} deep="materialsOnly" castShadow inject={(object) => object.name === 'VillagerTunic' ? <meshStandardMaterial color={palette} roughness={0.9} /> : null} />
+      <Clone object={asset.scene} deep="materialsOnly" castShadow />
+      <mesh position={[0, 0.58, 0]} castShadow>
+        <cylinderGeometry args={[0.165, 0.245, 0.59, 8]} />
+        <meshStandardMaterial color={palette} roughness={0.9} />
+      </mesh>
       {citizen.carriedResource !== null && <mesh position={[0, 0.6, 0.24]}><boxGeometry args={[0.32, 0.24, 0.22]} /><meshStandardMaterial color={citizen.carriedResource === 'Food' ? '#a9554a' : citizen.carriedResource === 'Wood' ? '#765137' : '#817971'} /></mesh>}
       {(citizen.currentAction === 'Build' || citizen.currentAction === 'HaulConstruction') && <mesh position={[0.3, 0.58, 0]} rotation={[0, 0, -0.65]}><boxGeometry args={[0.38, 0.05, 0.06]} /><meshStandardMaterial color="#6e5038" /></mesh>}
     </group>
   </group>
 }
 
-function cameraFocus(map: Map, citizens: Citizen[], structures: Structure[]): THREE.Vector3 {
-  const coordinates = [...citizens.filter(citizen => citizen.isAlive).map(citizen => citizen.location), ...structures.map(structure => structure.location)]
-  if (coordinates.length === 0) coordinates.push(map.startingSite)
+function cameraFocus(map: Map, structures: Structure[]): THREE.Vector3 {
+  // Gathering citizens can roam across the map. Keep the default composition
+  // anchored on the settlement and let selection/follow mode chase individuals.
+  const coordinates = structures.length > 0 ? structures.map(structure => structure.location) : [map.startingSite]
   const x = coordinates.reduce((total, coordinate) => total + coordinate.x, 0) / coordinates.length
   const y = coordinates.reduce((total, coordinate) => total + coordinate.y, 0) / coordinates.length
   const point = worldToScene(map, x, y)
@@ -250,18 +260,21 @@ function cameraFocus(map: Map, citizens: Citizen[], structures: Structure[]): TH
 function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: THREE.Vector3 | null; controlsEnabled: boolean }) {
   const camera = useRef<THREE.OrthographicCamera>(null)
   const controls = useRef<MapControlsImpl>(null)
+  const focusX = focus.x
+  const focusY = focus.y
+  const focusZ = focus.z
   const applyHome = () => {
     const activeCamera = camera.current
     const activeControls = controls.current
     if (!activeCamera || !activeControls) return
     const angle = rotation * Math.PI / 2 + Math.PI / 4
-    activeCamera.position.set(focus.x + Math.cos(angle) * 28, focus.y + 26, focus.z + Math.sin(angle) * 28)
-    activeCamera.zoom = 32
+    activeCamera.position.set(focusX + Math.cos(angle) * 28, focusY + 26, focusZ + Math.sin(angle) * 28)
+    activeCamera.zoom = 40
     activeCamera.updateProjectionMatrix()
-    activeControls.target.copy(focus)
+    activeControls.target.set(focusX, focusY, focusZ)
     activeControls.update()
   }
-  useEffect(applyHome, [focus, resetToken, rotation])
+  useEffect(applyHome, [focusX, focusY, focusZ, resetToken, rotation])
   useEffect(() => {
     const activeCamera = camera.current
     const activeControls = controls.current
@@ -278,7 +291,7 @@ function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled
     controls.current.update()
   })
   return <>
-    <OrthographicCamera ref={camera} makeDefault near={0.1} far={400} position={[24, 26, 24]} zoom={32} />
+    <OrthographicCamera ref={camera} makeDefault near={0.1} far={400} position={[24, 26, 24]} zoom={40} />
     <MapControls ref={controls} enabled={controlsEnabled} enableRotate={false} screenSpacePanning minZoom={8} maxZoom={64} maxPolarAngle={Math.PI / 2.15} />
   </>
 }
@@ -297,15 +310,15 @@ function SceneStats({ onStats }: { onStats: (stats: PerfStats) => void }) {
 }
 
 function DioramaScene({ map, citizens, structures, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void }) {
-  const focus = useMemo(() => cameraFocus(map, citizens, structures), [citizens, map, structures])
+  const focus = useMemo(() => cameraFocus(map, structures), [map, structures])
   const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && citizen.isAlive)
   const follow = followed ? (() => { const point = worldToScene(map, followed.location.x, followed.location.y); return new THREE.Vector3(point.x, point.y, point.z) })() : null
   return <>
     <color attach="background" args={['#c9b792']} />
     <fog attach="fog" args={['#c9b792', 70, 210]} />
-    <ambientLight intensity={0.78} color="#fff0d2" />
-    <directionalLight castShadow={detailTier === 'full'} position={[35, 58, 22]} intensity={2.65} color="#ffddb0" shadow-mapSize-width={1024} shadow-mapSize-height={1024} shadow-bias={-0.0004} />
-    <hemisphereLight args={['#cde7e2', '#76503a', 1.25]} />
+    <ambientLight intensity={0.42} color="#fff0d2" />
+    <directionalLight castShadow={detailTier === 'full'} position={[35, 58, 22]} intensity={1.7} color="#ffddb0" shadow-mapSize-width={1024} shadow-mapSize-height={1024} shadow-bias={-0.0004} />
+    <hemisphereLight args={['#cde7e2', '#76503a', 0.7]} />
     <group>
       <mesh position={[0, -0.46, 0]} receiveShadow><boxGeometry args={[map.width + 2, 0.9, map.height + 2]} /><meshStandardMaterial color="#5b4634" roughness={1} /></mesh>
       <Terrain map={map} worldSeed={worldSeed} />
@@ -373,7 +386,7 @@ export function WorldViewport(props: WorldViewportProps) {
     </div>
     <div className="world-stage">
       {fallback ? <LegacyMap map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
-        <Canvas dpr={[1, 1.5]} shadows frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: detailTier === 'full', powerPreference: 'high-performance' }} onCreated={({ gl }) => gl.domElement.addEventListener('webglcontextlost', event => { event.preventDefault(); setFallback(true) }, { once: true })}>
+        <Canvas dpr={[1, 1.5]} shadows frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: detailTier === 'full', powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.toneMappingExposure = 0.9; gl.domElement.addEventListener('webglcontextlost', event => { event.preventDefault(); setFallback(true) }, { once: true }) }}>
           <DioramaScene {...props} controlsEnabled={props.controlsEnabled !== false} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={detailTier} onDetailTier={setDetailTier} onStats={setStats} />
         </Canvas>
       </SceneBoundary>}

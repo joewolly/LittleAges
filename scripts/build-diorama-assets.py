@@ -31,6 +31,14 @@ def material(name: str, color: tuple[float, float, float, float]) -> bpy.types.M
     value = bpy.data.materials.get(name) or bpy.data.materials.new(name)
     value.diffuse_color = color
     value.roughness = 0.9
+    # glTF reads the Principled node graph, not Blender's viewport-only
+    # diffuse_color. Keep both synchronized so the optimizer cannot collapse
+    # the complete palette into one default gray material.
+    value.use_nodes = True
+    principled = value.node_tree.nodes.get("Principled BSDF")
+    principled.inputs["Base Color"].default_value = color
+    principled.inputs["Roughness"].default_value = 0.88
+    principled.inputs["Metallic"].default_value = 0.0
     return value
 
 
@@ -61,6 +69,11 @@ def cube(name: str, scale: tuple[float, float, float], location: tuple[float, fl
 
 def cone(name: str, radius: float, depth: float, location: tuple[float, float, float], mat: str, parent: bpy.types.Object, vertices: int = 6) -> bpy.types.Object:
     bpy.ops.mesh.primitive_cone_add(vertices=vertices, radius1=radius, radius2=0, depth=depth, location=location)
+    return finish(bpy.context.object, name, mat, parent)
+
+
+def frustum(name: str, radius_bottom: float, radius_top: float, depth: float, location: tuple[float, float, float], mat: str, parent: bpy.types.Object, vertices: int = 8) -> bpy.types.Object:
+    bpy.ops.mesh.primitive_cone_add(vertices=vertices, radius1=radius_bottom, radius2=radius_top, depth=depth, location=location)
     return finish(bpy.context.object, name, mat, parent)
 
 
@@ -143,12 +156,13 @@ def resource_models() -> list[bpy.types.Object]:
 
 def villager() -> bpy.types.Object:
     value = root("Villager")
-    torso = cube("VillagerTunic", (0.17, 0.12, 0.3), (0, 0, 0.58), "Tunic", value)
-    ico("VillagerHead", 0.19, (0, 0, 1.05), "Skin", value)
-    cone("VillagerHair", 0.205, 0.2, (0, 0, 1.2), "Hair", value, 8)
-    cube("VillagerBelt", (0.185, 0.13, 0.035), (0, 0, 0.52), "Belt", value, 0.015)
-    left_arm = cylinder("VillagerArmL", 0.055, 0.48, (-0.24, 0, 0.58), "Skin", value)
-    right_arm = cylinder("VillagerArmR", 0.055, 0.48, (0.24, 0, 0.58), "Skin", value)
+    torso = frustum("VillagerTunic", 0.24, 0.16, 0.58, (0, 0, 0.58), "Tunic", value)
+    ico("VillagerHead", 0.205, (0, 0, 1.04), "Skin", value)
+    cone("VillagerHair", 0.218, 0.22, (0, 0, 1.2), "Hair", value, 8)
+    ico("VillagerNose", 0.045, (0, -0.195, 1.03), "Skin", value)
+    cube("VillagerBelt", (0.21, 0.14, 0.032), (0, 0, 0.5), "Belt", value, 0.015)
+    left_arm = cylinder("VillagerArmL", 0.06, 0.5, (-0.245, 0, 0.64), "Skin", value, (0, 0.12, -0.12))
+    right_arm = cylinder("VillagerArmR", 0.06, 0.5, (0.245, 0, 0.64), "Skin", value, (0, -0.12, 0.12))
     left_leg = cylinder("VillagerLegL", 0.065, 0.46, (-0.1, 0, 0.23), "DarkWood", value)
     right_leg = cylinder("VillagerLegR", 0.065, 0.46, (0.1, 0, 0.23), "DarkWood", value)
     cube("VillagerBootL", (0.085, 0.13, 0.065), (-0.1, -0.035, 0.045), "Belt", value, 0.025)
