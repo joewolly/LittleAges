@@ -11,6 +11,12 @@
 **Frontend:** React + TypeScript  
 **World renderer:** PixiJS or equivalent high-performance 2D renderer
 
+This document is the preserved v0.1 product-design baseline. It records the
+original product intent, scope, non-goals, and release criteria; it is not a
+live inventory of the current implementation. For current behavior, use
+[`architecture.md`](./architecture.md), [`simulation-model.md`](./simulation-model.md),
+and [`v0.1-acceptance-report.md`](./v0.1-acceptance-report.md).
+
 ---
 
 ## 1. Product Vision
