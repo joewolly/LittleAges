@@ -5,10 +5,10 @@ import type { MapControls as MapControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import type { Citizen, Map, Settlement, Structure } from '../api'
 import { LegacyMap } from './LegacyMap'
-import { citizenPaletteIndex, detailVariant, shouldInterpolateCitizen, worldToScene } from './visuals'
+import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
 
 type DetailTier = 'full' | 'reduced'
-const DIORAMA_ASSET_BYTES = 30_728
+const DIORAMA_ASSET_BYTES = 65_152
 type CameraNudge = { x: number; z: number; zoom: number; sequence: number }
 type PerfStats = { fps: number; calls: number; triangles: number }
 
@@ -32,7 +32,7 @@ class SceneBoundary extends Component<{ children: ReactNode; onError: () => void
   render() { return this.state.failed ? null : this.props.children }
 }
 
-function Terrain({ map }: { map: Map }) {
+function Terrain({ map, worldSeed }: { map: Map; worldSeed: string | null }) {
   const geometry = useMemo(() => {
     const positions = new Float32Array((map.width + 1) * (map.height + 1) * 3)
     const colors = new Float32Array(positions.length)
@@ -47,6 +47,8 @@ function Terrain({ map }: { map: Map }) {
       positions[vertex * 3 + 1] = point.y
       positions[vertex * 3 + 2] = y - map.height / 2
       color.set(terrainPalette[map.terrain[sampleY * map.width + sampleX] - 1] ?? '#7da06f')
+      const tint = ((stableVisualHash(worldSeed ?? 'world', 'terrain-tint', sampleX, sampleY) & 255) / 255 - 0.5) * 0.08
+      color.offsetHSL(0, tint * 0.35, tint)
       colors[vertex * 3] = color.r
       colors[vertex * 3 + 1] = color.g
       colors[vertex * 3 + 2] = color.b
@@ -67,9 +69,44 @@ function Terrain({ map }: { map: Map }) {
     result.setIndex(new THREE.BufferAttribute(indices, 1))
     result.computeVertexNormals()
     return result
-  }, [map])
+  }, [map, worldSeed])
   useEffect(() => () => geometry.dispose(), [geometry])
-  return <mesh geometry={geometry} receiveShadow><meshStandardMaterial vertexColors roughness={0.94} metalness={0} /></mesh>
+  return <mesh geometry={geometry} receiveShadow><meshStandardMaterial vertexColors roughness={0.92} metalness={0} flatShading /></mesh>
+}
+
+function GroundDetails({ map, worldSeed, detailTier }: { map: Map; worldSeed: string | null; detailTier: DetailTier }) {
+  const details = useMemo(() => {
+    const values: Array<{ x: number; y: number; rotation: number; scale: number }> = []
+    for (let y = 1; y < map.height - 1; y += 1) for (let x = 1; x < map.width - 1; x += 1) {
+      const terrain = map.terrain[y * map.width + x]
+      if (terrain === 1 || terrain === 4) continue
+      const hash = stableVisualHash(worldSeed ?? 'world', 'ground-detail', x, y)
+      if (hash % (detailTier === 'full' ? 43 : 89) !== 0) continue
+      values.push({ x, y, rotation: (hash % 360) * Math.PI / 180, scale: 0.45 + ((hash >>> 8) & 15) / 35 })
+    }
+    return values
+  }, [detailTier, map, worldSeed])
+  const ref = useRef<THREE.InstancedMesh>(null)
+  useLayoutEffect(() => {
+    if (!ref.current) return
+    const matrix = new THREE.Matrix4()
+    const quaternion = new THREE.Quaternion()
+    const position = new THREE.Vector3()
+    const scale = new THREE.Vector3()
+    details.forEach((detail, index) => {
+      const point = worldToScene(map, detail.x, detail.y, 0.12)
+      position.set(point.x, point.y, point.z)
+      quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), detail.rotation)
+      scale.set(detail.scale, detail.scale, detail.scale)
+      matrix.compose(position, quaternion, scale)
+      ref.current!.setMatrixAt(index, matrix)
+    })
+    ref.current.instanceMatrix.needsUpdate = true
+  }, [details, map])
+  return <instancedMesh ref={ref} args={[undefined, undefined, details.length]}>
+    <coneGeometry args={[0.16, 0.34, 5]} />
+    <meshStandardMaterial color="#d6bd68" roughness={1} flatShading />
+  </instancedMesh>
 }
 
 function Water({ map }: { map: Map }) {
@@ -125,11 +162,12 @@ function ResourceTypeInstances({ type, map, resources, quantities, worldSeed }: 
   </instancedMesh>
 }
 
-function StructureModel({ map, structure }: { map: Map; structure: Structure }) {
+function StructureModel({ map, structure, detailTier }: { map: Map; structure: Structure; detailTier: DetailTier }) {
   const point = worldToScene(map, structure.location.x, structure.location.y, 0.05)
   const incomplete = structure.status === 'UnderConstruction'
   const asset = useGLTF(`/assets/diorama/${structure.type.toLowerCase()}.glb`)
   return <group position={[point.x, point.y, point.z]} rotation={[0, Math.PI / 4, 0]}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]} receiveShadow><circleGeometry args={[1.05, 18]} /><meshBasicMaterial color="#34251b" transparent opacity={detailTier === 'full' ? 0.2 : 0.12} depthWrite={false} /></mesh>
     <Clone object={asset.scene} deep="materialsOnly" castShadow receiveShadow />
     {incomplete && <group>{[-0.62, 0.62].map(x => <mesh key={x} position={[x, 0.55, 0]}><boxGeometry args={[0.07, 1.1, 1.35]} /><meshStandardMaterial color="#d0a16b" /></mesh>)}</group>}
   </group>
@@ -144,23 +182,25 @@ function citizenAnimation(citizen: Citizen): string {
   return citizen.actionPhase !== 'Perform' && citizen.actionPhase !== 'None' ? 'Walk' : 'Idle'
 }
 
-function CitizenModel({ citizen, map, worldSeed, operationalSpeed, reducedMotion, selected, onSelect }: { citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
+function CitizenModel({ citizen, map, worldSeed, operationalSpeed, paused, reducedMotion, selected, onSelect }: { citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
   const group = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
-  const previous = useRef(citizen)
   const target = useRef(new THREE.Vector3())
+  const previousFrame = useRef(new THREE.Vector3())
+  const planAnchor = useRef({ key: '', receivedAt: 0 })
   const asset = useGLTF('/assets/diorama/villager.glb')
   const { actions } = useAnimations(asset.animations, group)
   const point = worldToScene(map, citizen.location.x, citizen.location.y, 0.05)
   const palette = villagerPalette[citizenPaletteIndex(worldSeed, citizen.citizenId)]
   const stageScale = citizen.lifeStage === 'YoungChild' ? 0.58 : citizen.lifeStage === 'Child' ? 0.7 : citizen.lifeStage === 'Adolescent' ? 0.86 : citizen.lifeStage === 'Elder' ? 0.94 : 1
+  const planKey = citizen.movementPlan === null ? 'none' : `${citizen.movementPlan.actionSequence}:${citizen.movementPlan.observedMinute}:${citizen.movementPlan.waypoints.length}`
   useEffect(() => {
     const next = new THREE.Vector3(point.x, point.y, point.z)
+    if (planAnchor.current.key !== planKey) planAnchor.current = { key: planKey, receivedAt: performance.now() }
     const current = group.current
-    if (current && !shouldInterpolateCitizen(previous.current, citizen, operationalSpeed, reducedMotion)) current.position.copy(next)
+    if (current && (reducedMotion || operationalSpeed === null || operationalSpeed > 10 || citizen.movementPlan === null)) current.position.copy(next)
     target.current.copy(next)
-    previous.current = citizen
-  }, [citizen, operationalSpeed, point.x, point.y, point.z, reducedMotion])
+  }, [citizen.movementPlan, operationalSpeed, planKey, point.x, point.y, point.z, reducedMotion])
   useEffect(() => {
     for (const action of Object.values(actions)) action?.stop()
     if (reducedMotion) return
@@ -172,11 +212,23 @@ function CitizenModel({ citizen, map, worldSeed, operationalSpeed, reducedMotion
   useFrame(({ clock }, delta) => {
     const current = group.current
     if (!current) return
-    current.position.lerp(target.current, 1 - Math.exp(-delta * 9))
-    const moving = !reducedMotion && citizen.actionPhase !== 'Perform' && citizen.actionPhase !== 'None' && operationalSpeed !== null && operationalSpeed <= 10
+    const plan = citizen.movementPlan
+    const routeMotion = !paused && !reducedMotion && plan !== null && operationalSpeed !== null && operationalSpeed > 0 && operationalSpeed <= 10
+    if (routeMotion) {
+      const visualMinute = plan.observedMinute + Math.max(0, performance.now() - planAnchor.current.receivedAt) / 1000 * operationalSpeed
+      const planned = scenePointAlongMovementPlan(map, plan, visualMinute, 0.05)
+      target.current.set(planned.x, planned.y, planned.z)
+      current.position.lerp(target.current, 1 - Math.exp(-delta * 14))
+      const dx = current.position.x - previousFrame.current.x
+      const dz = current.position.z - previousFrame.current.z
+      if (dx * dx + dz * dz > 0.00001) current.rotation.y = Math.atan2(dx, dz)
+    } else current.position.lerp(target.current, 1 - Math.exp(-delta * (operationalSpeed !== null && operationalSpeed > 10 ? 18 : 9)))
+    previousFrame.current.copy(current.position)
+    const moving = routeMotion
     if (body.current) body.current.position.y = moving ? Math.abs(Math.sin(clock.elapsedTime * 8 + Number(citizen.citizenId) % 7)) * 0.06 : Math.sin(clock.elapsedTime * 1.7 + Number(citizen.citizenId) % 11) * 0.015
   })
   return <group ref={group} position={[point.x, point.y, point.z]} scale={stageScale} onClick={event => { event.stopPropagation(); onSelect() }}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}><circleGeometry args={[0.3, 16]} /><meshBasicMaterial color="#2c2018" transparent opacity={0.2} depthWrite={false} /></mesh>
     {selected && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}><ringGeometry args={[0.36, 0.48, 24]} /><meshBasicMaterial color="#f3d287" side={THREE.DoubleSide} /></mesh>}
     <group ref={body}>
       <Clone object={asset.scene} deep="materialsOnly" castShadow inject={(object) => object.name === 'VillagerTunic' ? <meshStandardMaterial color={palette} roughness={0.9} /> : null} />
@@ -195,7 +247,7 @@ function cameraFocus(map: Map, citizens: Citizen[], structures: Structure[]): TH
   return new THREE.Vector3(point.x, point.y, point.z)
 }
 
-function CameraRig({ focus, rotation, resetToken, nudge, follow }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: THREE.Vector3 | null }) {
+function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: THREE.Vector3 | null; controlsEnabled: boolean }) {
   const camera = useRef<THREE.OrthographicCamera>(null)
   const controls = useRef<MapControlsImpl>(null)
   const applyHome = () => {
@@ -204,7 +256,7 @@ function CameraRig({ focus, rotation, resetToken, nudge, follow }: { focus: THRE
     if (!activeCamera || !activeControls) return
     const angle = rotation * Math.PI / 2 + Math.PI / 4
     activeCamera.position.set(focus.x + Math.cos(angle) * 28, focus.y + 26, focus.z + Math.sin(angle) * 28)
-    activeCamera.zoom = 18
+    activeCamera.zoom = 32
     activeCamera.updateProjectionMatrix()
     activeControls.target.copy(focus)
     activeControls.update()
@@ -226,8 +278,8 @@ function CameraRig({ focus, rotation, resetToken, nudge, follow }: { focus: THRE
     controls.current.update()
   })
   return <>
-    <OrthographicCamera ref={camera} makeDefault near={0.1} far={400} position={[24, 26, 24]} zoom={18} />
-    <MapControls ref={controls} enableRotate={false} screenSpacePanning minZoom={3} maxZoom={42} maxPolarAngle={Math.PI / 2.15} />
+    <OrthographicCamera ref={camera} makeDefault near={0.1} far={400} position={[24, 26, 24]} zoom={32} />
+    <MapControls ref={controls} enabled={controlsEnabled} enableRotate={false} screenSpacePanning minZoom={8} maxZoom={64} maxPolarAngle={Math.PI / 2.15} />
   </>
 }
 
@@ -244,27 +296,28 @@ function SceneStats({ onStats }: { onStats: (stats: PerfStats) => void }) {
   return null
 }
 
-function DioramaScene({ map, citizens, structures, settlement, worldSeed, operationalSpeed, reducedMotion, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; reducedMotion: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void }) {
+function DioramaScene({ map, citizens, structures, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void }) {
   const focus = useMemo(() => cameraFocus(map, citizens, structures), [citizens, map, structures])
   const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && citizen.isAlive)
   const follow = followed ? (() => { const point = worldToScene(map, followed.location.x, followed.location.y); return new THREE.Vector3(point.x, point.y, point.z) })() : null
   return <>
     <color attach="background" args={['#c9b792']} />
     <fog attach="fog" args={['#c9b792', 70, 210]} />
-    <ambientLight intensity={1.35} color="#fff0d2" />
-    <directionalLight position={[35, 58, 22]} intensity={2.25} color="#ffddb0" />
-    <hemisphereLight args={['#cde2df', '#6c533e', 1.1]} />
+    <ambientLight intensity={0.78} color="#fff0d2" />
+    <directionalLight castShadow={detailTier === 'full'} position={[35, 58, 22]} intensity={2.65} color="#ffddb0" shadow-mapSize-width={1024} shadow-mapSize-height={1024} shadow-bias={-0.0004} />
+    <hemisphereLight args={['#cde7e2', '#76503a', 1.25]} />
     <group>
       <mesh position={[0, -0.46, 0]} receiveShadow><boxGeometry args={[map.width + 2, 0.9, map.height + 2]} /><meshStandardMaterial color="#5b4634" roughness={1} /></mesh>
-      <Terrain map={map} />
+      <Terrain map={map} worldSeed={worldSeed} />
       <Water map={map} />
+      <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
       <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
       <Suspense fallback={null}>
-        {structures.map(structure => <StructureModel key={structure.structureId} map={map} structure={structure} />)}
-        {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} worldSeed={worldSeed} operationalSpeed={operationalSpeed} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
+        {structures.map(structure => <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
+        {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
       </Suspense>
     </group>
-    <CameraRig focus={focus} rotation={rotation} resetToken={resetToken} nudge={nudge} follow={follow} />
+    <CameraRig focus={focus} rotation={rotation} resetToken={resetToken} nudge={nudge} follow={follow} controlsEnabled={controlsEnabled} />
     <AdaptiveDpr pixelated />
     <PerformanceMonitor flipflops={2} onDecline={() => onDetailTier('reduced')} onIncline={() => onDetailTier('full')} />
     {import.meta.env.DEV && <SceneStats onStats={onStats} />}
@@ -278,8 +331,11 @@ export type WorldViewportProps = {
   settlement: Settlement | null
   worldSeed: string | null
   operationalSpeed: number | null
+  paused: boolean
+  controlsEnabled?: boolean
   selectedCitizenId: string | null
   onSelectCitizen: (citizenId: string) => void
+  onOpenSelected?: (citizenId: string) => void
 }
 
 export function WorldViewport(props: WorldViewportProps) {
@@ -317,12 +373,12 @@ export function WorldViewport(props: WorldViewportProps) {
     </div>
     <div className="world-stage">
       {fallback ? <LegacyMap map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
-        <Canvas dpr={[1, 1.5]} shadows={false} frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: detailTier === 'full', powerPreference: 'high-performance' }} onCreated={({ gl }) => gl.domElement.addEventListener('webglcontextlost', event => { event.preventDefault(); setFallback(true) }, { once: true })}>
-          <DioramaScene {...props} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={detailTier} onDetailTier={setDetailTier} onStats={setStats} />
+        <Canvas dpr={[1, 1.5]} shadows frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: detailTier === 'full', powerPreference: 'high-performance' }} onCreated={({ gl }) => gl.domElement.addEventListener('webglcontextlost', event => { event.preventDefault(); setFallback(true) }, { once: true })}>
+          <DioramaScene {...props} controlsEnabled={props.controlsEnabled !== false} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={detailTier} onDetailTier={setDetailTier} onStats={setStats} />
         </Canvas>
       </SceneBoundary>}
     </div>
-    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selected.currentAction} · {selected.actionPhase}</span></div>}
+    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selected.currentAction} · {selected.actionPhase}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
     {import.meta.env.DEV && !fallback && <output className="world-perf" aria-label="3D performance">{stats.fps} FPS · {stats.calls} calls · {stats.triangles.toLocaleString()} tris · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {(DIORAMA_ASSET_BYTES / 1024).toFixed(1)} KB assets · {detailTier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom, R rotates. All citizen details remain available in Observer records.</span>
   </section>

@@ -52,7 +52,11 @@ export type Citizen = {
   householdId: string | null
   childrenIds: string[]
   targetCitizenId: string | null
+  movementPlan: CitizenMovementPlan | null
 }
+
+export type CitizenMovementWaypoint = { x: number; y: number; arriveMinute: number }
+export type CitizenMovementPlan = { actionSequence: number; observedMinute: number; waypoints: CitizenMovementWaypoint[] }
 
 export type CitizenOccupation = 'Generalist' | 'Forager' | 'Lumberjack' | 'Stoneworker' | 'Builder' | 'Hauler'
 export type WorkActivity = { foragingMinutes: number; woodcuttingMinutes: number; stoneworkingMinutes: number; constructionMinutes: number; haulingMinutes: number }
@@ -634,6 +638,31 @@ function emptyWorkActivity(): WorkActivity {
   return { foragingMinutes: 0, woodcuttingMinutes: 0, stoneworkingMinutes: 0, constructionMinutes: 0, haulingMinutes: 0 }
 }
 
+function parseMovementPlan(value: unknown, actionSequence: number, location: { x: number; y: number }, target: { x: number; y: number } | null): CitizenMovementPlan | null {
+  if (value === undefined || value === null) return null
+  if (!isRecord(value) || !Array.isArray(value.waypoints)) throw new Error('The server returned an invalid citizen movement plan.')
+  const planSequence = parseRequiredNonNegativeInteger(value.actionSequence, 'The server returned an invalid citizen movement sequence.')
+  const observedMinute = parseRequiredNonNegativeInteger(value.observedMinute, 'The server returned an invalid citizen movement observation minute.')
+  if (planSequence !== actionSequence || value.waypoints.length < 2) throw new Error('The server returned an incoherent citizen movement plan.')
+  const waypoints: CitizenMovementWaypoint[] = []
+  for (const [index, entry] of value.waypoints.entries()) {
+    if (!isRecord(entry)) throw new Error('The server returned an invalid citizen movement waypoint.')
+    const point = parseCoordinate(entry, 'The server returned an invalid citizen movement waypoint.')
+    const arriveMinute = parseRequiredNonNegativeInteger(entry.arriveMinute, 'The server returned an invalid citizen movement arrival minute.')
+    if (index === 0 && (point.x !== location.x || point.y !== location.y || arriveMinute !== observedMinute)) throw new Error('The server returned an incoherent citizen movement origin.')
+    if (index > 0) {
+      const previous = waypoints[index - 1]
+      const dx = Math.abs(point.x - previous.x)
+      const dy = Math.abs(point.y - previous.y)
+      if (arriveMinute <= previous.arriveMinute || dx > 1 || dy > 1 || dx + dy === 0) throw new Error('The server returned an incoherent citizen movement route.')
+    }
+    waypoints.push({ ...point, arriveMinute })
+  }
+  const destination = waypoints.at(-1)!
+  if (target === null || destination.x !== target.x || destination.y !== target.y) throw new Error('The server returned an incoherent citizen movement destination.')
+  return { actionSequence: planSequence, observedMinute, waypoints }
+}
+
 export function parseCitizens(value: unknown): Citizen[] {
   // Older M0/M1 test doubles and servers do not expose citizens yet.
   if (!Array.isArray(value)) return []
@@ -645,6 +674,7 @@ export function parseCitizens(value: unknown): Citizen[] {
     const actionCompletesMinute = parseActionMinute(item.actionCompletesMinute, 'The server returned an invalid citizen action completion minute.')
     if (actionStartedMinute !== null && actionCompletesMinute !== null && actionStartedMinute > actionCompletesMinute) throw new Error('The server returned incoherent citizen action timing.')
     const target = item.target === undefined || item.target === null ? null : parseCoordinate(item.target, 'The server returned an invalid citizen action target.')
+    const movementPlan = parseMovementPlan(item.movementPlan, item.actionSequence, item.location as { x: number; y: number }, target)
     const actionPhase = item.actionPhase === undefined ? 'None' : item.actionPhase
     if (typeof actionPhase !== 'string' || !ACTION_PHASES.includes(actionPhase as typeof ACTION_PHASES[number])) throw new Error('The server returned an invalid citizen action phase.')
     const isAlive = item.isAlive === undefined ? true : item.isAlive
@@ -673,7 +703,7 @@ export function parseCitizens(value: unknown): Citizen[] {
     const householdId = parseNullablePositiveDecimalId(item.householdId, 'The server returned an invalid household ID.')
     const childrenIds = item.childrenIds === undefined ? [] : parseCanonicalIdList(item.childrenIds, 'The server returned invalid children IDs.')
     const targetCitizenId = parseNullablePositiveDecimalId(item.targetCitizenId, 'The server returned an invalid target citizen ID.')
-    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId } as unknown as Citizen)
+    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId, movementPlan } as unknown as Citizen)
   }
   return result
 }

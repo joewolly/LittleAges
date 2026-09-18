@@ -1,13 +1,14 @@
-# Post-v0.1 Graphics Direction — Living Diorama
+# v0.1 Graphics Direction — Historical Mobile-Builder Diorama
 
-Status: implemented visual-slice baseline. This document does not amend the
-preserved v0.1 product contract.
+Status: implemented presentation refresh for the reissued v0.1.0 release. This
+document does not amend the preserved v0.1 simulation or product contract.
 
 ## Intent
 
-The world view is a warm, low-poly historical miniature in which the player
-watches autonomous citizens live their lives. It is deliberately an observer,
-not a second simulation and not an order-entry surface.
+The world view is a warm, low-poly historical miniature with the readable,
+chunky hierarchy of a polished mobile builder. The reference is presentation
+clarity, not another game's assets or visual identity. Little Ages remains an
+observer, not a second simulation and not an order-entry surface.
 
 React Three Fiber presents the canonical REST observations. SignalR continues
 to mean only “refresh”; it carries no render or simulation authority. Cosmetic
@@ -24,9 +25,13 @@ entity IDs. Cosmetic values are neither persisted nor fingerprinted.
   starting site when the settlement is empty.
 - Pointer drag pans, the wheel zooms, buttons and `R` rotate in 90-degree steps,
   arrow keys pan, and selecting a living citizen enables follow mode.
-- Successive authoritative positions may be smoothed only for a same-action
-  move of at most two tiles at 10 simulation minutes per second or slower.
-  Larger/high-speed changes snap rather than inventing a route.
+- Moving citizen observations may include a non-persisted `movementPlan` made
+  from the canonical pathfinder's current tile and remaining route. At 1, 5,
+  and 10 min/s the visual clock advances over those timed segments. Pause
+  freezes the current render position; reduced motion snaps; 50 min/s uses a
+  short presentation cross-fade instead of frantic route playback. A changed
+  action sequence or incompatible route reconciles to authority without
+  inventing a path.
 - Reduced-motion mode renders on demand and does not play citizen clips.
 - A readable 2D canvas remains available when WebGL is unavailable or loses its
   context.
@@ -39,13 +44,14 @@ source is under `art/diorama`; optimized runtime GLBs are under the web
 application's public assets.
 
 Runtime assets use glTF 2.0/GLB, stable ground-centered pivots, one tile per
-Blender unit, shared texture-free materials, and Meshopt compression. The
+Blender unit, shared texture-free materials, and compact indexed geometry. The
 villager kit provides Idle, Walk, Carry, Gather, Build, Socialize, and Rest clip
 domains. Terrain tint, prop placement, clothing, scale, and accessories use a
 stable FNV-1a-derived visual hash rather than `Math.random`.
 
 The initial compressed GLB set must remain below 5 MB. The current generated
-kit is approximately 30 KB.
+seven-model Meshopt-compressed kit is approximately 65 KB and includes rounded timber framing,
+awnings, workshop props, layered clothing, and stronger building silhouettes.
 
 ## Performance and accessibility
 
@@ -55,22 +61,27 @@ kit is approximately 30 KB.
 - Adaptive decline removes half of the distant resource instances and disables
   expensive presentation before affecting interaction.
 - Development builds display FPS, draw calls, triangles, and detail tier.
+- The page is a `100dvh` game shell. Observer records are a five-tab DOM panel:
+  Overview, Citizens, Buildings, History, and Statistics. At desktop widths it
+  docks and reframes the scene; at tablet widths it overlays; on phones it is a
+  full-screen records view. Only the selected citizen's detail is emphasized.
 - All operational controls and record-heavy inspection remain accessible DOM.
   The world canvas never owns the only path to citizen information.
 
 ### Visual-slice verification
 
-The fixed-seed local browser pass used seed `20260918`, a 160×160 world,
-20 active villagers, and one construction site. The full-detail settlement
-view recorded 112 draw calls and 149,602 triangles; the automatically reduced
-tier recorded 113 draw calls and 93,874 triangles. The seven optimized GLBs
-total 30,728 bytes. Rotation, fallback, drawer access, citizen selection, and
-follow/unfollow were exercised with no browser console errors.
+The refreshed scene was browser-checked at 1920×1080, 1512×699, 1024×768, and
+390×844 with the fixed seed, scene camera, and authoritative server. The checked
+layouts preserve the controls and selected-citizen HUD, dock the desktop ledger,
+overlay it on tablets, and provide the intended full-screen mobile records view.
+The repository hero and mobile captures are direct outputs from those checks.
 
-The 45 FPS acceptance floor, memory trace, and reference image capture remain
-hardware acceptance checks: the available in-app browser is throttled when
-backgrounded and did not expose screenshot capture, so it is not a valid source
-for those two artifacts.
+The headless software-rendered runs remained below the geometry budgets: the
+390×844 close view reported 108 draw calls and 103,730 triangles, while the
+1024×768 view reported 137 draw calls and 106,186 triangles. Those SwiftShader
+runs are useful structural evidence, not the 45 FPS integrated-GPU acceptance
+measurement. The hardware frame-rate floor and memory trace therefore remain
+explicit hands-on release checks rather than falsely claimed automated results.
 
 ## Explicit boundaries
 

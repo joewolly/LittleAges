@@ -185,3 +185,108 @@ th { color: #817468; font-weight: 400; text-transform: uppercase; letter-spacing
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .001ms !important; animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Historical mobile-builder shell. The world owns the viewport; records are
+   disclosed through a focused game panel instead of a document-length page. */
+:root {
+  --game-ink: #2e2118;
+  --game-cream: #fff3d5;
+  --game-gold: #e7b955;
+  --game-green: #4d7a51;
+  --game-panel: #f4e5c4;
+  --game-panel-dark: #5b3d28;
+  --records-width: clamp(420px, 32vw, 520px);
+}
+html, body, #root { height: 100%; overflow: hidden; }
+body { background: #9fc2a4; }
+.page-shell { width: 100%; max-width: none; height: 100dvh; min-height: 0; margin: 0; padding: 10px 12px 8px; display: flex; gap: 7px; overflow: hidden; transition: padding-right .24s ease; }
+.topline { min-height: 20px; padding: 0 4px; color: rgba(255,255,255,.82); text-shadow: 0 1px 2px rgba(34,27,20,.45); }
+.topline .rule { background: rgba(255,255,255,.3); }
+.hero { min-height: 45px; max-width: none; padding: 0 4px 3px; display: flex; align-items: baseline; gap: 18px; }
+.hero .eyebrow { order: 2; color: #fff2ce; text-shadow: 0 2px 5px rgba(40,27,18,.55); }
+.hero h1 { order: 1; margin: 0; font-size: clamp(2.25rem, 4vw, 3.6rem); line-height: .9; color: white; text-shadow: 0 3px 0 rgba(93,54,31,.75), 0 7px 18px rgba(40,25,16,.35); }
+.hero h1 em { color: #ffd87c; }
+.hero .intro { display: none; }
+.status-strip { min-height: 34px; margin: 0; padding: 7px 12px; border: 1px solid rgba(255,255,255,.25); border-radius: 11px; color: #f9edcf; background: rgba(55,43,31,.82); box-shadow: 0 4px 14px rgba(43,31,21,.2); backdrop-filter: blur(8px); }
+.status-detail { color: #dfcfb0; }
+.notice { z-index: 8; margin: 0; border-radius: 8px; }
+.world-viewport, .world-loading { flex: 1 1 auto; min-height: 0; height: auto; border: 3px solid rgba(255,242,205,.75); border-radius: 18px 18px 5px 5px; box-shadow: 0 12px 34px rgba(45,32,21,.3); }
+.world-title { top: 18px; left: 20px; padding: 10px 13px; max-width: min(390px, 48%); border-radius: 12px; color: white; background: linear-gradient(135deg, rgba(68,46,31,.82), rgba(68,46,31,.48)); text-shadow: 0 2px 7px rgba(32,22,15,.72); backdrop-filter: blur(6px); }
+.world-title h2 { margin: 3px 0 1px; font-size: clamp(1.2rem, 2vw, 1.8rem); }
+.world-toolbar { top: 17px; right: 17px; }
+.world-toolbar button, .world-hud button, .world-selection button { border: 2px solid rgba(255,241,197,.7); border-radius: 9px; background: linear-gradient(#745039, #4b3426); box-shadow: inset 0 1px rgba(255,255,255,.18), 0 3px 7px rgba(31,22,15,.25); color: #fff2d0; font-weight: 700; }
+.world-selection { left: 18px; bottom: 18px; min-width: 224px; border: 2px solid rgba(255,224,137,.78); border-left-width: 5px; border-radius: 10px; background: rgba(62,42,29,.88); }
+.world-selection button { margin-top: 7px; padding: 7px 10px; cursor: pointer; }
+.world-hud { flex: 0 0 auto; min-height: 49px; grid-template-columns: minmax(260px, 1.5fr) minmax(100px, .4fr) auto; border: 2px solid #6d4930; border-radius: 4px 4px 13px 13px; background: linear-gradient(180deg, #6d4932, #493124); box-shadow: 0 7px 18px rgba(42,28,19,.22); }
+.world-hud > div { padding: 9px 14px; }
+.world-hud-controls select { border-radius: 7px; background: #38271e; }
+footer { display: none; }
+
+.observer-records-toggle { position: fixed; z-index: 30; right: 18px; bottom: 18px; min-height: 44px; padding: 10px 16px; border: 2px solid #fff0bd; border-radius: 12px; color: white; background: linear-gradient(#c78343, #8f512e); box-shadow: 0 6px 18px rgba(48,29,18,.34), inset 0 1px rgba(255,255,255,.25); font: 700 11px/1 'Trebuchet MS', sans-serif; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; transition: right .24s ease, transform .16s ease; }
+.observer-records-toggle:hover { transform: translateY(-2px); }
+.observer-drawer { position: fixed; z-index: 25; inset: 0 0 0 auto; width: var(--records-width); height: 100dvh; display: grid; grid-template-rows: auto auto minmax(0,1fr); overflow: hidden; pointer-events: auto; color: var(--game-ink); background: var(--game-panel); border-left: 4px solid #8b5a35; box-shadow: -18px 0 50px rgba(48,31,20,.3); }
+.observer-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 18px 13px; color: #fff3d5; background: linear-gradient(135deg, #6c4931, #493124); }
+.observer-panel-header h2 { margin: 4px 0 0; font-size: 1.7rem; font-weight: 400; }
+.observer-panel-header .section-kicker { color: #eecf88; }
+.observer-close { width: 38px; height: 38px; border: 2px solid rgba(255,240,195,.6); border-radius: 50%; color: white; background: rgba(255,255,255,.08); font-size: 1.5rem; cursor: pointer; }
+.observer-tabs { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); border-bottom: 1px solid #b58d61; background: #dfc493; }
+.observer-tabs button { min-width: 0; min-height: 43px; padding: 7px 3px; border: 0; border-right: 1px solid rgba(100,67,39,.2); color: #65452f; background: transparent; font: 700 9px/1.15 'Trebuchet MS', sans-serif; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+.observer-tabs button.is-active { color: #fff8e8; background: #a96336; box-shadow: inset 0 -4px #f3ce72; }
+.observer-drawer-body { width: 100%; height: 100%; min-height: 0; overflow: auto; padding: 18px 18px 70px; background: radial-gradient(circle at top right, rgba(255,255,255,.55), transparent 18rem), var(--game-panel); box-shadow: none; }
+.observer-drawer-body > * { display: none; }
+.observer-drawer-body[data-tab="overview"] > .observation,
+.observer-drawer-body[data-tab="overview"] > .control-surface,
+.observer-drawer-body[data-tab="overview"] > .settlement,
+.observer-drawer-body[data-tab="overview"] > .households,
+.observer-drawer-body[data-tab="buildings"] > .structures,
+.observer-drawer-body[data-tab="citizens"] > .citizens,
+.observer-drawer-body[data-tab="citizens"] > .relationship-inspector,
+.observer-drawer-body[data-tab="citizens"] > .biography-surface,
+.observer-drawer-body[data-tab="history"] > .history-surface,
+.observer-drawer-body[data-tab="statistics"] > .statistics-surface { display: block; }
+.observer-drawer-body > section { padding: 0 0 30px; }
+.observer-drawer-body .section-heading { margin-bottom: 15px; }
+.observer-drawer-body .section-heading h2 { font-size: 1.65rem; }
+.observer-drawer-body .reading-grid, .observer-drawer-body .settlement-grid, .observer-drawer-body .settlement-grid-expanded { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.observer-drawer-body .reading { min-height: 132px; padding: 17px; }
+.observer-drawer-body .reading strong { font-size: clamp(2rem, 4vw, 3rem); }
+.observer-drawer-body .history-filters { grid-template-columns: 1fr 1fr; }
+.observer-drawer-body .table-scroll { max-width: 100%; }
+.observer-drawer-body table { min-width: 760px; }
+.citizen-browser { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 12px; align-items: start; }
+.citizen-list { display: grid; gap: 6px; max-height: calc(100dvh - 205px); overflow: auto; }
+.citizen-list button { display: grid; gap: 2px; width: 100%; padding: 10px; border: 1px solid #c8a77b; border-radius: 8px; text-align: left; color: #4d3727; background: rgba(255,250,235,.68); cursor: pointer; }
+.citizen-list button.is-selected { border-color: #a45d32; background: #efd59f; box-shadow: inset 4px 0 #a45d32; }
+.citizen-list strong { font: 400 1rem/1.15 Georgia, serif; }.citizen-list span, .citizen-list small { font: 10px/1.25 'Trebuchet MS', sans-serif; color: #806d5b; }
+.citizen-record { min-width: 0; padding: 15px; }
+.has-records-open .observer-records-toggle { right: calc(var(--records-width) + 18px); }
+
+@media (min-width: 1100px) {
+  .page-shell.has-records-open { padding-right: calc(var(--records-width) + 12px); }
+}
+@media (max-width: 1099px) {
+  .observer-drawer { width: min(440px, calc(100vw - 48px)); }
+  .has-records-open .observer-records-toggle { right: calc(min(440px, calc(100vw - 48px)) + 14px); }
+}
+@media (max-width: 699px) {
+  .page-shell { padding: 7px; gap: 5px; }
+  .topline { display: none; }
+  .hero { min-height: 38px; padding: 0 3px; }.hero h1 { font-size: 2.25rem; }.hero .eyebrow { display: none; }
+  .status-strip { min-height: 31px; padding: 6px 9px; }.live-status, .status-detail { display: none; }
+  .world-viewport, .world-loading { min-height: 0; height: auto; border-radius: 13px 13px 4px 4px; }
+  .world-title { top: 10px; left: 10px; max-width: 55%; padding: 8px 10px; }.world-title p { display: none; }
+  .world-toolbar { top: 9px; right: 9px; max-width: 48%; }.world-toolbar button { padding: 5px 7px; }
+  .world-toolbar button:nth-child(4) { font-size: 0; }
+  .world-toolbar button:nth-child(4)::after { content: 'Follow'; font-size: 8px; }
+  .world-hud { min-height: 80px; grid-template-columns: minmax(0,1.35fr) minmax(0,.65fr); }.world-hud .world-hud-controls { grid-column: 1 / -1; padding-block: 6px; }
+  .world-hud > div { min-width: 0; padding-inline: 10px; }
+  .world-hud strong { overflow-wrap: anywhere; line-height: 1.25; }
+  .observer-records-toggle { max-width: 145px; padding-inline: 11px; font-size: 9px; }
+  .observer-drawer { width: 100vw; border-left: 0; }
+  .observer-records-toggle { right: 12px; bottom: 12px; }
+  .has-records-open .observer-records-toggle { display: none; }
+  .observer-tabs { overflow-x: auto; grid-template-columns: repeat(5, minmax(78px,1fr)); }
+  .observer-drawer-body { padding-inline: 13px; }
+  .observer-drawer-body .reading-grid, .observer-drawer-body .settlement-grid, .observer-drawer-body .settlement-grid-expanded { grid-template-columns: 1fr; }
+  .citizen-browser { grid-template-columns: 112px minmax(0,1fr); gap: 8px; }
+}

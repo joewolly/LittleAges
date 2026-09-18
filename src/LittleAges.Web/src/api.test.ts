@@ -98,8 +98,21 @@ describe('API response parsing', () => {
     expect(status.worldSeed).toBe('18446744073709551615')
   })
   it('preserves positive decimal citizen IDs losslessly', () => {
-    expect(parseCitizens([citizen])[0].citizenId).toBe(citizen.citizenId)
+    expect(parseCitizens([citizen])[0]).toMatchObject({ citizenId: citizen.citizenId, movementPlan: null })
   })
+
+  it('strictly parses authoritative movement plans while accepting older responses without them', () => {
+    const moving = { ...citizen, currentAction: 'Wander', actionPhase: 'TravelToTarget', actionSequence: 4, target: { x: 3, y: 3 }, movementPlan: { actionSequence: 4, observedMinute: 100, waypoints: [{ x: 1, y: 2, arriveMinute: 100 }, { x: 2, y: 2, arriveMinute: 110 }, { x: 3, y: 3, arriveMinute: 124 }] } }
+    expect(parseCitizens([moving])[0].movementPlan).toEqual(moving.movementPlan)
+    expect(parseCitizens([citizen])[0].movementPlan).toBeNull()
+  })
+
+  it.each([
+    { actionSequence: 3, observedMinute: 100, waypoints: [{ x: 1, y: 2, arriveMinute: 100 }, { x: 2, y: 2, arriveMinute: 110 }] },
+    { actionSequence: 4, observedMinute: 100, waypoints: [{ x: 1, y: 2, arriveMinute: 101 }, { x: 2, y: 2, arriveMinute: 110 }] },
+    { actionSequence: 4, observedMinute: 100, waypoints: [{ x: 1, y: 2, arriveMinute: 100 }, { x: 3, y: 2, arriveMinute: 110 }] },
+    { actionSequence: 4, observedMinute: 100, waypoints: [{ x: 1, y: 2, arriveMinute: 100 }, { x: 2, y: 2, arriveMinute: 100 }] },
+  ])('rejects an incoherent movement plan', movementPlan => expect(() => parseCitizens([{ ...citizen, currentAction: 'Wander', actionPhase: 'TravelToTarget', actionSequence: 4, target: { x: 2, y: 2 }, movementPlan }])).toThrow())
   it('rejects malformed citizen IDs', () => {
     expect(() => parseCitizens([{ citizenId: '01' }])).toThrow()
   })

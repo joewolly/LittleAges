@@ -237,6 +237,15 @@ Social target desirability retains the M5 base, sociability, relationship, partn
 
 The observer remains immutable. Citizens expose family/household fields, relationships are available from `/api/v1/citizens/{id}/relationships`, and household collection/detail endpoints return derived member/partner/child IDs. Settlement summaries expose current social counts only. M6 adds history, biography, memory, and statistics reads on the same immutable host publication boundary; there are still no mutation endpoints.
 
+Citizen observations may additionally expose a renderer-only `movementPlan`.
+It contains the current location at the observed minute followed by the
+remaining canonical path, with arrival minutes accumulated from the existing
+terrain step costs. It is rebuilt from immutable state, never persisted, never
+fingerprinted, and never accepted back from a client. SignalR remains only a
+coalesced invalidation; REST is authoritative. A disconnected visible browser
+refreshes at two seconds, a hidden browser at ten seconds, and reconnect causes
+an immediate serialized refresh.
+
 ## M6 history, biographies, and statistics
 
 M6 is the current compatibility boundary: `CurrentSimulationRulesVersion = m6-rng1-history1`, `HistoryVersion = 1`, and `HistoricalEventSchemaVersion = 1`. The complete persisted event vocabulary is `WorldCreated=1`, `SettlementFounded=2`, `CitizenBorn=3`, `CitizenDied=4`, `PartnershipFormed=5`, `FriendshipFormed=6`, `RivalryFormed=7`, `HouseholdCreated=8`, `StructureStarted=9`, `StructureCompleted=10`, `PopulationMilestone=11`, `ResourceShortageStarted=12`, `ResourceShortageEnded=13`, `CitizenSpecializationChanged=14`, and `SeasonStarted=15`. Importance values are `Debug=0`, `Routine=1`, `Personal=2`, `Notable=3`, `Major=4`, and `Historic=5`; origin values are `Live=1` and `MigrationBackfill=2`.

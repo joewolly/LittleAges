@@ -68,6 +68,9 @@ public sealed record ServerLifetimeWorkActivitySnapshot(
     long ConstructionMinutes,
     long HaulingMinutes);
 
+public sealed record ServerCitizenMovementWaypointSnapshot(int X, int Y, long ArriveMinute);
+public sealed record ServerCitizenMovementPlanSnapshot(long ActionSequence, long ObservedMinute, IReadOnlyList<ServerCitizenMovementWaypointSnapshot> Waypoints);
+
 /// <summary>Immutable server-owned citizen read model. It never exposes domain mutable records.</summary>
 public sealed record ServerCitizenSnapshot
 {
@@ -114,6 +117,10 @@ public sealed record ServerCitizenSnapshot
         ChildrenIds = Array.AsReadOnly((snapshot.ChildrenIds ?? Array.Empty<string>()).OrderBy(static value => long.Parse(value, CultureInfo.InvariantCulture)).ToArray());
         TargetCitizenId = snapshot.TargetCitizenId?.Value.ToString(CultureInfo.InvariantCulture);
         BirthMinute = snapshot.BirthMinute;
+        MovementPlan = snapshot.MovementPlan is null ? null : new ServerCitizenMovementPlanSnapshot(
+            snapshot.MovementPlan.ActionSequence,
+            snapshot.MovementPlan.ObservedMinute.Value,
+            Array.AsReadOnly(snapshot.MovementPlan.Waypoints.Select(static waypoint => new ServerCitizenMovementWaypointSnapshot(waypoint.Location.X, waypoint.Location.Y, waypoint.ArriveMinute.Value)).ToArray()));
     }
 
     public string CitizenId { get; }
@@ -157,6 +164,7 @@ public sealed record ServerCitizenSnapshot
     public IReadOnlyList<string> ChildrenIds { get; }
     public string? TargetCitizenId { get; }
     public long BirthMinute { get; }
+    public ServerCitizenMovementPlanSnapshot? MovementPlan { get; }
 }
 
 public sealed record ServerRelationshipSnapshot(string OtherCitizenId, string OtherCitizenName, int Familiarity, int Affinity, int Trust, int Conflict, long LastInteractionMinute, long InteractionCount, string Label);

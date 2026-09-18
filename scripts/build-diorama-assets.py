@@ -45,11 +45,17 @@ def finish(obj: bpy.types.Object, name: str, mat: str, parent: bpy.types.Object 
     return obj
 
 
-def cube(name: str, scale: tuple[float, float, float], location: tuple[float, float, float], mat: str, parent: bpy.types.Object) -> bpy.types.Object:
+def cube(name: str, scale: tuple[float, float, float], location: tuple[float, float, float], mat: str, parent: bpy.types.Object, bevel: float = 0.035) -> bpy.types.Object:
     bpy.ops.mesh.primitive_cube_add(location=location)
     obj = finish(bpy.context.object, name, mat, parent)
     obj.scale = scale
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if bevel > 0:
+        modifier = obj.modifiers.new("StorybookBevel", "BEVEL")
+        modifier.width = bevel
+        modifier.segments = 2
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
     return obj
 
 
@@ -76,27 +82,47 @@ def root(name: str) -> bpy.types.Object:
 
 def shelter() -> bpy.types.Object:
     value = root("Shelter")
-    cube("ShelterWalls", (0.52, 0.42, 0.48), (0, 0, 0.42), "Clay", value)
+    cube("ShelterFoundation", (0.63, 0.5, 0.1), (0, 0, 0.08), "Stone", value)
+    cube("ShelterWalls", (0.52, 0.42, 0.48), (0, 0, 0.5), "Plaster", value)
     roof = cone("ShelterRoof", 0.82, 0.68, (0, 0, 1.06), "Thatch", value, 4)
     roof.rotation_euler[2] = math.pi / 4
-    cube("ShelterDoor", (0.12, 0.025, 0.22), (0, -0.49, 0.25), "DarkWood", value)
+    cube("ShelterDoor", (0.13, 0.025, 0.25), (0, -0.445, 0.36), "DoorBlue", value)
+    for x in (-0.48, 0.48):
+        cube("ShelterPost", (0.045, 0.045, 0.45), (x, -0.43, 0.52), "DarkWood", value, 0.018)
+    cube("ShelterBeam", (0.52, 0.04, 0.045), (0, -0.43, 0.76), "DarkWood", value, 0.018)
+    cube("ShelterWindow", (0.105, 0.022, 0.1), (0.3, -0.445, 0.55), "Window", value, 0.02)
+    cube("ShelterChimney", (0.09, 0.09, 0.3), (0.33, 0.12, 1.18), "Brick", value)
     return value
 
 
 def stockpile() -> bpy.types.Object:
     value = root("Stockpile")
-    cube("StockpileDeck", (0.58, 0.12, 0.58), (0, 0, 0.12), "DarkWood", value)
+    cube("StockpileDeck", (0.62, 0.1, 0.58), (0, 0, 0.1), "DarkWood", value)
+    for x in (-0.5, 0.5):
+        for y in (-0.4, 0.4):
+            cube("StockpilePost", (0.04, 0.04, 0.48), (x, y, 0.52), "Wood", value, 0.015)
+    canopy = cone("StockpileCanopy", 0.82, 0.34, (0, 0, 1.04), "OchreCloth", value, 4)
+    canopy.rotation_euler[2] = math.pi / 4
     for index, (x, y, angle) in enumerate(((-0.27, 0.08, 0.0), (0.18, 0.14, 0.25), (0.02, -0.23, -0.18))):
         cylinder(f"StockpileLog{index}", 0.14, 0.72, (x, y, 0.38), "Wood", value, (0, math.pi / 2, angle))
+    cube("StockpileCrate", (0.2, 0.18, 0.2), (-0.32, -0.24, 0.34), "Clay", value)
+    ico("StockpileSack", 0.22, (0.34, -0.26, 0.35), "Sack", value)
     return value
 
 
 def workshop() -> bpy.types.Object:
     value = root("Workshop")
-    cube("WorkshopWalls", (0.68, 0.48, 0.56), (0, 0, 0.48), "Stone", value)
+    cube("WorkshopFoundation", (0.75, 0.56, 0.11), (0, 0, 0.09), "StoneDark", value)
+    cube("WorkshopWalls", (0.68, 0.48, 0.56), (0, 0, 0.58), "Brick", value)
     roof = cone("WorkshopRoof", 0.98, 0.62, (0, 0, 1.17), "DarkWood", value, 4)
     roof.rotation_euler[2] = math.pi / 4
     cube("WorkshopChimney", (0.11, 0.11, 0.38), (0.36, 0.12, 1.34), "Charcoal", value)
+    cube("WorkshopDoor", (0.16, 0.026, 0.28), (-0.3, -0.505, 0.4), "DoorBlue", value)
+    for x in (-0.62, 0.62):
+        cube("WorkshopFrame", (0.045, 0.04, 0.5), (x, -0.49, 0.61), "DarkWood", value, 0.018)
+    cube("WorkshopAwning", (0.34, 0.28, 0.035), (0.28, -0.68, 0.7), "OchreCloth", value)
+    cube("WorkshopAnvil", (0.18, 0.11, 0.08), (0.3, -0.66, 0.25), "Charcoal", value)
+    cube("WorkshopAnvilBase", (0.08, 0.08, 0.2), (0.3, -0.66, 0.1), "DarkWood", value)
     return value
 
 
@@ -119,10 +145,14 @@ def villager() -> bpy.types.Object:
     value = root("Villager")
     torso = cube("VillagerTunic", (0.17, 0.12, 0.3), (0, 0, 0.58), "Tunic", value)
     ico("VillagerHead", 0.19, (0, 0, 1.05), "Skin", value)
+    cone("VillagerHair", 0.205, 0.2, (0, 0, 1.2), "Hair", value, 8)
+    cube("VillagerBelt", (0.185, 0.13, 0.035), (0, 0, 0.52), "Belt", value, 0.015)
     left_arm = cylinder("VillagerArmL", 0.055, 0.48, (-0.24, 0, 0.58), "Skin", value)
     right_arm = cylinder("VillagerArmR", 0.055, 0.48, (0.24, 0, 0.58), "Skin", value)
     left_leg = cylinder("VillagerLegL", 0.065, 0.46, (-0.1, 0, 0.23), "DarkWood", value)
     right_leg = cylinder("VillagerLegR", 0.065, 0.46, (0.1, 0, 0.23), "DarkWood", value)
+    cube("VillagerBootL", (0.085, 0.13, 0.065), (-0.1, -0.035, 0.045), "Belt", value, 0.025)
+    cube("VillagerBootR", (0.085, 0.13, 0.065), (0.1, -0.035, 0.045), "Belt", value, 0.025)
     # Named actions are exported as lightweight object animation clips. Runtime
     # may substitute procedural motion while retaining this stable clip contract.
     for clip, amplitude in (("Idle", 0.02), ("Walk", 0.65), ("Carry", 0.25), ("Gather", 0.8), ("Build", 1.05), ("Socialize", 0.45), ("Rest", 0.08)):
@@ -176,16 +206,25 @@ def main() -> None:
     global MATERIALS
     MATERIALS = {
         "Clay": material("Clay", (0.49, 0.23, 0.14, 1)),
+        "Plaster": material("WarmPlaster", (0.78, 0.57, 0.31, 1)),
         "Thatch": material("Thatch", (0.28, 0.16, 0.08, 1)),
         "DarkWood": material("DarkWood", (0.14, 0.08, 0.045, 1)),
         "Wood": material("Wood", (0.32, 0.18, 0.08, 1)),
         "Stone": material("Stone", (0.39, 0.36, 0.32, 1)),
+        "StoneDark": material("StoneDark", (0.27, 0.31, 0.29, 1)),
+        "Brick": material("Brick", (0.55, 0.24, 0.14, 1)),
         "Charcoal": material("Charcoal", (0.08, 0.07, 0.065, 1)),
         "Leaf": material("Leaf", (0.22, 0.38, 0.18, 1)),
         "Pine": material("Pine", (0.12, 0.29, 0.17, 1)),
         "Berry": material("Berry", (0.48, 0.12, 0.1, 1)),
         "Skin": material("Skin", (0.68, 0.43, 0.28, 1)),
         "Tunic": material("VillagerTunic", (0.42, 0.18, 0.12, 1)),
+        "DoorBlue": material("DoorBlue", (0.11, 0.31, 0.4, 1)),
+        "Window": material("Window", (0.38, 0.69, 0.72, 1)),
+        "OchreCloth": material("OchreCloth", (0.78, 0.45, 0.12, 1)),
+        "Sack": material("Sack", (0.62, 0.46, 0.25, 1)),
+        "Hair": material("Hair", (0.16, 0.075, 0.035, 1)),
+        "Belt": material("Belt", (0.19, 0.09, 0.035, 1)),
     }
     models = [shelter(), stockpile(), workshop(), *resource_models(), villager()]
     names = ["shelter.glb", "stockpile.glb", "workshop.glb", "food.glb", "wood.glb", "stone.glb", "villager.glb"]

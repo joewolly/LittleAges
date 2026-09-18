@@ -124,6 +124,52 @@ public sealed class CitizenSimulationTests
         Assert.NotEqual(CitizenAction.None, a.CurrentAction);
     }
 
+    [Fact]
+    public void MovingCitizenObservationIncludesDeterministicTimedRemainingRouteWithoutChangingState()
+    {
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M2SimulationRulesVersion);
+        CitizenReadSnapshot? moving = null;
+        for (var eventIndex = 0; eventIndex < 200 && moving is null; eventIndex++)
+        {
+            Assert.True(engine.ProcessNextEvent());
+            moving = engine.CreateReadSnapshot().Citizens.FirstOrDefault(citizen => citizen.MovementPlan is not null);
+        }
+
+        Assert.NotNull(moving);
+        var persistenceBefore = engine.CreatePersistenceSnapshot();
+        var plan = moving!.MovementPlan!;
+        Assert.Equal(moving.ActionSequence, plan.ActionSequence);
+        Assert.Equal(engine.CurrentMinute, plan.ObservedMinute);
+        Assert.Equal(moving.Location, plan.Waypoints[0].Location);
+        Assert.Equal(plan.ObservedMinute, plan.Waypoints[0].ArriveMinute);
+        Assert.Equal(moving.Target, plan.Waypoints[^1].Location);
+        Assert.Equal(moving.ActionCompletesMinute, plan.Waypoints[^1].ArriveMinute);
+        for (var index = 1; index < plan.Waypoints.Count; index++)
+        {
+            var previous = plan.Waypoints[index - 1];
+            var current = plan.Waypoints[index];
+            Assert.True(current.ArriveMinute > previous.ArriveMinute);
+            Assert.InRange(Math.Abs(current.Location.X - previous.Location.X), 0, 1);
+            Assert.InRange(Math.Abs(current.Location.Y - previous.Location.Y), 0, 1);
+            Assert.NotEqual(previous.Location, current.Location);
+        }
+
+        _ = engine.CreateReadSnapshot();
+        var persistenceAfter = engine.CreatePersistenceSnapshot();
+        Assert.Equal(persistenceBefore.WorldMinute, persistenceAfter.WorldMinute);
+        Assert.Equal(persistenceBefore.Counters, persistenceAfter.Counters);
+        Assert.Equal(persistenceBefore.ScheduledEvents, persistenceAfter.ScheduledEvents);
+        Assert.Equal(persistenceBefore.Citizens, persistenceAfter.Citizens);
+        Assert.Equal(persistenceBefore.ResourceStates, persistenceAfter.ResourceStates);
+        Assert.Equal(persistenceBefore.World!.Fingerprint, persistenceAfter.World!.Fingerprint);
+        var restored = SimulationEngine.FromPersistenceSnapshot(persistenceBefore);
+        var restoredPlan = restored.CreateReadSnapshot().Citizens.Single(citizen => citizen.CitizenId == moving.CitizenId).MovementPlan;
+        Assert.NotNull(restoredPlan);
+        Assert.Equal(plan.ActionSequence, restoredPlan!.ActionSequence);
+        Assert.Equal(plan.ObservedMinute, restoredPlan.ObservedMinute);
+        Assert.Equal(plan.Waypoints, restoredPlan.Waypoints);
+    }
+
     [Theory]
     [InlineData(CitizenAction.Rest, CitizenAction.Explore, CitizenAction.Rest)]
     [InlineData(CitizenAction.Explore, CitizenAction.Wander, CitizenAction.Explore)]

@@ -24,8 +24,15 @@ loop, and the UI cannot invent events or mutate gameplay state.
 
 ## See the application
 
-These images are captures of the real observer UI running against a disposable,
-deterministic seed-42 world.
+These images are captures of the real observer UI running against disposable,
+deterministic worlds. The scene is now the application: an orthographic
+storybook diorama with route-smoothed citizens and a responsive, tabbed record
+ledger instead of a scrolling document page.
+
+<p align="center">
+  <img src="docs/assets/readme/mobile.png" alt="Little Ages historical diorama and compact observer controls at a mobile viewport" width="28%" />
+</p>
+<p align="center"><sub>The same authoritative world at a 390 × 844 mobile viewport</sub></p>
 
 <p align="center">
   <img src="docs/assets/readme/citizens.png" alt="Little Ages citizen biography with a factual timeline and structured memories" width="48%" />
@@ -45,6 +52,8 @@ deterministic seed-42 world.
 - resources, structures, construction work, storage, shelter, and settlement growth;
 - relationships, partnerships, households, reproduction, aging, and death;
 - append-only factual history, biographies, structured memories, and monthly statistics;
+- a 3D historical diorama with canonical route interpolation, adaptive detail,
+  a supported 2D fallback, and responsive observer records;
 - browser observation of the map, settlement, households, citizens, relationships, history, and controls;
 - headless `run`, `benchmark`, and `acceptance` commands for 1-, 10-, 100-, and 500-year horizons.
 

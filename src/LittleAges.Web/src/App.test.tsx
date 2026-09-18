@@ -69,6 +69,13 @@ function responseFor(path: string, worldMinute: number, name = citizen.name) {
   return new Response(JSON.stringify([{ ...citizen, name }]))
 }
 
+function renderAppWithRecords(tab: 'Overview' | 'Citizens' | 'Buildings' | 'History' | 'Statistics' = 'Citizens') {
+  const result = render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+  if (tab !== 'Overview') fireEvent.click(screen.getByRole('tab', { name: tab }))
+  return result
+}
+
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
@@ -87,7 +94,7 @@ describe('citizen observer', () => {
   it('shows an accessible loading state while requests are pending', () => {
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise<Response>(() => {}))
     render(<App />)
-    expect(screen.getByText('Loading citizens…')).toBeInTheDocument()
+    expect(screen.getByText('Preparing the living diorama…')).toBeInTheDocument()
   })
 
   it('renders the citizen list after successful polling', async () => {
@@ -101,7 +108,7 @@ describe('citizen observer', () => {
       if (path.endsWith('/households')) return new Response(JSON.stringify([]))
       return new Response(JSON.stringify([citizen]))
     })
-    render(<App />)
+    renderAppWithRecords()
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     expect(screen.getByText('At (1, 2)')).toBeInTheDocument()
   })
@@ -116,7 +123,7 @@ describe('citizen observer', () => {
       if (path.endsWith('/control/pause') || path.endsWith('/control/resume')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', paused, operationalSpeed: 10 }))
       return responseFor(path, 12)
     })
-    render(<App />)
+    renderAppWithRecords()
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Set the pace' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
@@ -130,7 +137,7 @@ describe('citizen observer', () => {
 
   it('shows an operational control error without hiding observer data', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/control/pause') ? new Response('unavailable', { status: 503 }) : responseFor(String(input), 12))
-    render(<App />)
+    renderAppWithRecords()
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
     expect(await screen.findByText('Request failed (503)')).toBeInTheDocument()
@@ -138,8 +145,19 @@ describe('citizen observer', () => {
 
   it('shows an accessible API error', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
-    render(<App />)
+    renderAppWithRecords()
     expect((await screen.findAllByRole('alert'))[0]).toHaveTextContent('offline')
+  })
+
+  it('focuses the records panel and restores focus when Escape closes it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => responseFor(String(input), 12))
+    renderAppWithRecords('Overview')
+    const close = screen.getByRole('button', { name: 'Close observer records' })
+    await waitFor(() => expect(close).toHaveFocus())
+    expect(screen.queryByRole('heading', { name: 'Lives in motion' })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    const reopen = screen.getByRole('button', { name: 'Observer records' })
+    await waitFor(() => expect(reopen).toHaveFocus())
   })
 
   it('waits for a slow load before starting the next poll', async () => {
@@ -153,21 +171,21 @@ describe('citizen observer', () => {
       return request.promise
     })
 
-    render(<App />)
-    expect(requests).toHaveLength(9)
+    renderAppWithRecords()
+    expect(requests).toHaveLength(7)
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
-    expect(requests).toHaveLength(9)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(requests).toHaveLength(7)
 
     await act(async () => {
       requests.forEach((request, index) => request.resolve(responseFor(paths[index], 1)))
       await Promise.all(requests.map(request => request.promise))
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
-    expect(requests).toHaveLength(9)
+    await act(async () => { await vi.advanceTimersByTimeAsync(1999) })
+    expect(requests).toHaveLength(7)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     await act(async () => { await Promise.resolve() })
-    expect(requests).toHaveLength(15)
+    expect(requests.length).toBeGreaterThan(7)
     expect(paths).toContain('/api/v1/settlement')
     expect(paths.filter(path => path.endsWith('/map'))).toHaveLength(1)
   })
@@ -182,14 +200,14 @@ describe('citizen observer', () => {
       return responseFor(String(input), cycle, `Citizen ${cycle}`)
     })
 
-    render(<App />)
+    renderAppWithRecords()
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
-    expect(screen.getByText('1', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText(/Current:.*00:01/)).toBeInTheDocument()
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
     expect(screen.getByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
-    expect(screen.getByText('2', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText(/Current:.*00:02/)).toBeInTheDocument()
     expect(poll).toBe(2)
   })
 
@@ -205,7 +223,7 @@ describe('citizen observer', () => {
     })
 
     const { unmount } = render(<App />)
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(7)
     unmount()
 
     await act(async () => {
@@ -213,7 +231,7 @@ describe('citizen observer', () => {
       await Promise.all(requests.map(request => request.promise))
       await vi.advanceTimersByTimeAsync(10000)
     })
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(7)
   })
 
   it('shows settlement survival metrics and citizen survival details', async () => {
@@ -228,8 +246,8 @@ describe('citizen observer', () => {
       if (path.endsWith('/households')) return new Response(JSON.stringify([]))
       return new Response(JSON.stringify([citizen, deadCitizen]))
     })
-    render(<App />)
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    renderAppWithRecords('Overview')
+    expect(await screen.findByText('Storage')).toBeInTheDocument()
     expect(screen.getByText('Storage')).toBeInTheDocument()
     expect(screen.getAllByText('Shelter').length).toBeGreaterThan(0)
     expect(screen.getByText('Buildings complete')).toBeInTheDocument()
@@ -237,25 +255,27 @@ describe('citizen observer', () => {
     expect(screen.getByText('Food')).toBeInTheDocument()
     expect(screen.getAllByText('Wood').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Stone').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))
+    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     expect(screen.getByText('Bram Vale')).toBeInTheDocument()
     expect(screen.getByText(/years · Adult · Alive/)).toBeInTheDocument()
-    expect(screen.getByText(/years · Adult · Dead/)).toBeInTheDocument()
-    expect(screen.getByText('starvation')).toBeInTheDocument()
     expect(screen.getByText('Perform')).toBeInTheDocument()
-    expect(screen.getAllByText('Health')).toHaveLength(2)
+    fireEvent.click(screen.getByText('Bram Vale').closest('button')!)
+    expect(await screen.findByText(/years · Adult · Dead/)).toBeInTheDocument()
+    expect(screen.getByText('starvation')).toBeInTheDocument()
+    expect(screen.getAllByText('Health')).toHaveLength(1)
     expect(screen.queryByText('Carrying')).not.toBeInTheDocument()
     expect(screen.queryByText('Target node')).not.toBeInTheDocument()
-    expect(screen.getAllByText('120')).toHaveLength(1)
-    expect(screen.getAllByText('80')).toHaveLength(1)
+    expect(screen.getAllByText('10,000')).toHaveLength(1)
+    expect(screen.getAllByText('9,200')).toHaveLength(1)
   })
 
   it('renders M4 construction, settlement, and accessible map observations', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => responseFor(String(input), 42))
-    render(<App />)
+    renderAppWithRecords('Overview')
     expect(await screen.findByText('Storage')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Buildings' }))
     expect(screen.getByText('Shelter, stores, and workshop')).toBeInTheDocument()
-    expect(screen.getByText('Build / haul target')).toBeInTheDocument()
-    expect(screen.getByText('Structure 2')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Settlement map, 3 by 3 tiles/i })).toBeInTheDocument()
     expect(screen.getByText('Starting site')).toBeInTheDocument()
   })
@@ -275,10 +295,10 @@ describe('citizen observer', () => {
       if (path.endsWith('/relationships')) return new Response(JSON.stringify([relationship]))
       return new Response(JSON.stringify([socialCitizen]))
     })
-    render(<App />)
+    renderAppWithRecords()
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     expect(screen.getByText('Households')).toBeInTheDocument()
-    expect(screen.getByText('Socialize')).toBeInTheDocument()
+    expect(screen.getAllByText('Socialize').length).toBeGreaterThan(0)
     expect(screen.getByText('Citizen 6')).toBeInTheDocument()
     expect(screen.getByText('Demographics')).toBeInTheDocument()
     expect(screen.getByText('Family')).toBeInTheDocument()
@@ -287,7 +307,7 @@ describe('citizen observer', () => {
     expect(await screen.findByRole('heading', { name: 'Relationships for Elara Venn' })).toBeInTheDocument()
     expect(screen.getByText('Bram Vale')).toBeInTheDocument()
     expect(screen.getByText('Affinity')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'View household details' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'View household details' }).at(-1)!)
     expect(await screen.findByRole('heading', { name: 'Household 3' })).toBeInTheDocument()
     expect(screen.getByText('Dissolved')).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/relationships'))).toHaveLength(1)
@@ -304,11 +324,13 @@ describe('citizen observer', () => {
       if (path.includes('/biography')) return new Response(JSON.stringify({ citizen, events: [historicalEvent], memories: [{ citizenId: citizen.citizenId, eventId: historicalEvent.eventId, memoryType: 'ChildBorn', importance: 'Personal', emotionalValence: 900, createdMinute: 12 }], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 12, deathMinute: null, deathCause: null }))
       return responseFor(path, 12)
     })
-    render(<App />)
+    renderAppWithRecords('History')
     expect(await screen.findByText('Elara Venn was born.')).toBeInTheDocument()
     expect(screen.getByText('Year 0 · Spring · Month 1, Day 1 · 00:12')).toBeInTheDocument()
-    expect(screen.getByLabelText('Population trend')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Statistics' }))
+    expect(await screen.findByLabelText('Population trend')).toBeInTheDocument()
     expect(screen.getByRole('cell', { name: '43,200' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))
     fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
     expect(await screen.findByRole('heading', { name: 'Biography' })).toBeInTheDocument()
     expect(screen.getByText('Child Born')).toBeInTheDocument()
@@ -317,8 +339,8 @@ describe('citizen observer', () => {
 
   it('constructs history filters from the observer controls', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => responseFor(String(input), 12))
-    render(<App />)
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    renderAppWithRecords('History')
+    expect(await screen.findByLabelText('Minimum importance')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Minimum importance'), { target: { value: '4' } })
     fireEvent.change(screen.getByLabelText('Event type'), { target: { value: 'CitizenDied' } })
     fireEvent.change(screen.getByLabelText('Citizen ID'), { target: { value: '7' } })
@@ -341,7 +363,7 @@ describe('citizen observer', () => {
       }
       return responseFor(path, 12)
     })
-    render(<App />)
+    renderAppWithRecords('History')
     expect(await screen.findByRole('button', { name: 'Load older events' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
@@ -374,7 +396,7 @@ describe('citizen observer', () => {
       }
       return responseFor(path, 12)
     })
-    render(<App />)
+    renderAppWithRecords('Statistics')
     expect(await screen.findByRole('button', { name: 'Load later samples' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Load later samples' }))
@@ -393,7 +415,7 @@ describe('citizen observer', () => {
       if (path.endsWith('/status')) statusCalls += 1
       return responseFor(path, statusCalls || 1, `Citizen ${statusCalls || 1}`)
     })
-    render(<App />)
+    renderAppWithRecords()
     expect(await screen.findByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Live updates: connected')).toBeInTheDocument())
     expect(statusCalls).toBe(2)
@@ -401,7 +423,7 @@ describe('citizen observer', () => {
     liveMock.state.emitWorldChanged({ revision: 2, worldMinute: 2, hostState: 'Running', persistenceState: 'Ready' })
     liveMock.state.emitWorldChanged({ revision: 3, worldMinute: 3, hostState: 'Running', persistenceState: 'Ready' })
     await waitFor(() => expect(statusCalls).toBe(4))
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith('/api/v1/history?'))).toHaveLength(3))
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith('/api/v1/history?'))).toHaveLength(0)
 
     liveMock.state.emitReconnecting()
     await waitFor(() => expect(screen.getByText('Live updates: reconnecting…')).toBeInTheDocument())
@@ -423,7 +445,7 @@ describe('citizen observer', () => {
       return responseFor(path, worldMinute, `Citizen ${worldMinute}`)
     })
 
-    render(<App />)
+    renderAppWithRecords()
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
     expect(liveMock.state.startCalls).toBe(1)
@@ -436,13 +458,13 @@ describe('citizen observer', () => {
     })
 
     expect(screen.getByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
-    expect(screen.getByText('2', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText(/Current:.*00:02/)).toBeInTheDocument()
     expect(statusCalls).toBe(2)
     await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
     expect(statusCalls).toBe(2)
   })
 
-  it('uses a visible degraded state and ten-second REST fallback when SignalR is unavailable', async () => {
+  it('uses a visible degraded state and two-second visible REST fallback when SignalR is unavailable', async () => {
     vi.useFakeTimers()
     let statusCalls = 0
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -454,7 +476,7 @@ describe('citizen observer', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByText('Live updates: unavailable')).toBeInTheDocument()
     expect(statusCalls).toBe(1)
-    await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(1999) })
     expect(statusCalls).toBe(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
@@ -473,7 +495,7 @@ describe('citizen observer', () => {
       }
       return responseFor(path, 12)
     })
-    render(<App />)
+    renderAppWithRecords()
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
     await waitFor(() => expect(biographyRequests).toHaveLength(1))

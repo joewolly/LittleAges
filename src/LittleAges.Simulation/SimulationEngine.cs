@@ -92,7 +92,36 @@ public sealed record FamilyCheckOpportunityDiagnostic(HouseholdId HouseholdId, l
 
 public sealed record FamilyCheckDiagnostic(WorldMinute Minute, int ActiveHouseholds, int ReadyIgnoringHousing, int BlockedActualDwelling, int HomeChanges, int ReadyWithHousingAfterRelocation, int ReadyUnlockedByRelocation, int BirthRandomOpportunities, int BirthRandomHits, int FoodBlocked, int HungerOrHealthBlocked, int CooldownBlocked, int AgesBlocked, int DwellingBlocked, IReadOnlyList<FamilyCheckOpportunityDiagnostic> Opportunities);
 internal readonly record struct SocialTargetCandidate(CitizenId CitizenId, int Score, int Distance);
-public sealed record CitizenReadSnapshot(string CitizenId, int? FounderOrdinal, string GivenName, string FamilyName, string Name, int Age, string LifeStage, TileCoordinate Location, int Health, CitizenNeeds ProjectedNeeds, CitizenTraits Traits, CitizenSkills Skills, CitizenAction CurrentAction, WorldMinute? ActionStartedMinute, WorldMinute? ActionCompletesMinute, TileCoordinate? Target, long ActionSequence, bool IsAlive = true, string? DeathCause = null, ResourceType? CarriedResourceType = null, int CarriedResourceQuantity = 0, ResourceNodeId? TargetResourceNodeId = null, CitizenActionPhase ActionPhase = CitizenActionPhase.None, WorldMinute? DeathMinute = null, StructureId? HomeStructureId = null, StructureId? TargetStructureId = null, string Occupation = CitizenOccupation.Generalist, long LifetimeForagingMinutes = 0, long LifetimeWoodcuttingMinutes = 0, long LifetimeStoneworkingMinutes = 0, long LifetimeConstructionMinutes = 0, long LifetimeHaulingMinutes = 0, CitizenId? ParentAId = null, CitizenId? ParentBId = null, CitizenId? PartnerId = null, HouseholdId? HouseholdId = null, IReadOnlyList<string>? ChildrenIds = null, CitizenId? TargetCitizenId = null, long BirthMinute = 0);
+public sealed record CitizenMovementWaypointSnapshot(TileCoordinate Location, WorldMinute ArriveMinute);
+public sealed record CitizenMovementPlanSnapshot
+{
+    public CitizenMovementPlanSnapshot(long actionSequence, WorldMinute observedMinute, IReadOnlyList<CitizenMovementWaypointSnapshot> waypoints)
+    {
+        ActionSequence = actionSequence;
+        ObservedMinute = observedMinute;
+        Waypoints = Array.AsReadOnly(waypoints.ToArray());
+    }
+
+    public long ActionSequence { get; }
+    public WorldMinute ObservedMinute { get; }
+    public IReadOnlyList<CitizenMovementWaypointSnapshot> Waypoints { get; }
+
+    public bool Equals(CitizenMovementPlanSnapshot? other) =>
+        other is not null &&
+        ActionSequence == other.ActionSequence &&
+        ObservedMinute == other.ObservedMinute &&
+        Waypoints.SequenceEqual(other.Waypoints);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(ActionSequence);
+        hash.Add(ObservedMinute);
+        foreach (var waypoint in Waypoints) hash.Add(waypoint);
+        return hash.ToHashCode();
+    }
+}
+public sealed record CitizenReadSnapshot(string CitizenId, int? FounderOrdinal, string GivenName, string FamilyName, string Name, int Age, string LifeStage, TileCoordinate Location, int Health, CitizenNeeds ProjectedNeeds, CitizenTraits Traits, CitizenSkills Skills, CitizenAction CurrentAction, WorldMinute? ActionStartedMinute, WorldMinute? ActionCompletesMinute, TileCoordinate? Target, long ActionSequence, bool IsAlive = true, string? DeathCause = null, ResourceType? CarriedResourceType = null, int CarriedResourceQuantity = 0, ResourceNodeId? TargetResourceNodeId = null, CitizenActionPhase ActionPhase = CitizenActionPhase.None, WorldMinute? DeathMinute = null, StructureId? HomeStructureId = null, StructureId? TargetStructureId = null, string Occupation = CitizenOccupation.Generalist, long LifetimeForagingMinutes = 0, long LifetimeWoodcuttingMinutes = 0, long LifetimeStoneworkingMinutes = 0, long LifetimeConstructionMinutes = 0, long LifetimeHaulingMinutes = 0, CitizenId? ParentAId = null, CitizenId? ParentBId = null, CitizenId? PartnerId = null, HouseholdId? HouseholdId = null, IReadOnlyList<string>? ChildrenIds = null, CitizenId? TargetCitizenId = null, long BirthMinute = 0, CitizenMovementPlanSnapshot? MovementPlan = null);
 public sealed record CitizenDecisionEvaluation(CitizenAction Action, int BaseUtility, int NeedContribution, int TraitContribution, int Variation, int FinalScore, int SkillContribution = 0, int StockpileContribution = 0, int TravelPenalty = 0);
 
 public sealed record SimulationStatusSnapshot
@@ -1965,7 +1994,27 @@ public sealed partial class SimulationEngine
     internal static long StepCost(TileCoordinate from, TileCoordinate to, WorldMap world) => checked((long)((from.X == to.X || from.Y == to.Y) ? 10 : 14) * world.GetTile(to).MovementCost);
     internal static long RemainingPathCost(IReadOnlyList<TileCoordinate> path, WorldMap world)
     { var cost = 0L; for (var index = 1; index < path.Count; index++) cost = checked(cost + StepCost(path[index - 1], path[index], world)); return cost; }
-    private CitizenReadSnapshot[] CreateCitizenSnapshots() => _citizens.Values.OrderBy(x => x.Id.Value).Select(c => new CitizenReadSnapshot(c.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), c.FounderOrdinal, c.GivenName, c.FamilyName, c.Name, c.AgeYears(CurrentMinute), c.LifeStage(CurrentMinute), c.Location, c.Health, c.IsAlive ? c.GetProjectedNeeds(CurrentMinute) : c.Needs, new CitizenTraits(c.Traits.Industriousness, c.Traits.Sociability, c.Traits.Curiosity, c.Traits.Cooperativeness, c.Traits.RiskTolerance, c.Traits.Resilience), new CitizenSkills(c.Skills.Foraging, c.Skills.Woodcutting, c.Skills.Stoneworking, c.Skills.Construction, c.Skills.Hauling, c.Skills.Domestic), c.CurrentAction, c.ActionStartedMinute, c.ActionCompletesMinute, c.ActionTarget, c.ActionSequence, c.IsAlive, c.DeathCause, c.CarriedResourceType, c.CarriedResourceQuantity, c.TargetResourceNodeId, c.ActionPhase, c.DeathMinute is { } death ? new WorldMinute(death) : null, c.HomeStructureId, c.TargetStructureId, c.Occupation, c.LifetimeForagingMinutes, c.LifetimeWoodcuttingMinutes, c.LifetimeStoneworkingMinutes, c.LifetimeConstructionMinutes, c.LifetimeHaulingMinutes, c.ParentAId, c.ParentBId, c.PartnerId, c.HouseholdId, _citizens.Values.Where(x => x.ParentAId == c.Id || x.ParentBId == c.Id).OrderBy(x => x.Id.Value).Select(x => x.Id.Value.ToString(CultureInfo.InvariantCulture)).ToArray(), c.TargetCitizenId, c.BirthMinute)).ToArray();
+    private CitizenReadSnapshot[] CreateCitizenSnapshots() => _citizens.Values.OrderBy(x => x.Id.Value).Select(CreateCitizenSnapshot).ToArray();
+    private CitizenReadSnapshot CreateCitizenSnapshot(Citizen c) => new(c.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), c.FounderOrdinal, c.GivenName, c.FamilyName, c.Name, c.AgeYears(CurrentMinute), c.LifeStage(CurrentMinute), c.Location, c.Health, c.IsAlive ? c.GetProjectedNeeds(CurrentMinute) : c.Needs, new CitizenTraits(c.Traits.Industriousness, c.Traits.Sociability, c.Traits.Curiosity, c.Traits.Cooperativeness, c.Traits.RiskTolerance, c.Traits.Resilience), new CitizenSkills(c.Skills.Foraging, c.Skills.Woodcutting, c.Skills.Stoneworking, c.Skills.Construction, c.Skills.Hauling, c.Skills.Domestic), c.CurrentAction, c.ActionStartedMinute, c.ActionCompletesMinute, c.ActionTarget, c.ActionSequence, c.IsAlive, c.DeathCause, c.CarriedResourceType, c.CarriedResourceQuantity, c.TargetResourceNodeId, c.ActionPhase, c.DeathMinute is { } death ? new WorldMinute(death) : null, c.HomeStructureId, c.TargetStructureId, c.Occupation, c.LifetimeForagingMinutes, c.LifetimeWoodcuttingMinutes, c.LifetimeStoneworkingMinutes, c.LifetimeConstructionMinutes, c.LifetimeHaulingMinutes, c.ParentAId, c.ParentBId, c.PartnerId, c.HouseholdId, _citizens.Values.Where(x => x.ParentAId == c.Id || x.ParentBId == c.Id).OrderBy(x => x.Id.Value).Select(x => x.Id.Value.ToString(CultureInfo.InvariantCulture)).ToArray(), c.TargetCitizenId, c.BirthMinute, CreateMovementPlan(c));
+    private CitizenMovementPlanSnapshot? CreateMovementPlan(Citizen citizen)
+    {
+        if (!citizen.IsAlive || citizen.ActionTarget is not { } target || citizen.ActionPhase is not (CitizenActionPhase.TravelToTarget or CitizenActionPhase.ReturnToStockpile or CitizenActionPhase.TravelToStockpile or CitizenActionPhase.TransportToConstruction)) return null;
+        var route = FindPathCached(citizen.Location, target);
+        if (route is null || route.Count < 2) return null;
+        if (citizen.ActionCompletesMinute is not { } completes || completes <= CurrentMinute) return null;
+        var costAfterNext = 0L;
+        for (var index = 2; index < route.Count; index++) costAfterNext = checked(costAfterNext + StepCost(route[index - 1], route[index], World));
+        var firstArrivalValue = checked(completes.Value - costAfterNext);
+        if (firstArrivalValue <= CurrentMinute.Value) return null;
+        var arrival = CurrentMinute;
+        var waypoints = new List<CitizenMovementWaypointSnapshot>(route.Count) { new(route[0], arrival) };
+        for (var index = 1; index < route.Count; index++)
+        {
+            arrival = index == 1 ? new WorldMinute(firstArrivalValue) : arrival.Add(StepCost(route[index - 1], route[index], World));
+            waypoints.Add(new CitizenMovementWaypointSnapshot(route[index], arrival));
+        }
+        return new CitizenMovementPlanSnapshot(citizen.ActionSequence, CurrentMinute, Array.AsReadOnly(waypoints.ToArray()));
+    }
     private static Citizen CloneCitizen(Citizen c) { return new Citizen(c.Id, c.FounderOrdinal, c.GivenName, c.FamilyName, c.BirthMinute, c.Location, new CitizenTraits(c.Traits.Industriousness, c.Traits.Sociability, c.Traits.Curiosity, c.Traits.Cooperativeness, c.Traits.RiskTolerance, c.Traits.Resilience), new CitizenSkills(c.Skills.Foraging, c.Skills.Woodcutting, c.Skills.Stoneworking, c.Skills.Construction, c.Skills.Hauling, c.Skills.Domestic), new CitizenNeeds(c.Needs.Hunger, c.Needs.Rest, c.Needs.Shelter, c.Needs.Social)) { Health = c.Health, CurrentAction = c.CurrentAction, ActionPhase = c.ActionPhase, ActionSequence = c.ActionSequence, ActionStartedMinute = c.ActionStartedMinute, ActionCompletesMinute = c.ActionCompletesMinute, ActionTarget = c.ActionTarget, TargetResourceNodeId = c.TargetResourceNodeId, TargetStructureId = c.TargetStructureId, TargetCitizenId = c.TargetCitizenId, CarriedResourceType = c.CarriedResourceType, CarriedResourceQuantity = c.CarriedResourceQuantity, NeedsUpdatedMinute = c.NeedsUpdatedMinute, HealthUpdatedMinute = c.HealthUpdatedMinute, LifetimeMovementSteps = c.LifetimeMovementSteps, LifetimeMovementCost = c.LifetimeMovementCost, LifetimeForagingMinutes = c.LifetimeForagingMinutes, LifetimeWoodcuttingMinutes = c.LifetimeWoodcuttingMinutes, LifetimeStoneworkingMinutes = c.LifetimeStoneworkingMinutes, LifetimeConstructionMinutes = c.LifetimeConstructionMinutes, LifetimeHaulingMinutes = c.LifetimeHaulingMinutes, DeathMinute = c.DeathMinute, DeathCause = c.DeathCause, ParentAId = c.ParentAId, ParentBId = c.ParentBId, PartnerId = c.PartnerId, HouseholdId = c.HouseholdId, HomeStructureId = c.HomeStructureId }; }
     internal static Household CloneHousehold(Household value) => new(value.Id, value.CreatedMinute) { DissolvedMinute = value.DissolvedMinute, DwellingStructureId = value.DwellingStructureId };
     private static SettlementState CloneSettlement(SettlementState state) => new(state.FoodStored, state.WoodStored, state.StoneStored, state.BaseStorageCapacity, state.DemandUpdatedMinute, state.ExposureConsequencesStartMinute);

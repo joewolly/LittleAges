@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Citizen, Map as WorldMap } from '../api'
-import { citizenPaletteIndex, containMap, detailVariant, elevationAt, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, containMap, detailVariant, elevationAt, positionAlongMovementPlan, scenePointAlongMovementPlan, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
 
 const map: WorldMap = { width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 5000, 10000, 2500], resources: [], startingSite: { x: 0, y: 0 } }
 const citizen = { citizenId: '7', location: { x: 0, y: 0 }, actionSequence: 3 } as Citizen
@@ -23,6 +23,15 @@ describe('diorama visual projection', () => {
     expect(layout.drawWidth).toBe(layout.drawHeight)
     expect(layout.offsetX).toBeGreaterThan(layout.offsetY)
     expect(layout.drawHeight).toBeLessThanOrEqual(658)
+  })
+
+  it('interpolates along authoritative route segments and clamps at both ends', () => {
+    const plan = { actionSequence: 3, observedMinute: 10, waypoints: [{ x: 0, y: 0, arriveMinute: 10 }, { x: 1, y: 0, arriveMinute: 20 }, { x: 1, y: 1, arriveMinute: 40 }] }
+    expect(positionAlongMovementPlan(plan, 5)).toEqual({ x: 0, y: 0 })
+    expect(positionAlongMovementPlan(plan, 15)).toEqual({ x: 0.5, y: 0 })
+    expect(positionAlongMovementPlan(plan, 30)).toEqual({ x: 1, y: 0.5 })
+    expect(positionAlongMovementPlan(plan, 50)).toEqual({ x: 1, y: 1 })
+    expect(scenePointAlongMovementPlan(map, plan, 15, 0.1)).toMatchObject({ x: 0, z: -0.5 })
   })
 
   it('interpolates only short same-action moves at readable speeds', () => {
