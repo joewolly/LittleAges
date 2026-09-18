@@ -19,6 +19,9 @@ historical or design context rather than a claim about the current runtime.
 - [`design-v0.1.md`](./design-v0.1.md) — the preserved v0.1 product-design
   baseline: vision, principles, intended scope, non-goals, release criteria,
   and post-v0.1 direction. It is not a live feature checklist.
+- [`graphics-direction.md`](./graphics-direction.md) — the implemented
+  post-v0.1 living-diorama renderer, visual asset, performance, and observer
+  boundaries.
 - [`implementation-plan-v0.1.md`](./implementation-plan-v0.1.md) — the
   preserved technical plan and decision record, including milestone gates and
   candidate implementation notes. It is not a deployment runbook.

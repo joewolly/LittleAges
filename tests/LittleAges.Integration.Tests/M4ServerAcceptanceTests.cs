@@ -308,6 +308,8 @@ public sealed class M4ServerAcceptanceTests
         mapResponse.EnsureSuccessStatusCode();
         using var map = JsonDocument.Parse(await mapResponse.Content.ReadAsStringAsync());
         Assert.Equal(map.RootElement.GetProperty("width").GetInt32() * map.RootElement.GetProperty("height").GetInt32(), map.RootElement.GetProperty("terrain").GetArrayLength());
+        Assert.Equal(map.RootElement.GetProperty("terrain").GetArrayLength(), map.RootElement.GetProperty("elevation").GetArrayLength());
+        Assert.NotEmpty(map.RootElement.GetProperty("resources").EnumerateArray());
     }
 
     private static async Task<JsonElement> GetSettlementAsync(HttpClient client)

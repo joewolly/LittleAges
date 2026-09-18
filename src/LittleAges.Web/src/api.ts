@@ -27,6 +27,9 @@ export type Citizen = {
   health: number
   currentAction: CitizenAction
   actionSequence: number
+  actionStartedMinute: number | null
+  actionCompletesMinute: number | null
+  target: { x: number; y: number } | null
   isAlive: boolean
   deathMinute: number | null
   deathCause: string | null
@@ -138,7 +141,22 @@ export type Structure = {
   contributions: StructureContribution[]
 }
 
-export type Map = { width: number; height: number; terrain: number[]; startingSite: { x: number; y: number } }
+export type MapResource = {
+  resourceNodeId: string
+  resourceType: ResourceType
+  location: { x: number; y: number }
+  maximumQuantity: number
+  regenerationPotential: number
+}
+
+export type Map = {
+  width: number
+  height: number
+  terrain: number[]
+  elevation: number[]
+  resources: MapResource[]
+  startingSite: { x: number; y: number }
+}
 
 export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted'] as const
 export type HistoricalEventType = typeof HISTORICAL_EVENT_TYPES[number]
@@ -555,6 +573,15 @@ function parseNullableSignedInteger(value: unknown, message: string): number | n
   return parseRequiredInteger(value, message)
 }
 
+function parseActionMinute(value: unknown, message: string): number | null {
+  if (value === null || value === undefined) return null
+  // WorldMinute is a value object on the authoritative wire contract. Retain
+  // numeric support for pre-M7 observers while normalizing both forms.
+  if (typeof value === 'number') return parseRequiredNonNegativeInteger(value, message)
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !('value' in value)) throw new Error(message)
+  return parseRequiredNonNegativeInteger(value.value, message)
+}
+
 function parseNullableString(value: unknown, message: string): string | null {
   if (value === null || value === undefined) return null
   if (typeof value !== 'string') throw new Error(message)
@@ -614,6 +641,10 @@ export function parseCitizens(value: unknown): Citizen[] {
   for (const item of value) {
     if (!isRecord(item) || typeof item.name !== 'string' || !item.name.trim() || typeof item.age !== 'number' || !Number.isSafeInteger(item.age) || item.age < 0 || typeof item.lifeStage !== 'string' || !isRecord(item.location) || typeof item.location.x !== 'number' || !Number.isSafeInteger(item.location.x) || item.location.x < 0 || typeof item.location.y !== 'number' || !Number.isSafeInteger(item.location.y) || item.location.y < 0 || typeof item.health !== 'number' || !Number.isSafeInteger(item.health) || item.health < 0 || item.health > 10000 || typeof item.currentAction !== 'string' || !ACTIONS.includes(item.currentAction as typeof ACTIONS[number]) || typeof item.actionSequence !== 'number' || !Number.isSafeInteger(item.actionSequence) || item.actionSequence < 0) throw new Error('The server returned an invalid citizen.')
     const citizenId = parsePositiveDecimalId(item.citizenId, 'The server returned an invalid citizen.')
+    const actionStartedMinute = parseActionMinute(item.actionStartedMinute, 'The server returned an invalid citizen action start minute.')
+    const actionCompletesMinute = parseActionMinute(item.actionCompletesMinute, 'The server returned an invalid citizen action completion minute.')
+    if (actionStartedMinute !== null && actionCompletesMinute !== null && actionStartedMinute > actionCompletesMinute) throw new Error('The server returned incoherent citizen action timing.')
+    const target = item.target === undefined || item.target === null ? null : parseCoordinate(item.target, 'The server returned an invalid citizen action target.')
     const actionPhase = item.actionPhase === undefined ? 'None' : item.actionPhase
     if (typeof actionPhase !== 'string' || !ACTION_PHASES.includes(actionPhase as typeof ACTION_PHASES[number])) throw new Error('The server returned an invalid citizen action phase.')
     const isAlive = item.isAlive === undefined ? true : item.isAlive
@@ -642,7 +673,7 @@ export function parseCitizens(value: unknown): Citizen[] {
     const householdId = parseNullablePositiveDecimalId(item.householdId, 'The server returned an invalid household ID.')
     const childrenIds = item.childrenIds === undefined ? [] : parseCanonicalIdList(item.childrenIds, 'The server returned invalid children IDs.')
     const targetCitizenId = parseNullablePositiveDecimalId(item.targetCitizenId, 'The server returned an invalid target citizen ID.')
-    result.push({ ...item, citizenId, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId } as unknown as Citizen)
+    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId } as unknown as Citizen)
   }
   return result
 }
@@ -755,9 +786,28 @@ export function parseMap(value: unknown): Map {
     if (terrainType < 1 || terrainType > 5) throw new Error('The server returned an invalid terrain type.')
     return terrainType
   })
+  const elevationValue = value.elevation === undefined ? Array.from({ length: width * height }, () => 0) : value.elevation
+  if (!Array.isArray(elevationValue) || elevationValue.length !== width * height) throw new Error('The server returned an invalid row-major elevation map.')
+  const elevation = elevationValue.map(entry => {
+    const normalized = parseRequiredNonNegativeInteger(entry, 'The server returned an invalid elevation value.')
+    if (normalized > 10000) throw new Error('The server returned an invalid elevation value.')
+    return normalized
+  })
   const startingSite = parseCoordinate(value.startingSite, 'The server returned an invalid starting site.')
   if (startingSite.x >= width || startingSite.y >= height) throw new Error('The server returned an out-of-bounds starting site.')
-  return { width, height, terrain, startingSite }
+  const resourcesValue = value.resources === undefined ? [] : value.resources
+  if (!Array.isArray(resourcesValue)) throw new Error('The server returned invalid map resources.')
+  const resources = resourcesValue.map(entry => {
+    if (!isRecord(entry)) throw new Error('The server returned an invalid map resource.')
+    const resourceType = parseNullableResource(entry.resourceType)
+    const location = parseCoordinate(entry.location, 'The server returned an invalid map resource location.')
+    const maximumQuantity = parseRequiredNonNegativeInteger(entry.maximumQuantity, 'The server returned an invalid map resource maximum quantity.')
+    const regenerationPotential = parseRequiredNonNegativeInteger(entry.regenerationPotential, 'The server returned an invalid map resource regeneration potential.')
+    if (resourceType === null || location.x >= width || location.y >= height || maximumQuantity === 0 || regenerationPotential > 10000) throw new Error('The server returned an invalid map resource.')
+    return { resourceNodeId: parsePositiveDecimalId(entry.resourceNodeId, 'The server returned an invalid map resource ID.'), resourceType, location, maximumQuantity, regenerationPotential }
+  })
+  for (let index = 1; index < resources.length; index += 1) if (BigInt(resources[index - 1].resourceNodeId) >= BigInt(resources[index].resourceNodeId)) throw new Error('The server returned map resources out of canonical order.')
+  return { width, height, terrain, elevation, resources, startingSite }
 }
 
 export async function fetchMap(): Promise<Map> { return parseMap(await get('/api/v1/map')) }

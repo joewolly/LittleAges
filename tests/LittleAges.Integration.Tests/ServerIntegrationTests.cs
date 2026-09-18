@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -197,7 +198,22 @@ public sealed class ServerIntegrationTests
             var width = initialMap.RootElement.GetProperty("width").GetInt32();
             var height = initialMap.RootElement.GetProperty("height").GetInt32();
             var terrain = initialMap.RootElement.GetProperty("terrain").EnumerateArray().ToArray();
+            var elevation = initialMap.RootElement.GetProperty("elevation").EnumerateArray().Select(static item => item.GetInt32()).ToArray();
+            var resources = initialMap.RootElement.GetProperty("resources").EnumerateArray().ToArray();
             Assert.Equal(width * height, terrain.Length);
+            Assert.Equal(width * height, elevation.Length);
+            Assert.All(elevation, static value => Assert.InRange(value, 0, 10000));
+            Assert.NotEmpty(resources);
+            var resourceIds = resources.Select(static item => long.Parse(item.GetProperty("resourceNodeId").GetString()!, CultureInfo.InvariantCulture)).ToArray();
+            Assert.Equal(resourceIds.OrderBy(static value => value), resourceIds);
+            Assert.All(resources, resource =>
+            {
+                Assert.True(resource.GetProperty("resourceType").GetString() is "Food" or "Wood" or "Stone");
+                Assert.InRange(resource.GetProperty("location").GetProperty("x").GetInt32(), 0, width - 1);
+                Assert.InRange(resource.GetProperty("location").GetProperty("y").GetInt32(), 0, height - 1);
+                Assert.True(resource.GetProperty("maximumQuantity").GetInt32() > 0);
+                Assert.InRange(resource.GetProperty("regenerationPotential").GetInt32(), 0, 10000);
+            });
             Assert.All(terrain, value => Assert.Equal(JsonValueKind.Number, value.ValueKind));
             Assert.Equal(160, width);
             Assert.Equal(160, height);

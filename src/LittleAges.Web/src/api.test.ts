@@ -10,6 +10,9 @@ const citizen = {
   health: 10000,
   currentAction: 'Idle',
   actionSequence: 0,
+  actionStartedMinute: { value: 10 },
+  actionCompletesMinute: { value: 20 },
+  target: { x: 2, y: 2 },
   isAlive: true,
   deathMinute: null,
   deathCause: null,
@@ -201,7 +204,9 @@ describe('API response parsing', () => {
 
   it('parses canonical structures and a row-major terrain map', () => {
     expect(parseStructures([structure])[0].contributions[0].constructionWork).toBe(9)
-    expect(parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], startingSite: { x: 1, y: 1 } })).toEqual({ width: 2, height: 2, terrain: [1, 2, 3, 4], startingSite: { x: 1, y: 1 } })
+    expect(parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], startingSite: { x: 1, y: 1 } })).toEqual({ width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 0, 0, 0], resources: [], startingSite: { x: 1, y: 1 } })
+    expect(parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [100, 200, 300, 400], resources: [{ resourceNodeId: '7', resourceType: 'Wood', location: { x: 1, y: 0 }, maximumQuantity: 500, regenerationPotential: 80 }], startingSite: { x: 1, y: 1 } })).toMatchObject({ elevation: [100, 200, 300, 400], resources: [{ resourceNodeId: '7', resourceType: 'Wood' }] })
+    expect(parseCitizens([citizen])[0]).toMatchObject({ actionStartedMinute: 10, actionCompletesMinute: 20, target: { x: 2, y: 2 } })
   })
 
   it.each([
@@ -213,6 +218,10 @@ describe('API response parsing', () => {
     () => parseStructures([structure, { ...structure, structureId: '2' }]),
     () => parseMap({ width: 2, height: 2, terrain: [1, 2, 3], startingSite: { x: 0, y: 0 } }),
     () => parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 9], startingSite: { x: 0, y: 0 } }),
+    () => parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 0, 0], startingSite: { x: 0, y: 0 } }),
+    () => parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], resources: [{ resourceNodeId: '1', resourceType: 'Wood', location: { x: 2, y: 0 }, maximumQuantity: 1, regenerationPotential: 0 }], startingSite: { x: 0, y: 0 } }),
+    () => parseCitizens([{ ...citizen, actionStartedMinute: { value: 21 }, actionCompletesMinute: { value: 20 } }]),
+    () => parseCitizens([{ ...citizen, actionStartedMinute: { value: 10, unit: 'minute' } }]),
   ])('rejects malformed M4 observation data', parse => expect(parse).toThrow())
 
   it.each([

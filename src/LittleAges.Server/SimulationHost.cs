@@ -190,6 +190,14 @@ public sealed record ServerResourceQuantitySnapshot(ResourceType ResourceType, i
 
 public sealed record ServerResourceNodeSnapshot(string ResourceNodeId, ResourceType ResourceType, int CurrentQuantity);
 
+/// <summary>Immutable visual definition for a canonical resource node.</summary>
+public sealed record ServerMapResourceSnapshot(
+    string ResourceNodeId,
+    ResourceType ResourceType,
+    WorldStartingSiteSnapshot Location,
+    int MaximumQuantity,
+    int RegenerationPotential);
+
 public sealed record ServerStructureContributionSnapshot(
     string CitizenId,
     int ConstructionWork,
@@ -257,12 +265,24 @@ public sealed record ServerMapSnapshot
         Width = world.Width;
         Height = world.Height;
         Terrain = Array.AsReadOnly(world.Tiles.Select(static tile => (int)tile.Terrain).ToArray());
+        Elevation = Array.AsReadOnly(world.Tiles.Select(static tile => tile.Elevation).ToArray());
+        Resources = Array.AsReadOnly(world.Resources
+            .OrderBy(static node => node.Id.Value)
+            .Select(static node => new ServerMapResourceSnapshot(
+                node.Id.Value.ToString(CultureInfo.InvariantCulture),
+                node.Type,
+                new WorldStartingSiteSnapshot(node.Coordinate.X, node.Coordinate.Y),
+                node.MaximumQuantity,
+                node.RegenerationPotential))
+            .ToArray());
         StartingSite = new WorldStartingSiteSnapshot(world.StartingSite.X, world.StartingSite.Y);
     }
 
     public int Width { get; }
     public int Height { get; }
     public IReadOnlyList<int> Terrain { get; }
+    public IReadOnlyList<int> Elevation { get; }
+    public IReadOnlyList<ServerMapResourceSnapshot> Resources { get; }
     public WorldStartingSiteSnapshot StartingSite { get; }
 }
 
