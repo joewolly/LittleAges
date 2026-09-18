@@ -54,7 +54,27 @@ npm run dev
 
 The Vite development server proxies relative `/api` requests to `http://127.0.0.1:5274`. Start the backend first, then open the Vite URL shown by Vite (normally `http://localhost:5173`). The browser is optional: the server and simulation host run without a connected client.
 
-## Run the server on Windows
+## Install the Windows release (recommended)
+
+The v0.1 release artifact is a self-contained directory for 64-bit Windows;
+the target host does not need Git, Node.js, the .NET SDK, or a .NET runtime.
+Download `LittleAges-v0.1.0-win-x64.zip`, extract it, open PowerShell as
+Administrator in the extracted folder, and run:
+
+```powershell
+.\install.ps1 -EnableLan
+```
+
+Open the local or private-LAN URL printed by the installer. Running
+`install.ps1` again upgrades the application without deleting the world. The
+default uninstall command is `.\uninstall.ps1`; it removes the service and
+application files while preserving the civilization at
+`C:\ProgramData\LittleAges\worlds`.
+
+LAN mode is trusted-network-only. Little Ages v0.1 has no built-in
+authentication or TLS and must not be exposed to the public Internet.
+
+## Run the server on Windows (advanced/manual)
 
 From the repository root, run the console host in PowerShell:
 
@@ -77,15 +97,15 @@ LAN access is for a trusted local network only; Little Ages is not designed for 
 dotnet run --project .\src\LittleAges.Server -- --DataRoot .\data --ListenUrls http://0.0.0.0:5274 --ActiveWorld default-world --WorldSeed 0
 ```
 
-Use an appropriate network boundary before exposing that binding. This is trusted-LAN functionality only: Little Ages has no built-in authentication or TLS and is not designed for public Internet exposure. No firewall rule is changed automatically. A graceful stop drains work and attempts a final checkpoint; after a process crash or reboot, startup resumes from the last committed checkpoint and does not catch up suspended wall time. No Docker or cloud service is required.
+Use an appropriate network boundary before exposing that binding. This is trusted-LAN functionality only: Little Ages has no built-in authentication or TLS and is not designed for public Internet exposure. The advanced console command does not change firewall rules; the release installer creates its scoped `Private`/`LocalSubnet` rule. A graceful stop drains work and attempts a final checkpoint; after a process crash or reboot, startup resumes from the last committed checkpoint and does not catch up suspended wall time. No Docker or cloud service is required.
 
-To produce one clean framework-dependent `win-x64` deployment directory containing both the server and the Vite site:
+To produce one clean self-contained `win-x64` deployment directory containing both the server and the Vite site:
 
 ```powershell
 .\scripts\publish-windows.ps1 -OutputDirectory .\artifacts\windows-publish
 ```
 
-The script verifies `dotnet`, `node`, and `npm`, runs `npm ci` and `npm run build`, publishes `LittleAges.Server` in Release mode, and copies the Vite `dist` contents into the published `wwwroot`. It does not commit or require a checked-in `dist` directory.
+The script verifies `dotnet`, `node`, and `npm`, runs `npm ci` and `npm run build`, publishes `LittleAges.Server` in Release mode with the .NET runtime included, and copies the Vite `dist` contents into the published `wwwroot`. It does not enable single-file publishing, trimming, or NativeAOT, and does not commit or require a checked-in `dist` directory. To create the release ZIP with its installer and end-user guide, run `.\scripts\package-windows.ps1 -Version 0.1.0`.
 
 ## Documentation
 

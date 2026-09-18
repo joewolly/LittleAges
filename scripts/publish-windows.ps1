@@ -218,7 +218,10 @@ try {
         Invoke-RidRestore -RestoreMode '--locked-mode'
     }
 
-    Invoke-CheckedCommand -FilePath $dotnet -Arguments @('publish', $serverProject, '--configuration', 'Release', '--runtime', 'win-x64', '--self-contained', 'false', '--no-restore', '--output', $stagingPath) -WorkingDirectory $repoRoot
+    # Keep the release as a self-contained directory deployment.  Do not turn
+    # this into a single-file, trimmed, or NativeAOT publish: the v0.1 host is
+    # intentionally the least risky shape for a Windows Service upgrade.
+    Invoke-CheckedCommand -FilePath $dotnet -Arguments @('publish', $serverProject, '--configuration', 'Release', '--runtime', 'win-x64', '--self-contained', 'true', '--no-restore', '--output', $stagingPath) -WorkingDirectory $repoRoot
 
     $wwwRoot = Join-Path -Path $stagingPath -ChildPath 'wwwroot'
     New-Item -ItemType Directory -Path $wwwRoot -Force | Out-Null

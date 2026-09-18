@@ -1,0 +1,59 @@
+name: Windows package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate artifact version (for example 0.1.0)
+        required: true
+        default: 0.1.0
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.100
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: src/LittleAges.Web/package-lock.json
+
+      - name: Build Windows package
+        id: package
+        shell: pwsh
+        env:
+          LITTLEAGES_PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          $version = $env:LITTLEAGES_PACKAGE_VERSION
+          .\scripts\package-windows.ps1 -Version $version
+
+          # package-windows.ps1 validates the version before constructing this
+          # known artifact path. Do not derive upload paths from raw workflow
+          # input expressions.
+          $artifactName = 'LittleAges-v{0}-win-x64.zip' -f $version
+          $artifactPath = Join-Path -Path 'artifacts' -ChildPath $artifactName
+          if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+            throw "Expected Windows package was not produced: $artifactPath"
+          }
+          "artifact_path=$artifactPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: LittleAges-Windows
+          path: ${{ steps.package.outputs.artifact_path }}
+          if-no-files-found: error
