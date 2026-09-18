@@ -299,11 +299,100 @@ function Wait-ServiceState {
     throw "Service '$($script:ServiceName)' did not reach $Desired within $TimeoutSeconds seconds (current state: $current)."
 }
 
+function Wait-ProcessExitBounded {
+    param(
+        [Parameter(Mandatory)] [int] $ProcessId,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds
+    )
+
+    if ($ProcessId -le 0) { return }
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $process) { return }
+        $process.Dispose()
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    if ($null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) {
+        throw "Service process $ProcessId did not exit within $TimeoutSeconds seconds; no process termination was attempted."
+    }
+}
+
 function Stop-ServiceBounded {
     $service = Get-Service -Name $script:ServiceName -ErrorAction Stop
-    if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) { return }
+    $details = Get-ServiceDetails
+    $processId = if ($null -ne $details) { [int] $details.ProcessId } else { 0 }
+    if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+        if ($processId -gt 0) { Wait-ProcessExitBounded -ProcessId $processId -TimeoutSeconds $script:ServiceWaitSeconds }
+        return $processId
+    }
+    if ($processId -le 0) { throw "Service '$($script:ServiceName)' has no running process ID to await." }
     Stop-Service -Name $script:ServiceName -ErrorAction Stop
     Wait-ServiceState -Desired ([System.ServiceProcess.ServiceControllerStatus]::Stopped) -TimeoutSeconds $script:ServiceWaitSeconds | Out-Null
+    Wait-ProcessExitBounded -ProcessId $processId -TimeoutSeconds $script:ServiceWaitSeconds
+    return $processId
+}
+
+function Move-DirectoryAtomically {
+    param(
+        [Parameter(Mandatory)] [string] $SourcePath,
+        [Parameter(Mandatory)] [string] $DestinationPath,
+        [Parameter()] [int] $RetryCount = 5,
+        [Parameter()] [int] $RetryDelayMilliseconds = 100
+    )
+
+    $source = [System.IO.Path]::GetFullPath($SourcePath).TrimEnd('\', '/')
+    $destination = [System.IO.Path]::GetFullPath($DestinationPath).TrimEnd('\', '/')
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw "Atomic move source does not exist: $source" }
+    if (Test-Path -LiteralPath $destination) { throw "Atomic move destination already exists: $destination" }
+
+    $sourceParent = [System.IO.DirectoryInfo]::new($source).Parent.FullName.TrimEnd('\', '/')
+    $destinationParent = [System.IO.DirectoryInfo]::new($destination).Parent.FullName.TrimEnd('\', '/')
+    if (-not [string]::Equals($sourceParent, $destinationParent, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Atomic move requires source and destination to have the same parent directory: $source -> $destination"
+    }
+    if (-not [string]::Equals([System.IO.Path]::GetPathRoot($source), [System.IO.Path]::GetPathRoot($destination), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Atomic move requires source and destination to be on the same volume: $source -> $destination"
+    }
+
+    $lastIOException = $null
+    for ($attempt = 1; $attempt -le [Math]::Max(1, $RetryCount); $attempt++) {
+        try {
+            [System.IO.Directory]::Move($source, $destination)
+            return
+        }
+        catch [System.IO.IOException] {
+            $lastIOException = $_.Exception
+            if ($attempt -lt [Math]::Max(1, $RetryCount)) {
+                Start-Sleep -Milliseconds ($RetryDelayMilliseconds * $attempt)
+            }
+        }
+    }
+    throw "Atomic move failed after $([Math]::Max(1, $RetryCount)) attempts: $source -> $destination. $($lastIOException.Message)"
+}
+
+function Get-DeploymentLayoutState {
+    param(
+        [Parameter(Mandatory)] [string] $InstallPath,
+        [Parameter(Mandatory)] [string] $NewPath,
+        [Parameter(Mandatory)] [string] $BackupPath,
+        [Parameter(Mandatory)] [string] $FailedPath
+    )
+
+    if (Test-Path -LiteralPath $FailedPath -PathType Container) { return 'FAILED' }
+    if (Test-Path -LiteralPath $BackupPath -PathType Container) { return 'BACKUP' }
+    if (Test-Path -LiteralPath $NewPath -PathType Container) { return 'NEW' }
+    if (Test-Path -LiteralPath $InstallPath -PathType Container) { return 'OLD' }
+    return 'EMPTY'
+}
+
+function Write-DeploymentState {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('OLD', 'NEW', 'BACKUP', 'FAILED')] [string] $State
+    )
+
+    Write-Verbose "Little Ages deployment state: $State"
 }
 
 function Set-ServiceRegistration {
@@ -569,12 +658,15 @@ $configurationJson = $configuration | ConvertTo-Json -Depth 10
 $runId = [Guid]::NewGuid().ToString('N')
 $newDeployment = Join-Path -Path $installParent -ChildPath ('.LittleAges.new-' + $runId)
 $backupDeployment = Join-Path -Path $installParent -ChildPath ('.LittleAges.rollback-' + $runId)
-$deploymentMoved = $false
+$failedDeployment = Join-Path -Path $installParent -ChildPath ('.LittleAges.failed-' + $runId)
+$deploymentState = 'OLD'
+$oldDeploymentMoved = $false
 $newDeploymentMoved = $false
 $serviceCreated = $false
 $serviceRegistrationTouched = $false
 $firewallTouched = $false
 $installSucceeded = $false
+$serviceProcessId = 0
 $rollbackErrors = New-Object System.Collections.Generic.List[string]
 $existingWorldData = Test-Path -LiteralPath $effectiveDataPath -PathType Container
 if ($existingWorldData) {
@@ -586,10 +678,8 @@ try {
     New-Item -ItemType Directory -Path $effectiveDataPath -Force | Out-Null
     Set-DataDirectoryAcl -Path $effectiveDataPath
 
-    if ($null -ne $existingService) {
-        Stop-ServiceBounded
-    }
-
+    # Build and validate the complete replacement before taking the service
+    # offline. The world data directory is deliberately outside this tree.
     New-Item -ItemType Directory -Path $newDeployment -Force | Out-Null
     foreach ($item in @(Get-ChildItem -LiteralPath $packageSource -Force)) {
         Copy-Item -LiteralPath $item.FullName -Destination $newDeployment -Recurse -Force
@@ -597,14 +687,27 @@ try {
     Set-Content -LiteralPath (Join-Path -Path $newDeployment -ChildPath 'appsettings.json') -Value $configurationJson -Encoding UTF8
     $markerJson = (New-InstallOwnershipMarker -InstallPath $installPath) | ConvertTo-Json -Depth 4
     Set-Content -LiteralPath (Join-Path -Path $newDeployment -ChildPath $script:InstallMarkerFileName) -Value $markerJson -Encoding UTF8
+    if (-not (Test-Path -LiteralPath (Join-Path -Path $newDeployment -ChildPath 'LittleAges.Server.exe') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path -Path $newDeployment -ChildPath 'wwwroot\index.html') -PathType Leaf)) {
+        throw 'The staged deployment is incomplete.'
+    }
+    Write-DeploymentState -State 'NEW'
+
+    if ($null -ne $existingService) {
+        $serviceProcessId = Stop-ServiceBounded
+    }
 
     if (Test-Path -LiteralPath $installPath) {
         if (-not (Test-Path -LiteralPath $installPath -PathType Container)) { throw "InstallDirectory exists but is not a directory: $installPath" }
-        Move-Item -LiteralPath $installPath -Destination $backupDeployment
-        $deploymentMoved = $true
+        Move-DirectoryAtomically -SourcePath $installPath -DestinationPath $backupDeployment
+        $oldDeploymentMoved = $true
+        $deploymentState = 'BACKUP'
+        Write-DeploymentState -State 'BACKUP'
     }
-    Move-Item -LiteralPath $newDeployment -Destination $installPath
+    Move-DirectoryAtomically -SourcePath $newDeployment -DestinationPath $installPath
     $newDeploymentMoved = $true
+    $deploymentState = 'OLD'
+    Write-DeploymentState -State 'OLD'
     Set-DataDirectoryAcl -Path $effectiveDataPath
 
     $serviceExecutable = Join-Path -Path $installPath -ChildPath 'LittleAges.Server.exe'
@@ -626,6 +729,8 @@ try {
 catch {
     $failureMessage = $_.Exception.Message
     Write-Warning "Little Ages installation failed: $failureMessage"
+    $deploymentState = 'FAILED'
+    Write-DeploymentState -State 'FAILED'
 
     try {
         if ($serviceRegistrationTouched -or $serviceCreated) {
@@ -652,14 +757,19 @@ catch {
     catch { [void] $rollbackErrors.Add("Could not remove the new service registration: $($_.Exception.Message)") }
 
     try {
-        if ($newDeploymentMoved -and (Test-Path -LiteralPath $installPath)) {
-            Remove-Item -LiteralPath $installPath -Recurse -Force
+        # Never recursively delete a deployment during rollback. Preserve a
+        # failed tree if a locked handle prevents the atomic move.
+        if ($newDeploymentMoved -and (Test-Path -LiteralPath $installPath -PathType Container)) {
+            Move-DirectoryAtomically -SourcePath $installPath -DestinationPath $failedDeployment
         }
-        elseif (Test-Path -LiteralPath $newDeployment) {
-            Remove-Item -LiteralPath $newDeployment -Recurse -Force
+        elseif (Test-Path -LiteralPath $newDeployment -PathType Container) {
+            Move-DirectoryAtomically -SourcePath $newDeployment -DestinationPath $failedDeployment
         }
-        if ($deploymentMoved -and (Test-Path -LiteralPath $backupDeployment)) {
-            Move-Item -LiteralPath $backupDeployment -Destination $installPath
+        if ($oldDeploymentMoved -and (Test-Path -LiteralPath $backupDeployment -PathType Container)) {
+            if (Test-Path -LiteralPath $installPath) {
+                throw "Cannot restore the previous deployment because the install path is occupied: $installPath"
+            }
+            Move-DirectoryAtomically -SourcePath $backupDeployment -DestinationPath $installPath
         }
     }
     catch { [void] $rollbackErrors.Add("Could not restore the previous application files: $($_.Exception.Message)") }
@@ -686,11 +796,13 @@ catch {
     throw "Little Ages installation failed; the previous deployment was restored. World data was not modified. Original error: $failureMessage"
 }
 finally {
-    if (-not $installSucceeded -and (Test-Path -LiteralPath $newDeployment)) {
-        Remove-Item -LiteralPath $newDeployment -Recurse -Force -ErrorAction SilentlyContinue
-    }
     if ($installSucceeded -and (Test-Path -LiteralPath $backupDeployment)) {
-        Remove-Item -LiteralPath $backupDeployment -Recurse -Force
+        try {
+            Remove-Item -LiteralPath $backupDeployment -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "Installation succeeded, but non-critical cleanup of the previous deployment failed; it was preserved at $backupDeployment. $($_.Exception.Message)"
+        }
     }
 }
 
