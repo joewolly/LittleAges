@@ -129,3 +129,15 @@ a browser error event. That exact injected diagnostic is recorded, not hidden.
 Other scenarios produced no uncaught browser errors. Screenshots were captured
 and desktop/mobile inspected. These headless measurements do not certify a
 foreground hardware 45 FPS target.
+
+### S1 — MUST FIX — Cross-site browser requests can change operational state (fixed)
+
+The unauthenticated pause/resume routes accepted simple cross-site POSTs;
+absence of CORS response headers prevents reading responses but does not
+prevent those mutations. The regression reproduced HTTP 200 with a foreign
+Origin. A narrow control-route check now rejects foreign, opaque, malformed,
+or multiple origins with HTTP 403 before enqueueing commands. Same-origin
+requests (including explicit default ports) and existing non-browser clients
+without Origin remain compatible. Tests verify all three controls, rejection
+without state changes, and successful same-origin/control requests. This is
+not LAN authentication; the documented trusted-network boundary remains.

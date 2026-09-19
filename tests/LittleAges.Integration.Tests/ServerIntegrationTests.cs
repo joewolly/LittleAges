@@ -121,6 +121,46 @@ public sealed class ServerIntegrationTests
     }
 
     [Fact]
+    public async Task BrowserControlRequestsRejectForeignOriginsWithoutChangingStatus()
+    {
+        var dataRoot = CreateDataRoot();
+        using var factory = new ServerFactory(dataRoot, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+        try
+        {
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            foreach (var origin in new[] { "https://untrusted.example", "null", "http://localhost:81", "https://localhost", "http://localhost.untrusted.example" })
+            foreach (var action in new[] { "pause", "resume", "speed" })
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/control/{action}");
+                request.Headers.Add("Origin", origin);
+                request.Content = new StringContent("{\"speed\":10}", Encoding.UTF8, "application/json");
+                using var response = await client.SendAsync(request);
+                Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            }
+            using var status = await client.GetAsync("/api/v1/status");
+            using var unchanged = JsonDocument.Parse(await status.Content.ReadAsStringAsync());
+            Assert.True(unchanged.RootElement.GetProperty("paused").GetBoolean());
+            Assert.Equal(0, unchanged.RootElement.GetProperty("operationalSpeed").GetDouble());
+            Assert.Equal(0, unchanged.RootElement.GetProperty("worldMinute").GetInt64());
+
+            foreach (var origin in new[] { "http://localhost", "http://localhost:80" })
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/control/speed");
+                request.Headers.Add("Origin", origin);
+                request.Content = new StringContent("{\"speed\":5}", Encoding.UTF8, "application/json");
+                using var response = await client.SendAsync(request);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            }
+        }
+        finally
+        {
+            factory.Dispose();
+            CleanupDataRoot(dataRoot);
+        }
+    }
+
+    [Fact]
     public async Task OperationalControlRoutesValidateAndReportImmutableStatus()
     {
         var dataRoot = CreateDataRoot();

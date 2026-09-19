@@ -41,6 +41,11 @@ that address is display-only and is not the security boundary. LAN mode is for
 a trusted local network only. Little Ages v0.1 has no built-in authentication
 or TLS and must not be exposed to the public Internet.
 
+Browser requests to pause, resume, or change speed must use the observer's own
+origin (scheme, host, and port). Foreign or opaque `Origin` headers receive
+HTTP 403. Non-browser clients without an `Origin` header remain supported;
+this check prevents cross-site browser control, not access by LAN clients.
+
 The installer starts the service and waits for both:
 
 ```text
