@@ -70,8 +70,15 @@ World data is never under Program Files. The installer preserves the configured
 `DataRoot`, `ActiveWorld`, `WorldSeed`, operational speed, checkpoint settings,
 browser update interval, and user-owned configuration such as logging when
 upgrading. Installer arguments explicitly supplied on the command line take
-precedence. The normal installer mode is loopback; pass `-EnableLan` on an
-upgrade when LAN access is wanted.
+precedence. A fresh installation defaults to loopback. Upgrades preserve the
+existing LAN mode when `-EnableLan` is omitted; use `-EnableLan:$false` to
+explicitly return to loopback.
+
+The registered service executable must belong to the selected
+`InstallDirectory`. A mismatched or unreadable registration rejects installation
+and removal before service changes. Service updates use the structured Windows
+service API so executable quoting survives both PowerShell 5.1 and 7. Failed
+upgrade rollback preserves the original complete service command line.
 
 If the data directory already contains a world, the installer reports it as
 preserved and lets the server validate/open it normally. It never deletes,

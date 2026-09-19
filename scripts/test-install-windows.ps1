@@ -378,22 +378,65 @@ Assert-Equal -Expected 'Private' -Actual $restoredRule.Profile -Message 'Present
 Assert-Equal -Expected 'LocalSubnet' -Actual $restoredRule.RemoteAddress -Message 'Present rollback restores prior remote scope'
 Assert-Contains -Text $installerText -Expected 'Restore-ManagedFirewallState -State $oldFirewallState' -Message 'Installer rollback uses captured firewall state'
 
-# Exercise the service argument construction with the production path that
-# contains spaces, while intercepting the native call before it reaches sc.exe.
-$script:NativeInvocation = $null
-function Invoke-NativeChecked {
+# Exercise the service API boundary without changing the machine. Structured
+# CIM arguments preserve quotes on both supported PowerShell versions.
+$script:ServiceChange = $null
+$script:ServiceChangeResult = 0
+function Get-CimInstance {
+    [CmdletBinding()]
     param(
-        [string] $FilePath,
-        [string[]] $Arguments,
-        [string] $Operation
+        [string] $ClassName,
+        [string] $Filter
     )
-    $script:NativeInvocation = [pscustomobject]@{ FilePath = $FilePath; Arguments = $Arguments; Operation = $Operation }
+    Assert-Equal -Expected 'Win32_Service' -Actual $ClassName -Message 'Service class'
+    Assert-Equal -Expected "Name='Little Ages'" -Actual $Filter -Message 'Fixed service identity'
+    return [pscustomobject]@{ Name = 'Little Ages' }
+}
+function Invoke-CimMethod {
+    [CmdletBinding()]
+    param([object] $InputObject, [string] $MethodName, [hashtable] $Arguments)
+    Assert-Equal -Expected 'Little Ages' -Actual $InputObject.Name -Message 'Service change identity'
+    Assert-Equal -Expected 'Change' -Actual $MethodName -Message 'Service change method'
+    $script:ServiceChange = $Arguments
+    return [pscustomobject]@{ ReturnValue = $script:ServiceChangeResult }
 }
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Set-ServiceRegistration')))
 $spaceExecutable = 'C:\Program Files\LittleAges\LittleAges.Server.exe'
 Set-ServiceRegistration -ExecutablePath $spaceExecutable -SetAccount
-Assert-Equal -Expected 'Little Ages' -Actual $script:NativeInvocation.Arguments[1] -Message 'Service registration targets fixed installer-owned identity'
-Assert-Equal -Expected ('"{0}"' -f $spaceExecutable) -Actual $script:NativeInvocation.Arguments[3] -Message 'Service path with spaces remains quoted'
+Assert-Equal -Expected ('"{0}"' -f $spaceExecutable) -Actual $script:ServiceChange.PathName -Message 'Service path with spaces remains quoted at the OS API boundary'
+Assert-Equal -Expected 'Automatic' -Actual $script:ServiceChange.StartMode -Message 'Automatic startup'
+Assert-Equal -Expected 'NT AUTHORITY\LocalService' -Actual $script:ServiceChange.StartName -Message 'LocalService identity'
+$oldCommandLine = '"C:\Program Files\LittleAges\LittleAges.Server.exe" --ActiveWorld "my world"'
+Set-ServiceRegistration -BinaryPathName $oldCommandLine -StartMode demand
+Assert-Equal -Expected $oldCommandLine -Actual $script:ServiceChange.PathName -Message 'Rollback preserves the full command line'
+Assert-Equal -Expected 'Manual' -Actual $script:ServiceChange.StartMode -Message 'Rollback preserves manual startup'
+$script:ServiceChangeResult = 2
+$changeFailed = $false
+try { Set-ServiceRegistration -ExecutablePath $spaceExecutable } catch { $changeFailed = $true }
+Assert-Equal -Expected $true -Actual $changeFailed -Message 'Service API failure is propagated'
+
+foreach ($scriptPath in @($installerPath, $uninstallerPath)) {
+    . ([scriptblock]::Create((Get-FunctionSource -Path $scriptPath -Name 'Assert-ServiceInstallation')))
+    foreach ($commandLine in @($spaceExecutable, ('"{0}"' -f $spaceExecutable), $oldCommandLine)) {
+        Assert-ServiceInstallation -Details ([pscustomobject]@{ PathName = $commandLine }) -InstallPath 'C:\Program Files\LittleAges'
+    }
+    foreach ($commandLine in @('C:\Other\LittleAges.Server.exe', '"C:\Other\LittleAges.Server.exe" --anything',
+        'C:\Program Files\LittleAges\LittleAges.Server.exe.evil', 'LittleAges.Server.exe', '')) {
+        $rejected = $false
+        try { Assert-ServiceInstallation -Details ([pscustomobject]@{ PathName = $commandLine }) -InstallPath 'C:\Program Files\LittleAges' }
+        catch { $rejected = $true }
+        Assert-Equal -Expected $true -Actual $rejected -Message "Reject service path mismatch ($commandLine)"
+    }
+    $rejected = $false
+    try { Assert-ServiceInstallation -Details $null -InstallPath 'C:\Program Files\LittleAges' } catch { $rejected = $true }
+    Assert-Equal -Expected $true -Actual $rejected -Message 'Unreadable registration fails closed'
+}
+
+$guardIndex = $installerText.IndexOf('Assert-ServiceInstallation -Details $existingServiceDetails', [StringComparison]::Ordinal)
+if ($guardIndex -lt 0 -or $guardIndex -ge $stagingIndex) { throw 'Installer must verify service ownership before staging or service mutation.' }
+$guardIndex = $uninstallerText.IndexOf('Assert-ServiceInstallation -Details $serviceDetails', [StringComparison]::Ordinal)
+$stopIndex = $uninstallerText.LastIndexOf('    Stop-ServiceBounded', [StringComparison]::Ordinal)
+if ($guardIndex -lt 0 -or $guardIndex -ge $stopIndex) { throw 'Uninstaller must verify service ownership before stopping it.' }
 
 # Keep workflow input interpolation out of executable PowerShell and artifact
 # paths. The version may enter through env, but paths are derived after the
