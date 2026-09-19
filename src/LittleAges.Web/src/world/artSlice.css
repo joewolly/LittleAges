@@ -1,0 +1,15 @@
+.art-study { height: 100dvh; display: flex; flex-direction: column; padding: 12px; gap: 10px; }
+.art-study-header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; color: #293c24; }
+.art-study-header strong { font: 700 22px Georgia, serif; }
+.art-study-header span { font: 12px system-ui, sans-serif; opacity: .8; }
+.art-study-header label { margin-left: auto; display: flex; align-items: center; gap: 8px; font: 12px system-ui, sans-serif; }
+.art-study-header button, .art-study-header select { border: 1px solid #d0d5b8; border-radius: 8px; padding: 8px 12px; background: #f6f0dc; color: #293c24; font: 600 12px system-ui, sans-serif; }
+@media (max-width: 600px) {
+  .art-study { padding: 6px; gap: 6px; }
+  .art-study-header { gap: 8px; }
+  .art-study-header strong { font-size: 18px; }
+  .art-study-header span { display: none; }
+  .art-study-header label { margin-left: 0; width: 100%; }
+  .art-study-header select { flex: 1; }
+  .art-study .world-perf { bottom: 112px; max-width: calc(100% - 36px); font-size: 9px; }
+}

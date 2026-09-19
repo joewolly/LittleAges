@@ -1,12 +1,14 @@
 # v0.1 Graphics Direction — Historical Mobile-Builder Diorama
 
-Status: implemented presentation refresh for the reissued v0.1.0 release. This
+Status: local cartoon art-slice revision, pending visual review. The earlier
+v0.1.0 diorama remains the historical release baseline. This
 document does not amend the preserved v0.1 simulation or product contract.
 
 ## Intent
 
-The world view is a warm, low-poly historical miniature with the readable,
-chunky hierarchy of a polished mobile builder. The reference is presentation
+The world view is a rounded, saturated historical miniature with the readable,
+chunky hierarchy of a polished mobile builder. Roof layers, timber, faces,
+clothing, foliage, and grounded shading establish the quality bar. The reference is presentation
 clarity, not another game's assets or visual identity. Little Ages remains an
 observer, not a second simulation and not an order-entry surface.
 
@@ -46,22 +48,27 @@ source is under `art/diorama`; optimized runtime GLBs are under the web
 application's public assets.
 
 Runtime assets use glTF 2.0/GLB, stable ground-centered pivots, one tile per
-Blender unit, shared texture-free materials, and compact indexed geometry. The
+Blender unit, painted color/ambient-occlusion atlases, and compact indexed geometry. Each
+model uses one atlas: 1024 pixels for buildings and 512 for resources and the
+villager. Texture color is procedurally authored and baked with Cycles AO; it
+is original repository-owned art, not an imported asset pack. The
 villager kit provides Idle, Walk, Carry, Gather, Build, Socialize, and Rest clip
 domains. Terrain tint, prop placement, clothing, scale, and accessories use a
 stable FNV-1a-derived visual hash rather than `Math.random`.
 
 The initial compressed GLB set must remain below 5 MB. The current generated
-seven-model Meshopt-compressed kit is approximately 74 KB and includes rounded timber framing,
-awnings, workshop props, layered clothing, and stronger building silhouettes.
+seven-model Meshopt/WebP kit totals 1,105,956 bytes. The generated
+`art-manifest.json` supplies the runtime byte display. Resource GLBs are actually
+instanced in spatial chunks, with coarse geometry only at distant views.
+Normalized integer positions are decoded before applying exported transforms.
 
 ## Performance and accessibility
 
 - Canvas device-pixel ratio is capped at 1.5.
 - The normal settlement target is 60 FPS with a 45 FPS acceptance floor on a
   recent integrated-GPU 1080p laptop.
-- Adaptive decline removes half of the distant resource instances and disables
-  expensive presentation before affecting interaction.
+- Adaptive decline reduces distant resource detail and disables dynamic shadows.
+  Nearby resources remain present, with baked occlusion and soft contact patches.
 - Development builds display FPS, draw calls, triangles, and detail tier.
 - The page is a `100dvh` game shell. Observer records are a five-tab DOM panel:
   Overview, Citizens, Buildings, History, and Statistics. At desktop widths it
@@ -70,7 +77,7 @@ awnings, workshop props, layered clothing, and stronger building silhouettes.
 - All operational controls and record-heavy inspection remain accessible DOM.
   The world canvas never owns the only path to citizen information.
 
-### Visual-slice verification
+### Historical v0.1.0 visual verification
 
 The refreshed scene was browser-checked at 1920×1080, 1512×699, 1024×768, and
 390×844 with the fixed seed, scene camera, and authoritative server. The checked
@@ -91,3 +98,53 @@ This work adds no gameplay endpoint, deterministic rule, pathfinding behavior,
 database migration, canonical history, weather, ecology, road, AI narration,
 or direct-control system. Existing persistence and fingerprint goldens remain
 the compatibility gate.
+
+## Cartoon art-study workflow
+
+Run the web dev server and open `/?art-slice`. This development-only entry loads
+typed observation fixtures through the production viewport without any server
+connection, persistence writes, or saved-world mutation. Production builds
+exclude the fixture module and its stylesheet.
+
+The fixed scene includes shelter, workshop, stockpile, construction scaffolding,
+food/wood/stone resources, a shoreline, and nine villagers showing all seven
+animation domains. Pause freezes the local fixture clock. The villager selector,
+follow control, zoom, pan, and quarter-turn controls support repeatable inspection.
+The scene is a presentation fixture, not evidence of simulated construction or
+resource production. Verify live observations separately against an isolated server.
+
+Regeneration:
+
+1. Run `scripts/build-diorama-assets.py` with Blender 5.2 or newer. Source models
+   are defined in `scripts/diorama_art.py`; build/export source is retained in Blender.
+2. Run `node scripts/optimize-diorama-assets.mjs` after the web dependencies are
+   installed. It optimizes, validates, checks animation domains and the byte budget,
+   and writes the runtime manifest.
+3. Run frontend tests, lint, typecheck, and build. Compare the same fixed scene,
+   inspect the live viewport, and check pause, reduced motion, rotation, zoom,
+   selection/follow, mobile framing, and WebGL context loss.
+
+No API, persistence, canonical map, pathfinding, or simulation changes accompany
+this art revision. Terrain blending and water shading affect presentation only.
+The integrated-GPU 45 FPS floor still requires a measurement on that hardware;
+headless capture timing on a discrete GPU does not establish it.
+
+### Local art-slice verification (September 19, 2026)
+
+- 123 frontend tests passed, including normalized Meshopt transform and animation
+  phase/pause regressions. Lint, typecheck, production build, and diff checks passed.
+- Seven optimized GLBs: 1,105,956 bytes; zero glTF validation errors or warnings.
+- Playwright/Edge checked 1512x982, 390x844, and reduced motion at 1024x768.
+  Verified pause, quarter-turns, zoom, keyboard/drag pan, selection/follow, 2D/3D
+  switching, and fallback after forced WebGL context loss.
+- Full-detail art study: 75 draw calls / 219,542 triangles; mobile: 74 / 217,736.
+- Isolated live server: full detail reached 100 calls / 458,142 triangles; reduced
+  detail reached 67 / 260,690. Live bootstrap, operational pause, follow, citizen
+  records, and connection after reload passed without application runtime errors.
+- The browser logged the pre-existing missing `/favicon.ico` (404). No art assets
+  were missing. Existing Vite large-chunk and Three.js test-runner deprecation
+  notices remain informational.
+- The capture host used an NVIDIA RTX 3060 Ti; headless captures reported roughly
+  25-33 FPS. This is not a passing integrated-GPU hardware acceptance measurement.
+- The development detail selector can hold Full lighting or Reduced for review;
+  Automatic matches the normal observer's adaptive behavior.

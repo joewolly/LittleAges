@@ -158,7 +158,7 @@ th { color: #817468; font-weight: 400; text-transform: uppercase; letter-spacing
 .world-hud > div { display: grid; gap: 4px; padding: 13px 16px; border-right: 1px solid rgba(255,255,255,.1); }
 .world-hud span, .world-hud label { color: #cdbca9; font: 9px/1.2 'Trebuchet MS', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .world-hud strong { font-size: 14px; font-weight: 400; }
-.world-hud .world-hud-controls { display: flex; align-items: center; flex-direction: row; gap: 8px; }
+.world-hud .world-hud-controls { display: flex; align-items: center; flex-direction: row; gap: 8px; padding-right: 190px; }
 .world-hud-controls label { display: grid; gap: 3px; }.world-hud-controls select { min-height: 30px; border: 1px solid #806a57; background: #352a21; color: #f7efe0; }
 
 .observer-drawer { position: fixed; z-index: 20; top: 0; right: 0; width: min(580px, calc(100vw - 42px)); height: 100vh; pointer-events: none; }
@@ -177,7 +177,7 @@ th { color: #817468; font-weight: 400; text-transform: uppercase; letter-spacing
   .world-viewport { min-height: 520px; height: 70vh; }
   .world-title { top: 16px; left: 16px; max-width: 62%; }.world-title p { display: none; }
   .world-toolbar { top: 12px; right: 12px; max-width: 45%; }.world-toolbar button { padding: 6px 8px; font-size: 9px; }
-  .world-toolbar button:nth-child(3), .world-toolbar button:nth-child(5) { display: none; }
+  .world-toolbar button:nth-child(3), .world-toolbar button:nth-child(5) { display: block; }
   .world-hud { grid-template-columns: 1fr 1fr; }.world-hud .world-hud-controls { grid-column: 1 / -1; }
   .observer-drawer-body { padding-inline: 18px; }
 }
@@ -274,7 +274,7 @@ footer { display: none; }
   .hero { min-height: 38px; padding: 0 3px; }.hero h1 { font-size: 2.25rem; }.hero .eyebrow { display: none; }
   .status-strip { min-height: 31px; padding: 6px 9px; }.live-status, .status-detail { display: none; }
   .world-viewport, .world-loading { min-height: 0; height: auto; border-radius: 13px 13px 4px 4px; }
-  .world-title { top: 10px; left: 10px; max-width: 55%; padding: 8px 10px; }.world-title p { display: none; }
+  .world-title { top: 10px; left: 10px; max-width: 45%; padding: 8px 10px; }.world-title p { display: none; }
   .world-toolbar { top: 9px; right: 9px; max-width: 48%; }.world-toolbar button { padding: 5px 7px; }
   .world-toolbar button:nth-child(4) { font-size: 0; }
   .world-toolbar button:nth-child(4)::after { content: 'Follow'; font-size: 8px; }
@@ -284,6 +284,7 @@ footer { display: none; }
   .observer-records-toggle { max-width: 145px; padding-inline: 11px; font-size: 9px; }
   .observer-drawer { width: 100vw; border-left: 0; }
   .observer-records-toggle { right: 12px; bottom: 12px; }
+  .world-hud .world-hud-controls { padding-right: 165px; }
   .has-records-open .observer-records-toggle { display: none; }
   .observer-tabs { overflow-x: auto; grid-template-columns: repeat(5, minmax(78px,1fr)); }
   .observer-drawer-body { padding-inline: 13px; }
