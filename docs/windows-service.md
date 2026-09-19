@@ -46,6 +46,12 @@ origin (scheme, host, and port). Foreign or opaque `Origin` headers receive
 HTTP 403. Non-browser clients without an `Origin` header remain supported;
 this check prevents cross-site browser control, not access by LAN clients.
 
+The installer protects the world directory from inherited ProgramData write
+permissions for the built-in Users group. Users retain read access;
+LocalService receives Modify access. Ownership and grants for other principals
+are preserved. Use a dedicated data directory, not a shared folder that needs
+ordinary Users to create files.
+
 The installer starts the service and waits for both:
 
 ```text

@@ -555,11 +555,17 @@ function Restore-ManagedFirewallState {
 function Set-DataDirectoryAcl {
     param([Parameter(Mandatory)] [string] $Path)
 
+    # ProgramData inherits a Users create-file grant. The existing database can
+    # be read-only to Users while its directory still allows planted DB/WAL
+    # files. Preserve other principals and ownership, but make Users read-only.
     $icacls = Join-Path -Path $env:SystemRoot -ChildPath 'System32\icacls.exe'
     if (-not (Test-Path -LiteralPath $icacls -PathType Leaf)) { throw "ACL utility was not found: $icacls" }
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/inheritance:d') -Operation "Protecting data directory permissions at '$Path'"
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/remove:g', '*S-1-5-32-545') -Operation "Removing broad Users grants at '$Path'"
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/grant:r', '*S-1-5-32-545:(OI)(CI)RX') -Operation "Restricting Users to read access at '$Path'"
     # /grant:r replaces this installer's explicit entry instead of accumulating
     # duplicate LocalService ACEs on every upgrade.
-    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/grant:r', 'NT AUTHORITY\LOCAL SERVICE:(OI)(CI)M', '/T', '/C') -Operation "Granting LocalService access to '$Path'"
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/grant:r', '*S-1-5-19:(OI)(CI)M', '/T', '/C') -Operation "Granting LocalService access to '$Path'"
 }
 
 function Start-AndVerifyService {

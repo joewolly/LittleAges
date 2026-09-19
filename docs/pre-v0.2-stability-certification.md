@@ -38,7 +38,7 @@ These ignored artifacts contain machine-specific evidence and are not shipped.
 | Baseline Release build | Passed, zero warnings/errors |
 | Baseline backend non-Long suites | Passed: 432 tests (26 domain, 202 simulation, 138 persistence, 55 integration, 11 headless) |
 | Baseline frontend install/lint/typecheck/tests/build | Passed: 139 tests |
-| Seed-42 100-year acceptance, year-37 checkpoint | Running |
+| Seed-42 100-year acceptance, year-37 checkpoint | Running from isolated runtime with P1/P2 |
 | Final committed-state validation | Pending |
 
 ## Findings
@@ -141,3 +141,108 @@ requests (including explicit default ports) and existing non-browser clients
 without Origin remain compatible. Tests verify all three controls, rejection
 without state changes, and successful same-origin/control requests. This is
 not LAN authentication; the documented trusted-network boundary remains.
+
+## Broader audit coverage
+
+### S2 — MUST FIX — Inherited directory permission permits planted world files (fixed)
+
+The installed database file was read-only to ordinary Users, but its directory
+inherited ProgramData's Users Write grant, including create-file access.
+This permits unwanted world or SQLite sidecar files despite the database's
+own ACL. The installer now protects the directory ACL from parent inheritance,
+preserves existing grants for other principals and ownership, replaces Users
+grants with ReadAndExecute, and grants LocalService Modify by stable SID.
+The directory must be dedicated to world data as documented.
+
+`scripts/test-data-directory-acl.ps1` reproduces the inherited grant on a
+disposable directory and failed before the correction. It runs the real
+ACL helper/native utility, verifies removal of Users write rights, retained
+LocalService access to the existing file, unchanged owner/content, and an
+idempotent second invocation. It passes in PowerShell 7 and Windows PowerShell
+5.1 and is included by the installer test script. No real installation ACL
+was modified. This also avoids relying solely on mocked permission checks.
+
+| Area | Review and evidence |
+| --- | --- |
+| Build/dependencies/CI | Pinned SDK, locked portable restores, warnings-as-errors, project boundaries, fast/Long workflow separation, Windows publish/package scripts reviewed. NuGet including transitives and npm including development dependencies report zero known vulnerabilities on 2026-09-19. |
+| Determinism | Stateless domain/key-derived RNG, complete event-order tuple, integer path costs/ties, ordered social/housing/lifecycle transitions, invariant serialization, counters and locked fingerprint tests reviewed. No simulation code, goldens, balances, or rules versions changed. |
+| M0–M8 simulation | Generation, decisions, resources, survival, construction/storage, shelter, household reconciliation, partnerships/birth/death cleanup, history/statistics and their snapshot invariants reviewed against existing adversarial and compatibility tests. The earlier M8 housing regression remains covered. |
+| Persistence/migration | Transactions/rollback, retained history prefixes, migration chain, malformed/partial databases, retry/fault semantics and save/reload tests reviewed. P1/P2 close two concrete integrity gaps. All 141 persistence tests pass. |
+| Host/lifecycle | Bounded 32-command single-reader queue; operational driver awaits its one outstanding advance; checkpoints capture on the same owner; immutable publication and final-checkpoint failure propagation reviewed. Integration tests cover cancellation, shutdown, retries and faulted health. |
+| REST/SignalR | Observer-only hub, latest-only notifications, stream sequence/generation fences, reconnect resets, immutable projections, ID/query bounds and static/API route separation reviewed. Live browser and stream checks at 1/5/10/50 min/s verify ordered frames, operational controls, and stable paused time. |
+| Frontend | Real packaged-server scenarios cover layouts, camera/follow, records, fallback/retry, reduced motion, failed map/chunk/model, context loss and reconnect. Existing movement/presentation-clock tests retain their locked authority boundary. |
+| Deployment/security | Package contents and scripts reviewed; PowerShell 5.1/7 fixtures pass. Read-only installed inspection confirms LocalService, Automatic startup, Program Files write protection, database write access restricted to LocalService/admin/system, and firewall Private/LocalSubnet scope. D1/D2 and S1 address concrete issues. |
+| Performance | Copied-world continuation/checkpoint timings, 250/500-citizen deterministic scale tests and live frame measurements executed. The stream averaged about 35 KB/frame for the 18-living-citizen copied world. Final 100-year evidence remains pending. |
+| Test quality/architecture | The old service-quoting mock was a false assurance at the wrong boundary; replaced with structured OS-call assertions. New regressions reproduce each integrity/bootstrap/control defect. No skipped tests in completed gates. Canonical ownership remains in the engine/host, with persistence validation and observational frontend boundaries preserved. |
+
+## Packaged runtime and failure evidence
+
+The final implementation package from `3c35786` contains the self-contained
+server, built frontend/assets and deployment scripts. Size **54,074,947 bytes**;
+SHA-256 `f8725fd81a094f46f44bb6144560721ab08261a863c544537c08dbcb2f033e86`.
+The local filename contains `pre-v02-certified`; that filename is not itself
+a certification result. Packaging first tries copied checked-in RID lock
+graphs, then transparently generates disposable win-x64 graphs when missing
+and revalidates those in locked mode. Checked-in lockfiles did not change.
+
+Fresh package extraction was run on loopback port 5375 against another
+disposable copy of the protected world. All eight browser scenarios were
+repeated against that package. At 1/5/10/50 min/s, five-second observations
+advanced 5/25/48/200 minutes respectively; this fixture intentionally used a
+much more frequent 20-minute checkpoint interval. Slower processing did not
+create queued catch-up after pause. Stream sequence/revision/time remained
+ordered and there were no unexpected browser errors.
+
+A separate packaged process on port 5376 was killed 0, 50 and 180 ms after
+the checkpoint-start log. Each attempt retained the previous committed
+minute 208200, passed SQLite integrity and foreign-key checks, reopened
+Healthy/paused at exactly that minute and reconnected the existing browser.
+This proves those interrupted transactions recovered; it does not claim
+every possible OS/power-loss timing was exercised.
+
+A fresh seed-42 packaged world on port 5377 initialized successfully,
+advanced, and wrote its final checkpoint at minute 301 after console Ctrl+C.
+Reopening paused resumed exactly at minute 301. The PTY wrapper reports exit
+1 for Ctrl+C, so success is based on the final-checkpoint log, persisted
+integrity and restart observation, not that wrapper exit code.
+
+Local evidence includes `browser-final-results.json`, `live-controls.json`,
+`crash-restart.json`, `fresh-shutdown-integrity.json`,
+`fresh-status-after-restart.json` and the test TRX files under
+`artifacts/pre-v02`. Screenshots are under this task's Codex visualization
+directory and are machine-local, not fabricated application mockups.
+
+## Validation limits and accepted boundaries
+
+- **ACCEPTED — privileged deployment tests:** this session is not elevated.
+  Actual install/upgrade/rollback/firewall/installed-directory ACL mutation and uninstall were not
+  executed. Fixtures, source review, packaging, disposable executable runs and
+  real disposable-directory ACL tests and read-only inspection were executed. The real service still has its earlier
+  unquoted registration; a future elevated upgrade with the fixed installer
+  will correct it. No claim is made that this session repaired the installation.
+- **ACCEPTED — hardware/disruptive checks:** foreground hardware 45 FPS,
+  reboot, suspend/resume, and physical power loss were not executed. Headless
+  Chrome measured about 32 FPS under the audit workload. No hardware target
+  is certified from that result; manual disruptive operations were excluded
+  to protect the user's active machine.
+- **ACCEPTED — trust and growth:** v0.1 remains a local/trusted-LAN application
+  without authentication or TLS. History intentionally grows append-only;
+  this pass does not add retention or change historical facts. Canonical
+  versioning/goldens must remain explicit boundaries for future development.
+
+### Superseded or unsuccessful validation attempts
+
+- The first 100-year run was interrupted before completion because it used
+  build outputs needed by later compilation. It is not counted as passed;
+  the replacement uses a separate copied runtime containing P1/P2.
+- Two solution build attempts encountered Windows copy locks held by the
+  running acceptance/test process. These were harness scheduling failures;
+  final build must be retried after those tests exit.
+- Browser tooling used installed Chrome with the bundled Playwright/Node
+  runtime after the cached Chromium launch failed. No browser plugin was
+  available. The live-control harness initially requested an unsupported
+  UI speed and later read status before its pause response completed; both
+  harness mistakes were corrected before the successful 1/5/10/50 run.
+- An exploratory console restart used the repository working directory and
+  correctly warned that its `wwwroot` was absent there. Packaged UI checks
+  use the package directory; Windows service hosting sets its content root.

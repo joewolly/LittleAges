@@ -452,4 +452,5 @@ Assert-Contains -Text $workflowText -Expected 'artifact_path=$artifactPath' -Mes
 Assert-Contains -Text $workflowText -Expected 'path: ${{ steps.package.outputs.artifact_path }}' -Message 'Workflow uploads known artifact output'
 Assert-NotContains -Text $workflowText -Unexpected 'artifacts/LittleAges-v${{ inputs.version }}-win-x64.zip' -Message 'Workflow does not build upload path from raw input'
 
+& (Join-Path $PSScriptRoot 'test-data-directory-acl.ps1')
 Write-Host 'Windows installer hardening assertions passed.'
