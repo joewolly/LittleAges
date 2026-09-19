@@ -77,7 +77,9 @@ public sealed record ServerHistorySnapshot
         var structureTypes = (structures ?? Array.Empty<ServerStructureSnapshot>()).ToDictionary(x => long.Parse(x.StructureId, CultureInfo.InvariantCulture), x => x.Type);
         HistoryVersion = snapshot.Version;
         State = new ServerHistoryStateSnapshot(snapshot.State);
-        Events = Array.AsReadOnly(snapshot.Events.Select(item => new ServerHistoricalEventSnapshot(item, snapshot.CitizenLinks.Where(x => x.HistoricalEventId == item.Id), snapshot.StructureLinks.Where(x => x.HistoricalEventId == item.Id), citizenNames, structureTypes)).ToArray());
+        var citizenLinks = snapshot.CitizenLinks.ToLookup(x => x.HistoricalEventId);
+        var structureLinks = snapshot.StructureLinks.ToLookup(x => x.HistoricalEventId);
+        Events = Array.AsReadOnly(snapshot.Events.Select(item => new ServerHistoricalEventSnapshot(item, citizenLinks[item.Id], structureLinks[item.Id], citizenNames, structureTypes)).ToArray());
         Statistics = Array.AsReadOnly(snapshot.Statistics.Select(static item => new ServerStatisticsSampleSnapshot(item)).ToArray());
         Memories = Array.AsReadOnly(snapshot.Memories.Select(static item => new ServerCitizenMemorySnapshot(item)).ToArray());
     }

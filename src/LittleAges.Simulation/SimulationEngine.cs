@@ -95,21 +95,24 @@ internal readonly record struct SocialTargetCandidate(CitizenId CitizenId, int S
 public sealed record CitizenMovementWaypointSnapshot(TileCoordinate Location, WorldMinute ArriveMinute);
 public sealed record CitizenMovementPlanSnapshot
 {
-    public CitizenMovementPlanSnapshot(long actionSequence, WorldMinute observedMinute, IReadOnlyList<CitizenMovementWaypointSnapshot> waypoints)
+    public CitizenMovementPlanSnapshot(long actionSequence, WorldMinute observedMinute, IReadOnlyList<CitizenMovementWaypointSnapshot> waypoints, WorldMinute? segmentStartedMinute = null)
     {
         ActionSequence = actionSequence;
         ObservedMinute = observedMinute;
+        SegmentStartedMinute = segmentStartedMinute ?? observedMinute;
         Waypoints = Array.AsReadOnly(waypoints.ToArray());
     }
 
     public long ActionSequence { get; }
     public WorldMinute ObservedMinute { get; }
+    public WorldMinute SegmentStartedMinute { get; }
     public IReadOnlyList<CitizenMovementWaypointSnapshot> Waypoints { get; }
 
     public bool Equals(CitizenMovementPlanSnapshot? other) =>
         other is not null &&
         ActionSequence == other.ActionSequence &&
         ObservedMinute == other.ObservedMinute &&
+        SegmentStartedMinute == other.SegmentStartedMinute &&
         Waypoints.SequenceEqual(other.Waypoints);
 
     public override int GetHashCode()
@@ -117,6 +120,7 @@ public sealed record CitizenMovementPlanSnapshot
         var hash = new HashCode();
         hash.Add(ActionSequence);
         hash.Add(ObservedMinute);
+        hash.Add(SegmentStartedMinute);
         foreach (var waypoint in Waypoints) hash.Add(waypoint);
         return hash.ToHashCode();
     }
@@ -1933,7 +1937,10 @@ public sealed partial class SimulationEngine
     {
         Settlement.DemandUpdatedMinute = CurrentMinute.Value;
         if (ActiveConstructionProject is null && SelectSettlementDemand() is { } type && SelectConstructionSite() is { } site) CreateStructure(type, site);
-        ReconcileShelterAssignments();
+        // Older rule versions retain their locked replay behavior. M8 enforces
+        // whole-household housing at the settlement-demand boundary as well.
+        if (SimulationRulesVersion == CurrentSimulationRulesVersion) ReconcileHouseholdsAndHousing();
+        else ReconcileShelterAssignments();
         ScheduleSettlementDemand();
     }
     private StructureType? SelectSettlementDemand()
@@ -2013,7 +2020,8 @@ public sealed partial class SimulationEngine
             arrival = index == 1 ? new WorldMinute(firstArrivalValue) : arrival.Add(StepCost(route[index - 1], route[index], World));
             waypoints.Add(new CitizenMovementWaypointSnapshot(route[index], arrival));
         }
-        return new CitizenMovementPlanSnapshot(citizen.ActionSequence, CurrentMinute, Array.AsReadOnly(waypoints.ToArray()));
+        var segmentStarted = new WorldMinute(checked(firstArrivalValue - StepCost(route[0], route[1], World)));
+        return new CitizenMovementPlanSnapshot(citizen.ActionSequence, CurrentMinute, Array.AsReadOnly(waypoints.ToArray()), segmentStarted);
     }
     private static Citizen CloneCitizen(Citizen c) { return new Citizen(c.Id, c.FounderOrdinal, c.GivenName, c.FamilyName, c.BirthMinute, c.Location, new CitizenTraits(c.Traits.Industriousness, c.Traits.Sociability, c.Traits.Curiosity, c.Traits.Cooperativeness, c.Traits.RiskTolerance, c.Traits.Resilience), new CitizenSkills(c.Skills.Foraging, c.Skills.Woodcutting, c.Skills.Stoneworking, c.Skills.Construction, c.Skills.Hauling, c.Skills.Domestic), new CitizenNeeds(c.Needs.Hunger, c.Needs.Rest, c.Needs.Shelter, c.Needs.Social)) { Health = c.Health, CurrentAction = c.CurrentAction, ActionPhase = c.ActionPhase, ActionSequence = c.ActionSequence, ActionStartedMinute = c.ActionStartedMinute, ActionCompletesMinute = c.ActionCompletesMinute, ActionTarget = c.ActionTarget, TargetResourceNodeId = c.TargetResourceNodeId, TargetStructureId = c.TargetStructureId, TargetCitizenId = c.TargetCitizenId, CarriedResourceType = c.CarriedResourceType, CarriedResourceQuantity = c.CarriedResourceQuantity, NeedsUpdatedMinute = c.NeedsUpdatedMinute, HealthUpdatedMinute = c.HealthUpdatedMinute, LifetimeMovementSteps = c.LifetimeMovementSteps, LifetimeMovementCost = c.LifetimeMovementCost, LifetimeForagingMinutes = c.LifetimeForagingMinutes, LifetimeWoodcuttingMinutes = c.LifetimeWoodcuttingMinutes, LifetimeStoneworkingMinutes = c.LifetimeStoneworkingMinutes, LifetimeConstructionMinutes = c.LifetimeConstructionMinutes, LifetimeHaulingMinutes = c.LifetimeHaulingMinutes, DeathMinute = c.DeathMinute, DeathCause = c.DeathCause, ParentAId = c.ParentAId, ParentBId = c.ParentBId, PartnerId = c.PartnerId, HouseholdId = c.HouseholdId, HomeStructureId = c.HomeStructureId }; }
     internal static Household CloneHousehold(Household value) => new(value.Id, value.CreatedMinute) { DissolvedMinute = value.DissolvedMinute, DwellingStructureId = value.DwellingStructureId };

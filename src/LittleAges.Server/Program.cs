@@ -17,6 +17,11 @@ var healthChecks = builder.Services.AddHealthChecks();
 healthChecks.AddCheck<SimulationHostHealthCheck>("simulation-host");
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton(serverOptions);
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = Microsoft.AspNetCore.ResponseCompression.ResponseCompressionDefaults.MimeTypes.Concat(["model/gltf-binary"]);
+});
 builder.Services.AddSignalR().AddJsonProtocol(options => options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<WorldChangeBroadcaster>();
 builder.Services.AddSingleton<SimulationHost>();
@@ -24,10 +29,20 @@ builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequired
 builder.Services.AddHostedService<WorldChangeBroadcasterService>();
 
 var app = builder.Build();
+app.UseResponseCompression();
 app.UseDefaultFiles();
 var staticContentTypes = new FileExtensionContentTypeProvider();
 staticContentTypes.Mappings[".glb"] = "model/gltf-binary";
-app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = staticContentTypes });
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = staticContentTypes,
+    OnPrepareResponse = context =>
+    {
+        var hashedAsset = context.Context.Request.Path.StartsWithSegments("/assets") &&
+            System.Text.RegularExpressions.Regex.IsMatch(context.File.Name, @"-[\w-]{8}\.(js|css)$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        context.Context.Response.Headers.CacheControl = hashedAsset ? "public,max-age=31536000,immutable" : "no-cache";
+    }
+});
 var hostingLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("LittleAges.Server.Hosting");
 var logLanWarning = LoggerMessage.Define<string>(LogLevel.Warning, new EventId(3000), "Listening on {ListenUrl} is intended for trusted LAN use and not the public Internet.");
 foreach (var listenUri in serverOptions.GetListenUris())

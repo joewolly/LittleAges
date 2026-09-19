@@ -135,6 +135,45 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it('loads citizens and connects while secondary household and settlement requests are pending', async () => {
+    liveMock.state.startMode = 'resolve'
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/households') || path.endsWith('/settlement')) return new Promise<Response>(() => {})
+      return responseFor(path, 1)
+    })
+    renderAppWithRecords()
+    await screen.findByRole('heading', { name: citizen.name })
+    await waitFor(() => expect(liveMock.state.startCalls).toBe(1))
+    expect(screen.getByText('Loading households…')).toBeInTheDocument()
+  })
+
+  it('accepts lower revisions after a server restart and fences an older REST fallback', async () => {
+    liveMock.state.startMode = 'resolve'
+    const stale = deferred<Response>()
+    let fallback = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (fallback && path.endsWith('/citizens')) return stale.promise
+      return responseFor(path, 1)
+    })
+    renderAppWithRecords()
+    await screen.findByRole('heading', { name: citizen.name })
+    await waitFor(() => expect(liveMock.state.startCalls).toBe(1))
+    const frame = { sequence: 1, sentAtUnixMilliseconds: 1000, revision: 100, status: { state: 'Running', worldMinute: 100, pendingEventCount: 1, worldSeed: '42', paused: false, operationalSpeed: 10 }, citizens: [{ ...citizen, name: 'Before restart' }], structures: [structure] }
+    await act(async () => liveMock.state.emitWorldFrame(frame))
+    fallback = true
+    await act(async () => liveMock.state.emitStreamError())
+    await act(async () => {
+      liveMock.state.emitReconnecting()
+      liveMock.state.emitReconnected()
+      liveMock.state.emitWorldFrame({ ...frame, revision: 1, citizens: [{ ...citizen, name: 'After restart' }] })
+    })
+    await act(async () => stale.resolve(new Response(JSON.stringify([{ ...citizen, name: 'Stale fallback' }]))))
+    expect(screen.getByRole('heading', { name: 'After restart' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Stale fallback' })).not.toBeInTheDocument()
+  })
+
   it('shows an accessible loading state while requests are pending', () => {
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise<Response>(() => {}))
     render(<App />)

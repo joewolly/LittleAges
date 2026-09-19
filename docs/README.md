@@ -28,6 +28,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Acceptance and compatibility evidence
 
+- [`performance-pass-2026-09-19.md`](./performance-pass-2026-09-19.md) — local
+  crash recovery, loading, movement, deployment, and validation evidence.
 - [`v0.1-acceptance-report.md`](./v0.1-acceptance-report.md) — candidate-only
   seed-42 acceptance evidence with exact metrics, fingerprints, provenance,
   invariants, and the Section 62 matrix. Exact measured values are preserved;

@@ -69,7 +69,7 @@ public sealed record ServerLifetimeWorkActivitySnapshot(
     long HaulingMinutes);
 
 public sealed record ServerCitizenMovementWaypointSnapshot(int X, int Y, long ArriveMinute);
-public sealed record ServerCitizenMovementPlanSnapshot(long ActionSequence, long ObservedMinute, IReadOnlyList<ServerCitizenMovementWaypointSnapshot> Waypoints);
+public sealed record ServerCitizenMovementPlanSnapshot(long ActionSequence, long ObservedMinute, IReadOnlyList<ServerCitizenMovementWaypointSnapshot> Waypoints, long? SegmentStartedMinute = null);
 
 /// <summary>Immutable server-owned citizen read model. It never exposes domain mutable records.</summary>
 public sealed record ServerCitizenSnapshot
@@ -120,7 +120,8 @@ public sealed record ServerCitizenSnapshot
         MovementPlan = snapshot.MovementPlan is null ? null : new ServerCitizenMovementPlanSnapshot(
             snapshot.MovementPlan.ActionSequence,
             snapshot.MovementPlan.ObservedMinute.Value,
-            Array.AsReadOnly(snapshot.MovementPlan.Waypoints.Select(static waypoint => new ServerCitizenMovementWaypointSnapshot(waypoint.Location.X, waypoint.Location.Y, waypoint.ArriveMinute.Value)).ToArray()));
+            Array.AsReadOnly(snapshot.MovementPlan.Waypoints.Select(static waypoint => new ServerCitizenMovementWaypointSnapshot(waypoint.Location.X, waypoint.Location.Y, waypoint.ArriveMinute.Value)).ToArray()),
+            snapshot.MovementPlan.SegmentStartedMinute.Value);
     }
 
     public string CitizenId { get; }
@@ -736,20 +737,24 @@ public sealed partial class SimulationHost : BackgroundService
 
     private async Task RunOperationalDriverAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
         var accumulatedMinutes = 0d;
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             var speed = Volatile.Read(ref _operationalSpeed);
-            if (Volatile.Read(ref _paused) != 0 || speed <= 0) continue;
-            accumulatedMinutes += speed;
-            var minutes = (long)Math.Floor(accumulatedMinutes);
-            accumulatedMinutes -= minutes;
+            if (Volatile.Read(ref _paused) != 0 || speed <= 0) { accumulatedMinutes = 0; continue; }
+            accumulatedMinutes += speed / 10;
+            var minutes = (long)Math.Floor(accumulatedMinutes + 1e-9);
+            accumulatedMinutes = Math.Max(0, accumulatedMinutes - minutes);
             if (minutes > 0)
             {
                 try
                 {
-                    await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes), stoppingToken);
+                    // One operational command at a time: a slow checkpoint cannot build a
+                    // queue of stale advances that run after the user pauses the world.
+                    var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    await _commands.Writer.WriteAsync(new AdvanceSimulationCommand(minutes, completion, RespectOperationalState: true), stoppingToken);
+                    await completion.Task.WaitAsync(stoppingToken);
                 }
                 catch (ChannelClosedException) when (IsShutdownRequested || stoppingToken.IsCancellationRequested)
                 {
@@ -953,7 +958,7 @@ public sealed partial class SimulationHost : BackgroundService
         var readSnapshot = engine?.CreateReadSnapshot();
         var citizenSnapshots = readSnapshot?.Citizens.Select(static citizen => new ServerCitizenSnapshot(citizen)).ToArray() ?? Array.Empty<ServerCitizenSnapshot>();
         var structureSnapshots = readSnapshot is null ? Array.Empty<ServerStructureSnapshot>() : CreateStructureSnapshots(readSnapshot, citizenSnapshots);
-        var map = readSnapshot?.World is null ? null : new ServerMapSnapshot(readSnapshot.World);
+        var map = readSnapshot?.World is null ? null : Observation.Map ?? new ServerMapSnapshot(readSnapshot.World);
         var livingPopulation = citizenSnapshots.Count(static citizen => citizen.IsAlive);
         var deadPopulation = citizenSnapshots.Length - livingPopulation;
         var settlement = readSnapshot is null ? null : CreateSettlementSummary(readSnapshot, citizenSnapshots, structureSnapshots);
@@ -963,7 +968,7 @@ public sealed partial class SimulationHost : BackgroundService
             readSnapshot?.PendingEventCount ?? 0,
             FormatWorldSeed(readSnapshot?.Seed.Value ?? _options.WorldSeed.Value),
             error,
-            readSnapshot?.World is null ? null : CreateWorldSummary(readSnapshot.World),
+            readSnapshot?.World is null ? null : Observation.Status.World ?? CreateWorldSummary(readSnapshot.World),
             livingPopulation,
             citizenSnapshots.Length,
             livingPopulation,

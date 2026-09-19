@@ -168,6 +168,15 @@ public sealed class CitizenSimulationTests
         Assert.Equal(plan.ActionSequence, restoredPlan!.ActionSequence);
         Assert.Equal(plan.ObservedMinute, restoredPlan.ObservedMinute);
         Assert.Equal(plan.Waypoints, restoredPlan.Waypoints);
+        var next = plan.Waypoints[1];
+        var first = plan.Waypoints[0];
+        var stepCost = (first.Location.X == next.Location.X || first.Location.Y == next.Location.Y ? 10L : 14L) * engine.World.GetTile(next.Location).MovementCost;
+        Assert.Equal(next.ArriveMinute.Value - stepCost, plan.SegmentStartedMinute.Value);
+        engine.AdvanceUntil(plan.ObservedMinute.Add(1));
+        var between = engine.CreateReadSnapshot().Citizens.Single(c => c.CitizenId == moving.CitizenId).MovementPlan!;
+        Assert.Equal(plan.SegmentStartedMinute, between.SegmentStartedMinute);
+        Assert.Equal(plan.Waypoints[1].ArriveMinute, between.Waypoints[1].ArriveMinute);
+        Assert.Equal(between.SegmentStartedMinute, SimulationEngine.FromPersistenceSnapshot(engine.CreatePersistenceSnapshot()).CreateReadSnapshot().Citizens.Single(c => c.CitizenId == moving.CitizenId).MovementPlan!.SegmentStartedMinute);
     }
 
     [Theory]

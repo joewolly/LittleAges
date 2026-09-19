@@ -61,27 +61,37 @@ export function createWorldConnection(): WorldConnection {
   let frameHandler: WorldFrameHandler | null = null
   let streamErrorHandler: ConnectionStateHandler | null = null
   let subscription: { dispose: () => void } | null = null
-  const stopStream = () => { subscription?.dispose(); subscription = null }
+  let generation = 0
+  let lastSequence = 0
+  const stopStream = () => { generation += 1; subscription?.dispose(); subscription = null }
   const startStream = () => {
     stopStream()
+    const currentGeneration = generation
+    lastSequence = 0
     subscription = connection.stream('StreamWorld').subscribe({
       next: payload => {
-        try { frameHandler?.(parseWorldFrame(payload)) }
+        if (currentGeneration !== generation) return
+        try {
+          const frame = parseWorldFrame(payload)
+          if (frame.sequence <= lastSequence) return
+          lastSequence = frame.sequence
+          frameHandler?.(frame)
+        }
         catch { streamErrorHandler?.() }
       },
-      error: () => { subscription = null; streamErrorHandler?.() },
-      complete: () => { subscription = null },
+      error: () => { if (currentGeneration === generation) { subscription = null; streamErrorHandler?.() } },
+      complete: () => { if (currentGeneration === generation) { subscription = null; streamErrorHandler?.() } },
     })
   }
 
   return {
-    start: async () => { await connection.start(); startStream() },
+    start: async () => { if (connection.state !== 'Connected') await connection.start(); startStream() },
     stop: async () => { stopStream(); await connection.stop() },
     onWorldChanged: handler => connection.on('worldChanged', payload => handler(payload as WorldChangedMessage)),
     onWorldFrame: handler => { frameHandler = handler },
     onStreamError: handler => { streamErrorHandler = handler },
     onReconnecting: handler => connection.onreconnecting(() => { stopStream(); handler() }),
-    onReconnected: handler => connection.onreconnected(() => { startStream(); handler() }),
+    onReconnected: handler => connection.onreconnected(() => { handler(); startStream() }),
     onClose: handler => connection.onclose(() => { stopStream(); handler() }),
   }
 }

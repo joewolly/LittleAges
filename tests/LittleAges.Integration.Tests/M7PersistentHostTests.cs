@@ -113,6 +113,8 @@ public sealed class M7PersistentHostTests
             await simulationHost.WaitForRunningForTestingAsync();
             Assert.True(simulationHost.Status.Paused);
             Assert.Equal(0d, simulationHost.Status.OperationalSpeed);
+            var initialMap = simulationHost.Observation.Map;
+            var initialWorld = simulationHost.Status.World;
 
             await simulationHost.AdvanceOperationalForTestingAsync(1);
             Assert.Equal(0, simulationHost.Status.WorldMinute);
@@ -126,6 +128,8 @@ public sealed class M7PersistentHostTests
             await simulationHost.AdvanceOperationalForTestingAsync(1);
             var runningMinute = simulationHost.Status.WorldMinute;
             Assert.True(runningMinute >= 1);
+            Assert.Same(initialMap, simulationHost.Observation.Map);
+            Assert.Same(initialWorld, simulationHost.Status.World);
 
             var paused = await simulationHost.RequestPauseAsync();
             Assert.True(paused.Paused);

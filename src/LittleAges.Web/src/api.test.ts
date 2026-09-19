@@ -78,6 +78,16 @@ const statisticsSample = {
 }
 
 describe('API response parsing', () => {
+  it('accepts a stable departure before the observation and keeps old movement payloads compatible', () => {
+    const movementPlan = { actionSequence: 4, observedMinute: 104, segmentStartedMinute: 100, waypoints: [{ x: 1, y: 2, arriveMinute: 104 }, { x: 2, y: 2, arriveMinute: 110 }] }
+    const moving = { ...citizen, currentAction: 'Wander', actionPhase: 'TravelToTarget', actionSequence: 4, movementPlan }
+    expect(parseCitizens([moving])[0].movementPlan?.segmentStartedMinute).toBe(100)
+    expect(parseCitizens([{ ...moving, movementPlan: { ...movementPlan, segmentStartedMinute: undefined } }])[0].movementPlan?.segmentStartedMinute).toBeUndefined()
+  })
+  it.each([-1, 104.5, 105, 110, Number.NaN])('rejects invalid or future movement departure %s', segmentStartedMinute => {
+    const movementPlan = { actionSequence: 4, observedMinute: 104, segmentStartedMinute, waypoints: [{ x: 1, y: 2, arriveMinute: 104 }, { x: 2, y: 2, arriveMinute: 110 }] }
+    expect(() => parseCitizens([{ ...citizen, currentAction: 'Wander', actionPhase: 'TravelToTarget', actionSequence: 4, movementPlan }])).toThrow()
+  })
   it('accepts plain text health responses', () => expect(parseHealth('Healthy')).toEqual({ ok: true, label: 'Healthy' }))
   it('keeps status safe when fields are missing or malformed', () => expect(parseStatus({ worldMinute: 'later', state: 4 })).toEqual({ state: 'Unknown', worldMinute: null, pendingEventCount: null, worldSeed: null, error: null, paused: false, operationalSpeed: null }))
   it('parses immutable operational controls from status', () => expect(parseStatus({ state: 'Running', paused: true, operationalSpeed: 5 })).toMatchObject({ paused: true, operationalSpeed: 5 }))

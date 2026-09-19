@@ -33,8 +33,10 @@ import {
   type Structure,
 } from './api'
 import { createWorldConnection, type WorldConnection } from './live'
+import { retainStructures } from './world/presentation'
 
-const WorldViewport = lazy(() => import('./world/WorldViewport').then(module => ({ default: module.WorldViewport })))
+const loadWorldViewport = () => import('./world/WorldViewport').then(module => ({ default: module.WorldViewport }))
+const WorldViewport = lazy(loadWorldViewport)
 
 const initialStatus: Status = { state: 'Unknown', worldMinute: null, pendingEventCount: null, worldSeed: null, error: null, paused: false, operationalSpeed: null }
 const historyTypes: HistoricalEventType[] = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted']
@@ -158,42 +160,45 @@ export function App() {
     const scheduleFallback = () => {
       if (!active || signalRConnected || fallbackTimer !== null) return
       const delay = document.visibilityState === 'hidden' ? REST_HIDDEN_FALLBACK_INTERVAL_MS : REST_VISIBLE_FALLBACK_INTERVAL_MS
-      fallbackTimer = window.setTimeout(() => { fallbackTimer = null; void requestRefresh(); if (!reconnecting) void connect() }, delay)
+      fallbackTimer = window.setTimeout(() => { fallbackTimer = null; void requestDetailsRefresh(false, false); void requestRefresh(); if (!reconnecting) void connect() }, delay)
     }
     const loadAuthoritative = async (includeMap: boolean): Promise<boolean> => {
       const request = requestRevision + 1
       requestRevision = request
+      const startingStreamRevision = streamedRevision
       const mapPromise = includeMap ? fetchMap().then(value => ({ ok: true as const, value })).catch(reason => ({ ok: false as const, reason })) : null
-      const corePromise = Promise.allSettled([fetchHealth(), fetchStatus(), fetchCitizens(), fetchSettlement(), fetchStructures(), fetchHouseholds()])
+      const corePromise = Promise.allSettled([fetchHealth(), fetchStatus(), fetchCitizens(), fetchStructures()])
       const [mapResult, coreResults] = await Promise.all([mapPromise, corePromise])
       if (!active || requestRevision !== request) return false
       if (mapResult !== null) {
         if (mapResult.ok) { setMap(mapResult.value); setMapError(null) }
         else setMapError(errorText(mapResult.reason, 'The map could not be read.'))
       }
-      const [healthResult, statusResult, citizensResult, settlementResult, structuresResult, householdsResult] = coreResults
+      const [healthResult, statusResult, citizensResult, structuresResult] = coreResults
       try {
         if (healthResult.status === 'rejected') throw healthResult.reason
         if (statusResult.status === 'rejected') throw statusResult.reason
         if (citizensResult.status === 'rejected') throw citizensResult.reason
-        if (settlementResult.status === 'rejected') throw settlementResult.reason
         if (structuresResult.status === 'rejected') throw structuresResult.reason
-        if (householdsResult.status === 'rejected') throw householdsResult.reason
-        setHealth(healthResult.value); setStatus(statusResult.value); setCitizens(citizensResult.value); setSettlement(settlementResult.value); setStructures(structuresResult.value); setHouseholds(householdsResult.value); setError(null)
+        if (streamedRevision === startingStreamRevision) {
+          setHealth(healthResult.value); setStatus(statusResult.value); setCitizens(citizensResult.value); setStructures(previous => retainStructures(previous, structuresResult.value)); setError(null)
+        }
         return true
       } catch (reason: unknown) {
         setError(errorText(reason, 'The server could not be reached.'))
         return false
       }
     }
-    const requestDetailsRefresh = (): Promise<void> => {
+    const requestDetailsRefresh = (notify = true, includeHealth = true): Promise<void> => {
       if (!active) return Promise.resolve()
       if (detailsInFlight !== null) return detailsInFlight
-      const run = Promise.allSettled([fetchHealth(), fetchSettlement(), fetchHouseholds()]).then(results => {
+      const run = Promise.allSettled([includeHealth ? fetchHealth() : Promise.resolve(null), fetchSettlement(), fetchHouseholds()]).then(results => {
         if (!active) return
         const [healthResult, settlementResult, householdsResult] = results
         if (healthResult.status === 'rejected' || settlementResult.status === 'rejected' || householdsResult.status === 'rejected') return
-        setHealth(healthResult.value); setSettlement(settlementResult.value); setHouseholds(householdsResult.value); setLiveRefreshRevision(value => value + 1)
+        if (healthResult.value !== null) setHealth(healthResult.value)
+        setSettlement(settlementResult.value); setHouseholds(householdsResult.value)
+        if (notify) setLiveRefreshRevision(value => value + 1)
       }).finally(() => { if (detailsInFlight === run) detailsInFlight = null })
       detailsInFlight = run
       return run
@@ -234,14 +239,16 @@ export function App() {
           connection.onWorldFrame(frame => {
             if (!active || frame.revision <= streamedRevision) return
             streamedRevision = frame.revision
-            setStatus(frame.status); setCitizens(frame.citizens); setStructures(frame.structures); setError(null)
+            signalRConnected = true; clearFallback(); setLiveConnectionState('connected')
+            setStatus(frame.status); setCitizens(frame.citizens); setStructures(previous => retainStructures(previous, frame.structures)); setError(null)
             scheduleDetailsRefresh()
           })
           connection.onStreamError(() => { if (active) { signalRConnected = false; setLiveConnectionState('unavailable'); void requestRefresh(); scheduleFallback() } })
           connection.onReconnecting(() => { if (active) { signalRConnected = false; reconnecting = true; setLiveConnectionState('reconnecting'); scheduleFallback() } })
-          connection.onReconnected(() => { if (active) { signalRConnected = true; reconnecting = false; setLiveConnectionState('connected'); clearFallback(); void requestDetailsRefresh() } })
+          connection.onReconnected(() => { if (active) { streamedRevision = -1; requestRevision += 1; signalRConnected = true; reconnecting = false; setLiveConnectionState('connected'); clearFallback(); void requestDetailsRefresh() } })
           connection.onClose(() => { if (active) { signalRConnected = false; reconnecting = false; setLiveConnectionState('disconnected'); scheduleFallback() } })
         }
+        streamedRevision = -1
         await connection.start()
         if (active) {
           signalRConnected = true
@@ -256,6 +263,8 @@ export function App() {
       }
     }
     void (async () => {
+      void loadWorldViewport()
+      void requestDetailsRefresh(false, false)
       includeMapInRefresh = true
       await requestRefresh()
       if (active) await connect()
@@ -312,7 +321,7 @@ export function App() {
   const connected = health?.ok === true && error === null && liveConnectionState === 'connected'; const stateLabel = status.paused ? 'Paused' : status.state.toLowerCase() === 'running' ? 'Running' : status.state; const activeProject = settlement?.activeConstructionProject; const selectedCitizen = citizens?.find(citizen => citizen.citizenId === selectedCitizenId) ?? null
   const liveLabel = liveConnectionState === 'connected' ? 'connected' : liveConnectionState === 'connecting' ? 'connecting…' : liveConnectionState === 'reconnecting' ? 'reconnecting…' : liveConnectionState === 'disconnected' ? 'disconnected' : 'unavailable'
   return <main className={`page-shell ${recordsOpen ? 'has-records-open' : ''}`}><div className="topline"><span className="mark" aria-hidden="true">✦</span><span>Observer station</span><span className="rule" /></div><header className="hero"><p className="eyebrow">A world in quiet motion</p><h1>Little <em>Ages</em></h1><p className="intro">A living miniature world.<br className="desktop-break" /> The server keeps time; this page simply looks in.</p></header><section className="status-strip" aria-label="Connection status" role="status" aria-live="polite"><span className={`status-dot ${connected ? 'is-good' : ''}`} aria-hidden="true" /><span>{error ? 'Connection unavailable' : health === null ? 'Checking the server…' : connected ? 'Server connected' : `Server: ${health.label}`}</span><span className="live-status">Live updates: {liveLabel}</span><span className="status-detail">{liveConnectionState === 'connected' ? 'Observer connected' : 'Degraded · responsive REST fallback active'}</span></section>{error && <div className="notice" role="alert">{error}. Make sure the Little Ages server is running.</div>}{mapError && <div className="notice" role="alert">Map unavailable: {mapError}.</div>}{status.error && <div className="notice" role="alert">Server reports: {status.error}</div>}
-    {map === null && !error && <div className="world-loading" role="status">Preparing the living diorama…</div>}{map !== null && <Suspense fallback={<div className="world-loading" role="status">Preparing the living diorama…</div>}><WorldViewport map={map} structures={structures ?? []} citizens={citizens ?? []} settlement={settlement} worldSeed={status.worldSeed} operationalSpeed={status.operationalSpeed} paused={status.paused} controlsEnabled={!recordsOpen} selectedCitizenId={selectedCitizenId} onSelectCitizen={selectCitizen} onOpenSelected={openCitizenRecord} /></Suspense>}
+    {map === null && !error && <div className="world-loading" role="status">Preparing the living diorama…</div>}{map !== null && <Suspense fallback={<div className="world-loading" role="status">Preparing the living diorama…</div>}><WorldViewport map={map} structures={structures ?? []} citizens={citizens ?? []} settlement={settlement} worldSeed={status.worldSeed} operationalSpeed={status.operationalSpeed} worldMinute={status.worldMinute ?? 0} paused={status.paused} controlsEnabled={!recordsOpen} selectedCitizenId={selectedCitizenId} onSelectCitizen={selectCitizen} onOpenSelected={openCitizenRecord} /></Suspense>}
     <section className="world-hud" aria-label="World controls"><h2 className="visually-hidden">Set the pace</h2><div><span>World time</span><strong>{status.worldMinute === null ? '—' : `Current: ${formatCalendarDate(status.worldMinute)}`}</strong></div><div><span>Population</span><strong>{formatValue(status.livingPopulation ?? settlement?.livingPopulation)}</strong></div><div className="world-hud-controls"><button type="button" onClick={() => { void updateControl(status.paused ? resumeSimulation : pauseSimulation) }} disabled={controlBusy}>{status.paused ? 'Resume' : 'Pause'}</button><label>Speed<select aria-label="Simulation speed" value={status.operationalSpeed ?? 10} onChange={event => { void updateControl(() => changeSimulationSpeed(Number(event.target.value))) }} disabled={controlBusy}>{SAFE_OPERATIONAL_SPEEDS.map(speed => <option key={speed} value={speed}>{speed} min/s</option>)}</select></label></div></section>{controlError && <div className="notice control-notice" role="alert">{controlError}</div>}
     {recordsOpen && <aside className="observer-drawer" role="dialog" aria-modal="false" aria-labelledby="observer-panel-title"><header className="observer-panel-header"><div><span className="section-kicker">Settlement ledger</span><h2 id="observer-panel-title">Observer records</h2></div><button ref={recordsCloseButton} type="button" className="observer-close" onClick={closeRecords} aria-label="Close observer records">×</button></header><nav className="observer-tabs" role="tablist" aria-label="Observer records sections">{OBSERVER_TABS.map(tab => <button key={tab} id={`observer-tab-${tab.toLowerCase()}`} type="button" role="tab" aria-controls="observer-tabpanel" aria-selected={recordsTab === tab} tabIndex={recordsTab === tab ? 0 : -1} className={recordsTab === tab ? 'is-active' : ''} onClick={() => setRecordsTab(tab)}>{tab}</button>)}</nav><div id="observer-tabpanel" className="observer-drawer-body" role="tabpanel" aria-labelledby={`observer-tab-${recordsTab.toLowerCase()}`} data-tab={recordsTab.toLowerCase()}>
     {recordsTab === 'Overview' && <>

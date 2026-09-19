@@ -11,13 +11,15 @@ import { citizenAnimation, setAnimationPlayback } from './artMotion'
 import { worldGeometry } from './assetGeometry'
 import { createResourceLod } from './resourceLod'
 import { createGroundTexture } from './terrainArt'
+import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
 import artManifest from './art-manifest.json'
-import { citizenPaletteIndex, detailVariant, movementPlanIdentity, reconcileVisualMinute, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
 
 type DetailTier = 'full' | 'reduced'
 const DIORAMA_ASSET_BYTES = artManifest.bytes
 type CameraNudge = { x: number; z: number; zoom: number; sequence: number }
-type PerfStats = { fps: number; calls: number; triangles: number }
+type PerfStats = { fps: number; calls: number; triangles: number; p95: number; readyMs: number }
+const diagnosticsEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).has('diagnostics')
 
 const villagerPalette = ['#b95f4b', '#536f88', '#d09a48', '#6d8150', '#876390', '#3f7c78', '#9a704d', '#b77774']
 
@@ -40,7 +42,18 @@ class SceneBoundary extends Component<{ children: ReactNode; onError: () => void
 
 function Terrain({ map, worldSeed }: { map: Map; worldSeed: string | null }) {
   const texture = useMemo(() => createGroundTexture(map, worldSeed), [map, worldSeed])
-  useEffect(() => () => texture.dispose(), [texture])
+  useEffect(() => {
+    if (typeof Worker === 'undefined') return () => texture.dispose()
+    const worker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (event: MessageEvent<Uint8Array<ArrayBuffer>>) => {
+      texture.image = { data: event.data, width: map.width * 4, height: map.height * 4 }
+      texture.needsUpdate = true
+      worker.terminate()
+    }
+    worker.onerror = () => worker.terminate() // Keep the quick texture if worker loading fails.
+    worker.postMessage([{ width: map.width, height: map.height, terrain: map.terrain }, worldSeed])
+    return () => { worker.terminate(); texture.dispose() }
+  }, [map, worldSeed, texture])
   const geometry = useMemo(() => {
     const positions = new Float32Array((map.width + 1) * (map.height + 1) * 3)
     const uvs = new Float32Array((map.width + 1) * (map.height + 1) * 2)
@@ -155,7 +168,8 @@ function Water({ map }: { map: Map }) {
 }
 
 function ResourceInstances({ map, settlement, worldSeed, detailTier }: { map: Map; settlement: Settlement | null; worldSeed: string | null; detailTier: DetailTier }) {
-  const quantities = useMemo(() => new globalThis.Map((settlement?.resources ?? []).map(resource => [resource.resourceNodeId, resource.currentQuantity])), [settlement])
+  const resourceKey = JSON.stringify((settlement?.resources ?? []).map(resource => [resource.resourceNodeId, resource.currentQuantity]))
+  const quantities = useMemo(() => new globalThis.Map<string, number>(JSON.parse(resourceKey)), [resourceKey])
   const chunks = useMemo(() => {
     const groups = new globalThis.Map<string, Map['resources']>()
     for (const resource of map.resources) {
@@ -232,12 +246,15 @@ function StructureModel({ map, structure, detailTier }: { map: Map; structure: S
   </group>
 }
 
-function CitizenModel({ citizen, map, worldSeed, operationalSpeed, paused, reducedMotion, selected, onSelect }: { citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
+function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, operationalSpeed, paused, reducedMotion, selected, onSelect }: { structures: Structure[]; presentationClock: PresentationClock; citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
   const group = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const target = useRef(new THREE.Vector3())
   const previousFrame = useRef(new THREE.Vector3())
-  const visualClock = useRef({ identity: 'none', minute: 0 })
+  const initialized = useRef(false)
+  const indoorHome = useRef<Structure | null>(null)
+  const home = restingHome(citizen, structures)
+  const displayPlan = useMemo(() => doorwayPlan(citizen, structures), [citizen, structures])
   const asset = useGLTF('/assets/diorama/villager.glb')
   const { actions, mixer } = useAnimations(asset.animations, group)
   const point = worldToScene(map, citizen.location.x, citizen.location.y, 0.05)
@@ -265,18 +282,28 @@ function CitizenModel({ citizen, map, worldSeed, operationalSpeed, paused, reduc
     if (object instanceof THREE.SkinnedMesh) object.skeleton.dispose()
   }), [painted])
   const stageScale = citizen.lifeStage === 'YoungChild' || citizen.lifeStage === 'Young Child' ? 0.58 : citizen.lifeStage === 'Child' ? 0.7 : citizen.lifeStage === 'Adolescent' ? 0.86 : citizen.lifeStage === 'Elder' ? 0.94 : 1
-  const planIdentity = movementPlanIdentity(citizen.movementPlan)
   const animationClip = citizenAnimation(citizen)
-  useEffect(() => {
-    const next = new THREE.Vector3(point.x, point.y, point.z)
-    if (citizen.movementPlan !== null) {
-      visualClock.current.minute = reconcileVisualMinute(visualClock.current.minute, visualClock.current.identity, citizen.movementPlan)
-      visualClock.current.identity = planIdentity
-    } else visualClock.current = { identity: 'none', minute: 0 }
+  useLayoutEffect(() => {
     const current = group.current
-    if (current && (reducedMotion || operationalSpeed === null || citizen.movementPlan === null)) current.position.copy(next)
-    target.current.copy(next)
-  }, [citizen.movementPlan, operationalSpeed, planIdentity, point.x, point.y, point.z, reducedMotion])
+    if (!current) return
+    target.current.set(point.x, point.y, point.z)
+    if (!initialized.current || reducedMotion) {
+      const planned = displayPlan && !reducedMotion ? scenePointAlongMovementPlan(map, displayPlan, presentationClock.at(performance.now()), 0.05) : { x: point.x, y: point.y, z: point.z }
+      current.position.set(planned.x, planned.y, planned.z)
+      previousFrame.current.copy(current.position)
+      current.visible = home === null
+      indoorHome.current = home
+      initialized.current = true
+    }
+    if (indoorHome.current && !home) {
+      const exit = doorway(indoorHome.current)
+      const exitPoint = worldToScene(map, exit.x, exit.y, 0.05)
+      current.position.set(exitPoint.x, exitPoint.y, exitPoint.z)
+      previousFrame.current.copy(current.position)
+      current.visible = true
+      indoorHome.current = null
+    }
+  }, [displayPlan, home, map, presentationClock, point.x, point.y, point.z, reducedMotion])
   useEffect(() => {
     for (const action of Object.values(actions)) action?.stop()
     if (reducedMotion || (operationalSpeed ?? 0) > 10) return
@@ -290,23 +317,33 @@ function CitizenModel({ citizen, map, worldSeed, operationalSpeed, paused, reduc
   useFrame(({ clock }, delta) => {
     const current = group.current
     if (!current) return
-    const plan = citizen.movementPlan
     if (paused || reducedMotion) { previousFrame.current.copy(current.position); return }
-    const routeMotion = !reducedMotion && plan !== null && operationalSpeed !== null && operationalSpeed > 0 && operationalSpeed <= 10
+    const plan = displayPlan
+    const visualMinute = presentationClock.at(performance.now())
+    const routeMotion = plan !== null && operationalSpeed !== null && operationalSpeed > 0 && operationalSpeed <= 10
     if (routeMotion) {
-      visualClock.current.minute = Math.max(visualClock.current.minute, plan.observedMinute) + delta * operationalSpeed
-      const planned = scenePointAlongMovementPlan(map, plan, visualClock.current.minute, 0.05)
+      const planned = scenePointAlongMovementPlan(map, plan, visualMinute, 0.05)
       target.current.set(planned.x, planned.y, planned.z)
-      current.position.lerp(target.current, 1 - Math.exp(-delta * 14))
-      const dx = current.position.x - previousFrame.current.x
-      const dz = current.position.z - previousFrame.current.z
-      if (dx * dx + dz * dz > 0.00001) current.rotation.y = Math.atan2(dx, dz)
-    } else current.position.lerp(target.current, 1 - Math.exp(-delta * (operationalSpeed !== null && operationalSpeed > 10 ? 18 : 9)))
+    }
+    if (home) {
+      const entrance = doorway(home)
+      const entryPoint = worldToScene(map, entrance.x, entrance.y, 0.05)
+      target.current.set(entryPoint.x, entryPoint.y, entryPoint.z)
+      if (current.position.distanceToSquared(target.current) < 0.01) {
+        current.visible = false
+        indoorHome.current = home
+      }
+    }
+    const step = Math.min(delta, 0.1)
+    current.position.lerp(target.current, 1 - Math.exp(-step * (routeMotion ? 18 : 12)))
+    const dx = current.position.x - previousFrame.current.x
+    const dz = current.position.z - previousFrame.current.z
+    if (dx * dx + dz * dz > 0.000001) current.rotation.y = Math.atan2(dx, dz)
     previousFrame.current.copy(current.position)
-    const moving = routeMotion && visualClock.current.minute < (plan?.waypoints.at(-1)?.arriveMinute ?? 0)
+    const moving = routeMotion && visualMinute < (plan?.waypoints.at(-1)?.arriveMinute ?? 0)
     if (body.current) body.current.position.y = animationClip === 'Rest' ? -0.12 : moving ? Math.abs(Math.sin(clock.elapsedTime * 8 + Number(citizen.citizenId) % 7)) * 0.06 : Math.sin(clock.elapsedTime * 1.7 + Number(citizen.citizenId) % 11) * 0.015
   })
-  return <group ref={group} position={[point.x, point.y, point.z]} scale={stageScale} onClick={event => { event.stopPropagation(); onSelect() }}>
+  return <group ref={group} scale={stageScale} onClick={event => { event.stopPropagation(); onSelect() }}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}><circleGeometry args={[0.3, 16]} /><meshBasicMaterial color="#2c2018" transparent opacity={0.2} depthWrite={false} /></mesh>
     {selected && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}><ringGeometry args={[0.36, 0.48, 24]} /><meshBasicMaterial color="#f3d287" side={THREE.DoubleSide} /></mesh>}
     <group ref={body}>
@@ -327,10 +364,12 @@ function cameraFocus(map: Map, structures: Structure[]): THREE.Vector3 {
   return new THREE.Vector3(point.x, point.y, point.z)
 }
 
-function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: THREE.Vector3 | null; controlsEnabled: boolean }) {
+function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: (() => { x: number; y: number; z: number }) | null; controlsEnabled: boolean }) {
   const camera = useRef<THREE.OrthographicCamera>(null)
   const controls = useRef<MapControlsImpl>(null)
   const appliedHome = useRef('')
+  const followTarget = useRef(new THREE.Vector3())
+  const followDelta = useRef(new THREE.Vector3())
   const { size } = useThree()
   const homeZoom = Math.max(30, Math.min(76, size.width / 18))
   const focusX = focus.x
@@ -363,11 +402,14 @@ function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled
     activeCamera.updateProjectionMatrix()
     activeControls.update()
   }, [nudge])
-  useFrame(() => {
+  useFrame((_state, frameDelta) => {
     if (!follow || !controls.current) return
-    const delta = follow.clone().sub(controls.current.target).multiplyScalar(0.08)
+    const point = follow()
+    const target = followTarget.current.set(point.x, point.y, point.z)
+    const blend = 1 - Math.exp(-Math.min(frameDelta, 0.1) * 5)
+    const delta = followDelta.current.copy(target).sub(controls.current.target).multiplyScalar(blend)
     controls.current.object.position.add(delta)
-    controls.current.target.lerp(follow, 0.08)
+    controls.current.target.lerp(target, blend)
     controls.current.update()
   })
   return <>
@@ -399,13 +441,15 @@ function SettlementSun({ enabled }: { enabled: boolean }) {
 
 function SceneStats({ onStats }: { onStats: (stats: PerfStats) => void }) {
   const { gl } = useThree()
-  const sample = useRef({ frames: 0, elapsed: 0 })
+  const sample = useRef({ frames: 0, elapsed: 0, durations: [] as number[], readyMs: 0 })
   useFrame((_state, delta) => {
+    if (sample.current.readyMs === 0) sample.current.readyMs = performance.now()
+    sample.current.durations.push(delta * 1000)
     sample.current.frames += 1
     sample.current.elapsed += delta
     if (sample.current.elapsed < 1) return
-    onStats({ fps: Math.round(sample.current.frames / sample.current.elapsed), calls: gl.info.render.calls, triangles: gl.info.render.triangles })
-    sample.current = { frames: 0, elapsed: 0 }
+    onStats({ fps: Math.round(sample.current.frames / sample.current.elapsed), calls: gl.info.render.calls, triangles: gl.info.render.triangles, p95: sample.current.durations.sort((a, b) => a - b)[Math.floor(sample.current.durations.length * 0.95)] ?? 0, readyMs: sample.current.readyMs })
+    sample.current = { frames: 0, elapsed: 0, durations: [], readyMs: sample.current.readyMs }
   })
   return null
 }
@@ -422,10 +466,16 @@ function ContextLossGuard({ onLoss }: { onLoss: () => void }) {
   return null
 }
 
-function DioramaScene({ map, citizens, structures, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void }) {
+function DioramaScene({ map, citizens, structures, worldMinute, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
+  const [presentationClock] = useState(() => new PresentationClock())
+  const observedMinute = worldMinute ?? Math.max(0, ...citizens.map(c => c.movementPlan?.observedMinute ?? 0))
+  useLayoutEffect(() => { presentationClock.observe(observedMinute, operationalSpeed, paused, performance.now()) }, [presentationClock, observedMinute, operationalSpeed, paused])
   const focus = useMemo(() => cameraFocus(map, structures), [map, structures])
   const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && citizen.isAlive)
-  const follow = followed ? (() => { const point = worldToScene(map, followed.location.x, followed.location.y); return new THREE.Vector3(point.x, point.y, point.z) })() : null
+  const followedPlan = followed ? doorwayPlan(followed, structures) : null
+  const follow = followed ? () => followedPlan && !reducedMotion && (operationalSpeed ?? 0) <= 10
+    ? scenePointAlongMovementPlan(map, followedPlan, presentationClock.at(performance.now()))
+    : worldToScene(map, followed.location.x, followed.location.y) : null
   return <>
     <color attach="background" args={['#c9b792']} />
     <fog attach="fog" args={['#c9b792', 70, 210]} />
@@ -441,13 +491,13 @@ function DioramaScene({ map, citizens, structures, settlement, worldSeed, operat
       <Suspense fallback={null}>
         <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
         {structures.map(structure => <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
-        {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
+        {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} structures={structures} presentationClock={presentationClock} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
+        {diagnosticsEnabled && <SceneStats onStats={onStats} />}
       </Suspense>
     </group>
     <CameraRig focus={focus} rotation={rotation} resetToken={resetToken} nudge={nudge} follow={follow} controlsEnabled={controlsEnabled} />
     <AdaptiveDpr />
     <PerformanceMonitor flipflops={2} onDecline={() => onDetailTier('reduced')} onIncline={() => onDetailTier('full')} />
-    {import.meta.env.DEV && <SceneStats onStats={onStats} />}
   </>
 }
 
@@ -458,6 +508,7 @@ export type WorldViewportProps = {
   settlement: Settlement | null
   worldSeed: string | null
   operationalSpeed: number | null
+  worldMinute?: number
   paused: boolean
   controlsEnabled?: boolean
   selectedCitizenId: string | null
@@ -474,7 +525,7 @@ export function WorldViewport(props: WorldViewportProps) {
   const [followCitizenId, setFollowCitizenId] = useState<string | null>(null)
   const [detailTier, setDetailTier] = useState<DetailTier>('full')
   const effectiveDetailTier = import.meta.env.DEV ? props.previewDetailTier ?? detailTier : detailTier
-  const [stats, setStats] = useState<PerfStats>({ fps: 0, calls: 0, triangles: 0 })
+  const [stats, setStats] = useState<PerfStats>({ fps: 0, calls: 0, triangles: 0, p95: 0, readyMs: 0 })
   const [nudge, setNudge] = useState<CameraNudge>({ x: 0, z: 0, zoom: 0, sequence: 0 })
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   const selected = props.citizens.find(citizen => citizen.citizenId === props.selectedCitizenId) ?? null
@@ -509,8 +560,11 @@ export function WorldViewport(props: WorldViewportProps) {
         </Canvas>
       </SceneBoundary>}
     </div>
-    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selected.currentAction} · {selected.actionPhase}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
-    {import.meta.env.DEV && !fallback && <output className="world-perf" aria-label="3D performance">{stats.fps} FPS · {stats.calls} calls · {stats.triangles.toLocaleString()} tris · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {(DIORAMA_ASSET_BYTES / 1024).toFixed(1)} KB assets · {effectiveDetailTier}</output>}
+    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{restingHome(selected, props.structures) ? 'Resting indoors' : `${selected.currentAction} · ${selected.actionPhase}`}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
+    {diagnosticsEnabled && !fallback && <output className="world-perf" aria-label="3D performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · ready {(stats.readyMs / 1000).toFixed(2)} s · {stats.calls} calls · {stats.triangles.toLocaleString()} tris · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {(DIORAMA_ASSET_BYTES / 1024).toFixed(1)} KB assets · {effectiveDetailTier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom, R rotates. All citizen details remain available in Observer records.</span>
   </section>
 }
+
+// Start essential model downloads while the bootstrap API requests are still in flight.
+for (const model of ['villager', 'shelter', 'stockpile', 'workshop', 'food', 'wood', 'stone']) useGLTF.preload(`/assets/diorama/${model}.glb`)

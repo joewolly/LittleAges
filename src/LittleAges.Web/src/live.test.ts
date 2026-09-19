@@ -4,6 +4,7 @@ const signalRMock = vi.hoisted(() => {
   const subscription = { dispose: vi.fn() }
   let subscriber: { next: (value: unknown) => void; error: (error: unknown) => void; complete: () => void } | null = null
   const connection = {
+    state: 'Disconnected',
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
     on: vi.fn(),
@@ -37,6 +38,7 @@ describe('world live connection adapter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     signalRMock.setSubscriber(null)
+    signalRMock.connection.state = 'Disconnected'
   })
 
   it('configures the world hub with automatic reconnect', async () => {
@@ -100,5 +102,28 @@ describe('world live connection adapter', () => {
 
     subscriber?.next({ sequence: 0 })
     expect(errorHandler).toHaveBeenCalledOnce()
+  })
+
+  it('rejects stale subscriptions and duplicate frames, and restarts a completed stream on a connected hub', async () => {
+    const live = createWorldConnection()
+    const frameHandler = vi.fn()
+    const errorHandler = vi.fn()
+    live.onWorldFrame(frameHandler)
+    live.onStreamError(errorHandler)
+    await live.start()
+    const old = signalRMock.getSubscriber()!
+    const frame = { sequence: 1, sentAtUnixMilliseconds: 1000, revision: 20, status: { state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', paused: false, operationalSpeed: 10 }, citizens: [], structures: [] }
+    old.next(frame); old.next(frame)
+    expect(frameHandler).toHaveBeenCalledTimes(1)
+    old.complete()
+    expect(errorHandler).toHaveBeenCalledOnce()
+    signalRMock.connection.state = 'Connected'
+    await live.start()
+    expect(signalRMock.connection.start).toHaveBeenCalledOnce()
+    old.next({ ...frame, sequence: 2 }); old.error(new Error('old stream'))
+    expect(frameHandler).toHaveBeenCalledTimes(1)
+    expect(errorHandler).toHaveBeenCalledOnce()
+    signalRMock.getSubscriber()!.next({ ...frame, revision: 1 })
+    expect(frameHandler).toHaveBeenCalledTimes(2)
   })
 })

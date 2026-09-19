@@ -56,7 +56,7 @@ export type Citizen = {
 }
 
 export type CitizenMovementWaypoint = { x: number; y: number; arriveMinute: number }
-export type CitizenMovementPlan = { actionSequence: number; observedMinute: number; waypoints: CitizenMovementWaypoint[] }
+export type CitizenMovementPlan = { actionSequence: number; observedMinute: number; segmentStartedMinute?: number; waypoints: CitizenMovementWaypoint[] }
 
 export type CitizenOccupation = 'Generalist' | 'Forager' | 'Lumberjack' | 'Stoneworker' | 'Builder' | 'Hauler'
 export type WorkActivity = { foragingMinutes: number; woodcuttingMinutes: number; stoneworkingMinutes: number; constructionMinutes: number; haulingMinutes: number }
@@ -660,7 +660,9 @@ function parseMovementPlan(value: unknown, actionSequence: number, location: { x
   }
   const destination = waypoints.at(-1)!
   if (target === null || destination.x !== target.x || destination.y !== target.y) throw new Error('The server returned an incoherent citizen movement destination.')
-  return { actionSequence: planSequence, observedMinute, waypoints }
+  const segmentStartedMinute = value.segmentStartedMinute === undefined || value.segmentStartedMinute === null ? undefined : parseRequiredNonNegativeInteger(value.segmentStartedMinute, 'The server returned an invalid movement departure minute.')
+  if (segmentStartedMinute !== undefined && (segmentStartedMinute > observedMinute || segmentStartedMinute >= waypoints[1].arriveMinute)) throw new Error('The server returned an incoherent movement departure minute.')
+  return { actionSequence: planSequence, observedMinute, ...(segmentStartedMinute === undefined ? {} : { segmentStartedMinute }), waypoints }
 }
 
 export function parseCitizens(value: unknown): Citizen[] {
