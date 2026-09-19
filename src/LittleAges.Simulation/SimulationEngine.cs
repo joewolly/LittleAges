@@ -240,7 +240,7 @@ public sealed record SimulationPersistenceSnapshot
         foreach (var memory in memories)
         {
             var historicalEvent = events.Single(x => x.Id == memory.HistoricalEventId);
-            if (memory.CreatedMinute != historicalEvent.WorldMinute || memory.Importance != historicalEvent.Importance || !MemoryMatchesEvent(memory, historicalEvent, citizenLinks, citizens)) throw new ArgumentException("M6 memory does not match its historical event.", nameof(memories));
+            if (memory.CreatedMinute != historicalEvent.WorldMinute || memory.Importance != historicalEvent.Importance || !MemoryMatchesEvent(memory, historicalEvent, citizenLinks, citizens, events)) throw new ArgumentException($"M6 memory for citizen {memory.CitizenId.Value}, event {historicalEvent.Id.Value} at minute {historicalEvent.WorldMinute} does not match its historical event.", nameof(memories));
         }
         var sampleEvent = scheduled.Where(x => x.Name == CitizenEventNames.StatisticsSample).ToArray();
         var expected = new WorldMinute(checked(((minute.Value / (30L * WorldCalendar.MinutesPerDay)) + 1) * (30L * WorldCalendar.MinutesPerDay)));
@@ -334,7 +334,7 @@ public sealed record SimulationPersistenceSnapshot
         }
     }
 
-    private static bool MemoryMatchesEvent(CitizenMemory memory, HistoricalEvent historicalEvent, IReadOnlyList<HistoricalEventCitizenLink> links, IReadOnlyList<Citizen> citizens)
+    private static bool MemoryMatchesEvent(CitizenMemory memory, HistoricalEvent historicalEvent, IReadOnlyList<HistoricalEventCitizenLink> links, IReadOnlyList<Citizen> citizens, IReadOnlyList<HistoricalEvent> events)
     {
         var expectedType = historicalEvent.EventType switch
         {
@@ -362,14 +362,23 @@ public sealed record SimulationPersistenceSnapshot
         {
             // CitizenDied intentionally persists only the deceased subject link. The
             // memory recipient is reconstructed from the deceased's canonical partner
-            // state and must have been alive when the death occurred.
+            // state and must have been alive when the death occurred. A later
+            // death in the same minute does not invalidate an existing memory:
+            // the append-only event order proves the recipient was still alive.
             var deceasedLink = links.SingleOrDefault(x => x.HistoricalEventId == historicalEvent.Id && x.Role == "subject");
             var deceased = deceasedLink is null ? null : citizens.SingleOrDefault(x => x.Id == deceasedLink.CitizenId);
             return deceased?.PartnerId is { } partnerId
                 && partnerId == memory.CitizenId
                 && citizens.SingleOrDefault(x => x.Id == partnerId) is { } partner
                 && partner.BirthMinute <= historicalEvent.WorldMinute
-                && (partner.DeathMinute is null || partner.DeathMinute.Value > historicalEvent.WorldMinute);
+                && (partner.DeathMinute is null || partner.DeathMinute.Value > historicalEvent.WorldMinute
+                    || (partner.DeathMinute.Value == historicalEvent.WorldMinute
+                        && historicalEvent.Origin == HistoricalEventOrigin.Live
+                        && events.Any(item => item.EventType == HistoricalEventType.CitizenDied
+                            && item.Origin == HistoricalEventOrigin.Live
+                            && item.WorldMinute == historicalEvent.WorldMinute
+                            && item.Id.Value > historicalEvent.Id.Value
+                            && links.Any(link => link.HistoricalEventId == item.Id && link.CitizenId == partnerId && link.Role == "subject"))));
         }
         var eligibleRoles = historicalEvent.EventType switch
         {

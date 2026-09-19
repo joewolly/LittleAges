@@ -180,10 +180,27 @@ browser remounts with delayed worker loading produce no allocation errors or
 uncaught exceptions. Dependency Clock/shadow-mode deprecation warnings remain
 separate diagnostics; the shadow implementation already falls back to PCF.
 
+### P3 — MUST FIX — Later same-minute partner death invalidates an existing memory (fixed)
+
+The 100-year acceptance attempt failed while constructing a persistence snapshot:
+`M6 memory does not match its historical event`. A minimal M6/M8 reproduction
+kills two partnered citizens sequentially within one minute. The second citizen
+correctly remembers the first death, but timestamp-only snapshot validation then
+incorrectly rejects that memory after the recipient's later death.
+
+Validation now uses the existing append-only live death-event ordering to prove
+that the recipient was alive when the memory formed. Equal timestamps alone do
+not suffice. A forged memory attributed to the citizen who died first remains
+rejected. Simulation decisions, emitted events/memories, IDs, and fingerprints
+are unchanged; no migration, historical edits or golden regeneration is needed.
+Both rules versions pass snapshot round trips and SQLite close/reopen/continuation
+regressions. The 100-year acceptance rerun is in progress with this correction.
+
+## Broader audit coverage
 | Area | Review and evidence |
 | --- | --- |
 | Build/dependencies/CI | Pinned SDK, locked portable restores, warnings-as-errors, project boundaries, fast/Long workflow separation, Windows publish/package scripts reviewed. NuGet including transitives and npm including development dependencies report zero known vulnerabilities on 2026-09-19. |
-| Determinism | Stateless domain/key-derived RNG, complete event-order tuple, integer path costs/ties, ordered social/housing/lifecycle transitions, invariant serialization, counters and locked fingerprint tests reviewed. No simulation code, goldens, balances, or rules versions changed. |
+| Determinism | Stateless domain/key-derived RNG, complete event-order tuple, integer path costs/ties, ordered social/housing/lifecycle transitions, invariant serialization, counters and locked fingerprint tests reviewed. Only snapshot validation changed (P3); no simulation transitions, goldens, balances, or rules versions changed. |
 | M0–M8 simulation | Generation, decisions, resources, survival, construction/storage, shelter, household reconciliation, partnerships/birth/death cleanup, history/statistics and their snapshot invariants reviewed against existing adversarial and compatibility tests. The earlier M8 housing regression remains covered. |
 | Persistence/migration | Transactions/rollback, retained history prefixes, migration chain, malformed/partial databases, retry/fault semantics and save/reload tests reviewed. P1/P2 close two concrete integrity gaps. All 141 persistence tests pass. |
 | Host/lifecycle | Bounded 32-command single-reader queue; operational driver awaits its one outstanding advance; checkpoints capture on the same owner; immutable publication and final-checkpoint failure propagation reviewed. Integration tests cover cancellation, shutdown, retries and faulted health. |
@@ -264,3 +281,4 @@ directory and are machine-local, not fabricated application mockups.
 - An exploratory console restart used the repository working directory and
   correctly warned that its `wwwroot` was absent there. Packaged UI checks
   use the package directory; Windows service hosting sets its content root.
+

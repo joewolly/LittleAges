@@ -182,6 +182,39 @@ public sealed class M6HistoryAcceptanceTests
         Assert.Equal(22, engine.LivingPopulation);
     }
 
+    [Theory]
+    [InlineData(SimulationEngine.M6SimulationRulesVersion)]
+    [InlineData(SimulationEngine.CurrentSimulationRulesVersion)]
+    public void PartnerDeathMemorySurvivesRecipientsLaterDeathInTheSameMinute(string rules)
+    {
+        var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: rules);
+        var partners = Citizens(engine).Values.Where(citizen => citizen.AgeYears(engine.CurrentMinute) >= 18).OrderBy(citizen => citizen.Id.Value).Take(2).ToArray();
+        var relationships = Assert.IsType<Dictionary<(long CitizenAId, long CitizenBId), RelationshipState>>(typeof(SimulationEngine).GetField("_relationships", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        var pair = RelationshipState.Normalize(partners[0].Id, partners[1].Id);
+        var relationship = new RelationshipState(pair.A, pair.B, 6000, 6000, 5000, 0, 0, 1);
+        relationships.Add((pair.A.Value, pair.B.Value), relationship);
+        InvokePrivate(engine, "TryFormPartnership", partners[0], partners[1], relationship);
+        Assert.Equal(partners[1].Id, partners[0].PartnerId);
+        InvokePrivate(engine, "RecordPartnershipHistory", partners[0], partners[1]);
+        InvokePrivate(engine, "KillNatural", partners[0]);
+        var memory = Assert.Single(engine.Memories, item => item.MemoryType == MemoryType.PartnerDied);
+        Assert.Equal(partners[1].Id, memory.CitizenId);
+        InvokePrivate(engine, "KillNatural", partners[1]);
+        Assert.Equal(partners[0].DeathMinute, partners[1].DeathMinute);
+
+        var fingerprint = engine.HistoryFingerprint;
+        var restored = SimulationEngine.FromPersistenceSnapshot(engine.CreatePersistenceSnapshot());
+        Assert.Equal(fingerprint, restored.HistoryFingerprint);
+        Assert.Contains(memory, restored.Memories);
+
+        // The citizen who died first must not acquire a memory of the later
+        // death merely because both transitions share a timestamp.
+        var laterDeath = engine.HistoricalEvents.Last(item => item.EventType == HistoricalEventType.CitizenDied);
+        var memories = Assert.IsType<List<CitizenMemory>>(typeof(SimulationEngine).GetField("_memories", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+        memories.Add(new CitizenMemory(partners[0].Id, laterDeath.Id, MemoryType.PartnerDied, laterDeath.Importance, -9000, laterDeath.WorldMinute));
+        Assert.Throws<ArgumentException>(() => engine.CreatePersistenceSnapshot());
+    }
+
     [Fact]
     public void LiveCitizenBornValidationUsesBirthHouseholdAfterCurrentHouseholdChanges()
     {
