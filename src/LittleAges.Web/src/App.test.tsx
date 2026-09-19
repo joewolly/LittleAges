@@ -135,6 +135,27 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it('recovers a failed initial map request even when the live connection succeeds', async () => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    let mapCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/map') && ++mapCalls === 1) return new Response('starting', { status: 503 })
+      return responseFor(path, 1)
+    })
+    const { unmount } = render(<App />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText(/Map unavailable/)).toBeInTheDocument()
+    expect(liveMock.state.startCalls).toBe(1)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(mapCalls).toBe(2)
+    expect(screen.queryByText(/Map unavailable/)).not.toBeInTheDocument()
+    unmount()
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+    expect(mapCalls).toBe(2)
+  })
+
   it('loads citizens and connects while secondary household and settlement requests are pending', async () => {
     liveMock.state.startMode = 'resolve'
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {

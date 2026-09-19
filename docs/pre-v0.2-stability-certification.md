@@ -36,8 +36,8 @@ These ignored artifacts contain machine-specific evidence and are not shipped.
 | --- | --- |
 | Baseline locked solution restore | Passed |
 | Baseline Release build | Passed, zero warnings/errors |
-| Baseline backend non-Long suites | Running |
-| Baseline frontend install/lint/typecheck/tests/build | Running |
+| Baseline backend non-Long suites | Passed: 432 tests (26 domain, 202 simulation, 138 persistence, 55 integration, 11 headless) |
+| Baseline frontend install/lint/typecheck/tests/build | Passed: 139 tests |
 | Seed-42 100-year acceptance, year-37 checkpoint | Running |
 | Final committed-state validation | Pending |
 
@@ -93,3 +93,39 @@ rows before commit. Both injected-corruption regressions failed before the fix
 and pass afterward, with previous checkpoint metadata retained and corruption
 left intact for investigation. These changes reject invalid data; they do not
 change simulation decisions, valid saves, migrations, or goldens.
+
+All 141 persistence tests pass after P1/P2. A disposable copy of the protected
+real-world backup also passed 120 advance/checkpoint/close/reopen cycles of
+360 minutes each, reaching minute 251400. Its history fingerprint exactly
+matches an uninterrupted 30-day continuation:
+`881b315bcc65a6f0ab964e39d252aab595f4446af77d2ecc816e35120645c907`.
+Average checkpoint time was 262 ms, maximum 978 ms; final database 1,363,968
+bytes. Evidence: `artifacts/pre-v02/continuation/evidence.json`.
+
+### F1 — MUST FIX — Initial map failure never retried (fixed)
+
+If the first map request failed but SignalR connected, the observer could
+remain without a scene indefinitely. Stream frames omit the immutable map;
+the fallback timer was suppressed by a healthy connection. `App.tsx` now
+retries until a map succeeds, independently of stream health, then stops
+fetching it. The new component regression failed before the fix and passes
+afterward. A packaged-server browser test injected a first-request HTTP 503,
+observed the retry, and verified a usable scene and cleared error.
+
+### F2 — MUST FIX — Failed scene chunk blanks the observer (fixed)
+
+A failed lazy scene import escaped Suspense and removed the entire app,
+including records and operational controls; its preload also produced an
+unhandled rejection. `SceneLoadBoundary.tsx` retains a 2D map and the rest
+of the observer, and preloading now handles rejection. A lazy-rejection
+regression and a browser test that aborts the scene chunk both pass.
+
+Frontend lint, typecheck, all 141 tests, and production build pass after both
+fixes. Browser checks cover desktop 1440x900, tablet 1024x768, mobile 390x844,
+reduced motion, selection/follow, 2D/3D switching, all records tabs, map/chunk
+failures, model failure, and WebGL context loss/retry. Model failure correctly
+falls back to 2D; React Three Fiber deliberately reports its caught error as
+a browser error event. That exact injected diagnostic is recorded, not hidden.
+Other scenarios produced no uncaught browser errors. Screenshots were captured
+and desktop/mobile inspected. These headless measurements do not certify a
+foreground hardware 45 FPS target.
