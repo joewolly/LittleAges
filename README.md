@@ -68,10 +68,11 @@ SimulationEngine  →  SimulationHost + SQLite checkpoints  →  React/Vite obse
  canonical reality       server, health, REST, SignalR          map and inspectors
 ```
 
-`SimulationHost` is the single hosted mutation path. REST responses are
-authoritative observations; SignalR only sends coalesced invalidations so the
-browser knows when to refetch. The server can run without a browser, and
-operational pause/resume/speed commands do not become simulation facts.
+`SimulationHost` is the single hosted mutation path. Connected observers receive
+compact immutable scene frames through SignalR, while REST bootstraps the page,
+refreshes slower ledger details, and remains the recovery fallback. The server
+can run without a browser, and operational pause/resume/speed commands do not
+become simulation facts.
 
 For the full ownership and persistence contracts, see
 [`docs/architecture.md`](./docs/architecture.md) and

@@ -20,7 +20,7 @@ This is a manual check for the Windows hardware that will host a long-lived worl
 - [ ] Query `/api/v1/status` immediately after resume. The first post-resume `WorldMinute` must not include the suspended wall-time interval; it should be the pre-sleep progression plus only work performed before suspension and after resume.
 - [ ] Observe several post-resume ticks. The world should advance again at the configured rate, with no burst that represents catch-up for sleep.
 - [ ] Confirm `/api/v1/health` returns Healthy and persistence returns to Healthy after any normal checkpoint. Check that `LastSuccessfulCheckpointWorldMinute` advances normally.
-- [ ] Confirm the browser reconnects to `/hubs/world` if needed, receives only coalesced invalidations, and refetches authoritative REST observations. If SignalR remains unavailable, REST polling must still show the correct world.
+- [ ] Confirm the browser reconnects to `/hubs/world` if needed, resumes the continuous live-frame stream, and refreshes authoritative REST ledger details. If SignalR remains unavailable, REST polling must still show the correct world.
 
 ## Pass/fail evidence
 

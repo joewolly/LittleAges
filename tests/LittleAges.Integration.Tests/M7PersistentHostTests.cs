@@ -33,6 +33,7 @@ public sealed class M7PersistentHostTests
             Assert.Equal(ServerOptions.DefaultCheckpointRetryCount, defaults.CheckpointRetryCount);
             Assert.Equal(ServerOptions.DefaultCheckpointRetryDelaySeconds, defaults.CheckpointRetryDelaySeconds);
             Assert.Equal(ServerOptions.DefaultBrowserUpdateIntervalMilliseconds, defaults.BrowserUpdateIntervalMilliseconds);
+            Assert.Equal(ServerOptions.DefaultObserverStreamIntervalMilliseconds, defaults.ObserverStreamIntervalMilliseconds);
 
             var configured = ServerOptions.FromConfiguration(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             {
@@ -45,7 +46,8 @@ public sealed class M7PersistentHostTests
                 ["CheckpointMinimumRealSeconds"] = "0",
                 ["CheckpointRetryCount"] = "0",
                 ["CheckpointRetryDelaySeconds"] = "0",
-                ["BrowserUpdateIntervalMilliseconds"] = "1"
+                ["BrowserUpdateIntervalMilliseconds"] = "1",
+                ["ObserverStreamIntervalMilliseconds"] = "2"
             }).Build());
             Assert.Equal(Path.GetFullPath(root), configured.DataRoot);
             Assert.Equal("configured-world", configured.ActiveWorld);
@@ -56,6 +58,7 @@ public sealed class M7PersistentHostTests
             Assert.Equal(0, configured.CheckpointRetryCount);
             Assert.Equal(0, configured.CheckpointRetryDelaySeconds);
             Assert.Equal(1, configured.BrowserUpdateIntervalMilliseconds);
+            Assert.Equal(2, configured.ObserverStreamIntervalMilliseconds);
             Assert.Equal(ExpectedConfiguredListenHosts, configured.GetListenUris().Select(uri => uri.Host));
         }
         finally
@@ -75,6 +78,7 @@ public sealed class M7PersistentHostTests
     [InlineData("CheckpointRetryCount", "2147483647")]
     [InlineData("CheckpointRetryDelaySeconds", "-1")]
     [InlineData("BrowserUpdateIntervalMilliseconds", "0")]
+    [InlineData("ObserverStreamIntervalMilliseconds", "0")]
     [InlineData("ListenUrls", "")]
     [InlineData("ListenUrls", "file:///tmp/not-http")]
     public void ServerOptionsRejectInvalidConfiguredValues(string key, string value)

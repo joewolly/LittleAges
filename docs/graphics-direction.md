@@ -10,8 +10,9 @@ chunky hierarchy of a polished mobile builder. The reference is presentation
 clarity, not another game's assets or visual identity. Little Ages remains an
 observer, not a second simulation and not an order-entry surface.
 
-React Three Fiber presents the canonical REST observations. SignalR continues
-to mean only “refresh”; it carries no render or simulation authority. Cosmetic
+React Three Fiber presents immutable server observations. Connected clients
+consume compact SignalR live frames while REST bootstraps and recovers the
+observer; neither transport carries simulation authority. Cosmetic
 variation is derived from the world seed, coordinates, and stable decimal
 entity IDs. Cosmetic values are neither persisted nor fingerprinted.
 

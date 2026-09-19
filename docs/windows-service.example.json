@@ -9,6 +9,7 @@
   "CheckpointRetryCount": 3,
   "CheckpointRetryDelaySeconds": 2,
   "BrowserUpdateIntervalMilliseconds": 500,
+  "ObserverStreamIntervalMilliseconds": 100,
   "Logging": {
     "LogLevel": {
       "Default": "Information",

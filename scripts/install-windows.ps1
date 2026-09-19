@@ -633,6 +633,7 @@ $checkpointMinimumRealSeconds = Get-ConfigProperty -Configuration $existingConfi
 $checkpointRetryCount = Get-ConfigProperty -Configuration $existingConfiguration -Name 'CheckpointRetryCount' -Fallback 3
 $checkpointRetryDelaySeconds = Get-ConfigProperty -Configuration $existingConfiguration -Name 'CheckpointRetryDelaySeconds' -Fallback 2
 $browserUpdateIntervalMilliseconds = Get-ConfigProperty -Configuration $existingConfiguration -Name 'BrowserUpdateIntervalMilliseconds' -Fallback 500
+$observerStreamIntervalMilliseconds = Get-ConfigProperty -Configuration $existingConfiguration -Name 'ObserverStreamIntervalMilliseconds' -Fallback 100
 
 # Preserve unknown/user-owned configuration (notably Logging) while replacing
 # only the installer-owned deployment values. ConvertTo-Json keeps this merge
@@ -653,6 +654,7 @@ $configuration['CheckpointMinimumRealSeconds'] = $checkpointMinimumRealSeconds
 $configuration['CheckpointRetryCount'] = $checkpointRetryCount
 $configuration['CheckpointRetryDelaySeconds'] = $checkpointRetryDelaySeconds
 $configuration['BrowserUpdateIntervalMilliseconds'] = $browserUpdateIntervalMilliseconds
+$configuration['ObserverStreamIntervalMilliseconds'] = $observerStreamIntervalMilliseconds
 $configurationJson = $configuration | ConvertTo-Json -Depth 10
 
 $runId = [Guid]::NewGuid().ToString('N')

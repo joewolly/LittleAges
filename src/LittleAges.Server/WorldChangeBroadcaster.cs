@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using System.Runtime.CompilerServices;
 
 namespace LittleAges.Server;
 
@@ -8,9 +9,44 @@ public sealed record WorldChangedPayload(
     SimulationHostState HostState,
     PersistenceState PersistenceState);
 
-/// <summary>Observer-only SignalR endpoint. Canonical simulation state is never exposed here.</summary>
-public sealed class WorldHub : Hub
+/// <summary>A compact immutable live frame. It contains only scene-critical state.</summary>
+public sealed record WorldStreamFrame(
+    long Sequence,
+    long SentAtUnixMilliseconds,
+    long Revision,
+    ServerStatusSnapshot Status,
+    IReadOnlyList<ServerCitizenSnapshot> Citizens,
+    IReadOnlyList<ServerStructureSnapshot> Structures)
 {
+    internal static WorldStreamFrame Create(long sequence, ServerObservationSnapshot observation) =>
+        new(sequence, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), observation.Revision, observation.Status, observation.Citizens, observation.Structures);
+}
+
+/// <summary>Observer-only SignalR endpoint. Canonical simulation state is never exposed here.</summary>
+public sealed class WorldHub(SimulationHost simulationHost, ServerOptions options) : Hub
+{
+    /// <summary>
+    /// Streams immutable observer frames for the lifetime of one connected client. The stream
+    /// is presentation-only and cannot mutate or delay the single-writer simulation host.
+    /// </summary>
+    public async IAsyncEnumerable<WorldStreamFrame> StreamWorld([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var sequence = 0L;
+        yield return WorldStreamFrame.Create(checked(++sequence), simulationHost.Observation);
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(options.ObserverStreamIntervalMilliseconds));
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(cancellationToken)) yield break;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                yield break;
+            }
+            yield return WorldStreamFrame.Create(checked(++sequence), simulationHost.Observation);
+        }
+    }
 }
 
 /// <summary>

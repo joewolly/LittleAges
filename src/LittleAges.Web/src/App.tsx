@@ -137,6 +137,7 @@ export function App() {
   useEffect(() => {
     let active = true
     let fallbackTimer: number | null = null
+    let detailsTimer: number | null = null
     let connection: WorldConnection | null = null
     let signalRConnected = false
     let reconnecting = false
@@ -145,9 +146,14 @@ export function App() {
     let refreshPending = false
     let includeMapInRefresh = false
     let requestRevision = 0
+    let streamedRevision = -1
+    let detailsInFlight: Promise<void> | null = null
 
     const clearFallback = () => {
       if (fallbackTimer !== null) { window.clearTimeout(fallbackTimer); fallbackTimer = null }
+    }
+    const clearDetailsTimer = () => {
+      if (detailsTimer !== null) { window.clearTimeout(detailsTimer); detailsTimer = null }
     }
     const scheduleFallback = () => {
       if (!active || signalRConnected || fallbackTimer !== null) return
@@ -180,6 +186,22 @@ export function App() {
         return false
       }
     }
+    const requestDetailsRefresh = (): Promise<void> => {
+      if (!active) return Promise.resolve()
+      if (detailsInFlight !== null) return detailsInFlight
+      const run = Promise.allSettled([fetchHealth(), fetchSettlement(), fetchHouseholds()]).then(results => {
+        if (!active) return
+        const [healthResult, settlementResult, householdsResult] = results
+        if (healthResult.status === 'rejected' || settlementResult.status === 'rejected' || householdsResult.status === 'rejected') return
+        setHealth(healthResult.value); setSettlement(settlementResult.value); setHouseholds(householdsResult.value); setLiveRefreshRevision(value => value + 1)
+      }).finally(() => { if (detailsInFlight === run) detailsInFlight = null })
+      detailsInFlight = run
+      return run
+    }
+    const scheduleDetailsRefresh = () => {
+      if (!active || detailsTimer !== null) return
+      detailsTimer = window.setTimeout(() => { detailsTimer = null; void requestDetailsRefresh() }, REST_VISIBLE_FALLBACK_INTERVAL_MS)
+    }
     const requestRefresh = (): Promise<void> => {
       if (!active) return Promise.resolve()
       refreshPending = true
@@ -208,9 +230,16 @@ export function App() {
       try {
         if (connection === null) {
           connection = createWorldConnection()
-          connection.onWorldChanged(() => { void requestRefresh() })
+          connection.onWorldChanged(() => { scheduleDetailsRefresh() })
+          connection.onWorldFrame(frame => {
+            if (!active || frame.revision <= streamedRevision) return
+            streamedRevision = frame.revision
+            setStatus(frame.status); setCitizens(frame.citizens); setStructures(frame.structures); setError(null)
+            scheduleDetailsRefresh()
+          })
+          connection.onStreamError(() => { if (active) { signalRConnected = false; setLiveConnectionState('unavailable'); void requestRefresh(); scheduleFallback() } })
           connection.onReconnecting(() => { if (active) { signalRConnected = false; reconnecting = true; setLiveConnectionState('reconnecting'); scheduleFallback() } })
-          connection.onReconnected(() => { if (active) { signalRConnected = true; reconnecting = false; setLiveConnectionState('connected'); clearFallback(); void requestRefresh() } })
+          connection.onReconnected(() => { if (active) { signalRConnected = true; reconnecting = false; setLiveConnectionState('connected'); clearFallback(); void requestDetailsRefresh() } })
           connection.onClose(() => { if (active) { signalRConnected = false; reconnecting = false; setLiveConnectionState('disconnected'); scheduleFallback() } })
         }
         await connection.start()
@@ -218,7 +247,7 @@ export function App() {
           signalRConnected = true
           setLiveConnectionState('connected')
           clearFallback()
-          await requestRefresh()
+          await requestDetailsRefresh()
         }
       } catch {
         if (active) { signalRConnected = false; setLiveConnectionState('unavailable'); scheduleFallback() }
@@ -234,7 +263,7 @@ export function App() {
     const onVisibilityChange = () => { if (!signalRConnected) { clearFallback(); scheduleFallback() } }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => {
-      active = false; refreshPending = false; clearFallback(); requestRevision += 1
+      active = false; refreshPending = false; clearFallback(); clearDetailsTimer(); requestRevision += 1
       document.removeEventListener('visibilitychange', onVisibilityChange)
       if (connection !== null) void connection.stop().catch(() => undefined)
     }

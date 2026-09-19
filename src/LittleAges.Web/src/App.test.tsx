@@ -4,6 +4,7 @@ import { App } from './App'
 
 const liveMock = vi.hoisted(() => {
   type WorldChangedHandler = (message: unknown) => void
+  type WorldFrameHandler = (message: unknown) => void
   type ConnectionHandler = () => void
   const state = {
     startMode: 'reject' as 'resolve' | 'reject',
@@ -11,16 +12,22 @@ const liveMock = vi.hoisted(() => {
     startCalls: 0,
     stopCalls: 0,
     emitWorldChanged: (message: unknown) => { void message },
+    emitWorldFrame: (message: unknown) => { void message },
+    emitStreamError: () => undefined,
     emitReconnecting: () => undefined,
     emitReconnected: () => undefined,
     emitClose: () => undefined,
   }
   const factory = vi.fn(() => {
     const worldChangedHandlers: WorldChangedHandler[] = []
+    const worldFrameHandlers: WorldFrameHandler[] = []
+    const streamErrorHandlers: ConnectionHandler[] = []
     const reconnectingHandlers: ConnectionHandler[] = []
     const reconnectedHandlers: ConnectionHandler[] = []
     const closeHandlers: ConnectionHandler[] = []
     state.emitWorldChanged = message => { worldChangedHandlers.forEach(handler => handler(message)) }
+    state.emitWorldFrame = message => { worldFrameHandlers.forEach(handler => handler(message)) }
+    state.emitStreamError = () => { streamErrorHandlers.forEach(handler => handler()) }
     state.emitReconnecting = () => { reconnectingHandlers.forEach(handler => handler()) }
     state.emitReconnected = () => { reconnectedHandlers.forEach(handler => handler()) }
     state.emitClose = () => { closeHandlers.forEach(handler => handler()) }
@@ -28,6 +35,8 @@ const liveMock = vi.hoisted(() => {
       start: vi.fn(async () => { state.startCalls += 1; if (state.startMode === 'reject') throw new Error('SignalR unavailable'); if (state.startPromise !== null) await state.startPromise }),
       stop: vi.fn(async () => { state.stopCalls += 1 }),
       onWorldChanged: (handler: WorldChangedHandler) => { worldChangedHandlers.push(handler) },
+      onWorldFrame: (handler: WorldFrameHandler) => { worldFrameHandlers.push(handler) },
+      onStreamError: (handler: ConnectionHandler) => { streamErrorHandlers.push(handler) },
       onReconnecting: (handler: ConnectionHandler) => { reconnectingHandlers.push(handler) },
       onReconnected: (handler: ConnectionHandler) => { reconnectedHandlers.push(handler) },
       onClose: (handler: ConnectionHandler) => { closeHandlers.push(handler) },
@@ -38,7 +47,42 @@ const liveMock = vi.hoisted(() => {
 
 vi.mock('./live', () => ({ createWorldConnection: liveMock.factory }))
 
-const citizen = { citizenId: '9223372036854775807', name: 'Elara Venn', age: 18, lifeStage: 'Adult', location: { x: 1, y: 2 }, health: 10000, currentAction: 'Build', actionSequence: 0, isAlive: true, deathMinute: null, deathCause: null, hunger: 120, rest: 80, actionPhase: 'Perform', carriedResource: null, carriedQuantity: null, targetResourceNodeId: null, homeStructureId: '1', targetStructureId: '2', occupation: 'Builder', lifetimeWorkActivity: { foragingMinutes: 0, woodcuttingMinutes: 0, stoneworkingMinutes: 0, constructionMinutes: 16, haulingMinutes: 4 } }
+const citizen = {
+  citizenId: '9223372036854775807',
+  name: 'Elara Venn',
+  age: 18,
+  lifeStage: 'Adult',
+  location: { x: 1, y: 2 },
+  health: 10000,
+  currentAction: 'Build',
+  actionSequence: 0,
+  actionStartedMinute: null,
+  actionCompletesMinute: null,
+  actionPhase: 'Perform',
+  target: null,
+  isAlive: true,
+  deathMinute: null,
+  deathCause: null,
+  hunger: 120,
+  rest: 80,
+  shelter: 0,
+  social: 0,
+  carriedResource: null,
+  carriedQuantity: null,
+  targetResourceNodeId: null,
+  homeStructureId: '1',
+  targetStructureId: '2',
+  targetCitizenId: null,
+  occupation: 'Builder',
+  founderOrdinal: null,
+  parentAId: null,
+  parentBId: null,
+  partnerId: null,
+  householdId: null,
+  childrenIds: [],
+  movementPlan: null,
+  lifetimeWorkActivity: { foragingMinutes: 0, woodcuttingMinutes: 0, stoneworkingMinutes: 0, constructionMinutes: 16, haulingMinutes: 4 },
+}
 const structure = { structureId: '2', type: 'Shelter', status: 'UnderConstruction', location: { x: 2, y: 1 }, startedMinute: 12, completedMinute: null, requiredWood: 10, deliveredWood: 3, requiredStone: 4, deliveredStone: 1, requiredWork: 20, completedWork: 7, condition: 0, capacity: 4, storageBonus: null, constructionMultiplierBasisPoints: null, currentOccupantIds: [], contributions: [{ citizenId: citizen.citizenId, constructionWork: 7, woodDelivered: 3, stoneDelivered: 1 }] }
 const settlement = { foodStored: 400, woodStored: 120, stoneStored: 30, livingPopulation: 20, deadPopulation: 0, totalPopulation: 20, remainingResources: [], resources: [], storageCapacity: 1000, storageUsed: 550, shelterCapacity: 24, shelteredPopulation: 19, unhousedPopulation: 1, completedShelters: 5, completedStockpiles: 1, completedWorkshops: 0, exposureGraceUntilMinute: 720, activeConstructionProject: structure }
 const map = { width: 3, height: 3, terrain: [1, 2, 3, 4, 5, 1, 2, 3, 4], startingSite: { x: 1, y: 1 } }
@@ -109,6 +153,7 @@ describe('citizen observer', () => {
       return new Response(JSON.stringify([citizen]))
     })
     renderAppWithRecords()
+    fireEvent.click(await screen.findByRole('listitem', { name: /Elara Venn/ }))
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     expect(screen.getByText('At (1, 2)')).toBeInTheDocument()
   })
@@ -124,6 +169,7 @@ describe('citizen observer', () => {
       return responseFor(path, 12)
     })
     renderAppWithRecords()
+    fireEvent.click(await screen.findByRole('listitem', { name: /Elara Venn/ }))
     expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Set the pace' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
@@ -407,7 +453,7 @@ describe('citizen observer', () => {
     expect(statisticsPaths[1]).toBe('/api/v1/statistics?fromMinute=4320001&limit=100')
   })
 
-  it('refreshes authoritative REST data for coalesced invalidations and reconnects', async () => {
+  it('applies connected live frames without replacing the scene through REST', async () => {
     liveMock.state.startMode = 'resolve'
     let statusCalls = 0
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
@@ -416,23 +462,28 @@ describe('citizen observer', () => {
       return responseFor(path, statusCalls || 1, `Citizen ${statusCalls || 1}`)
     })
     renderAppWithRecords()
-    expect(await screen.findByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Live updates: connected')).toBeInTheDocument())
-    expect(statusCalls).toBe(2)
+    expect(statusCalls).toBe(1)
 
-    liveMock.state.emitWorldChanged({ revision: 2, worldMinute: 2, hostState: 'Running', persistenceState: 'Ready' })
+    liveMock.state.emitWorldFrame({ sequence: 1, sentAtUnixMilliseconds: 1000, revision: 2, status: { state: 'Running', worldMinute: 2, pendingEventCount: 1, worldSeed: '42', paused: false, operationalSpeed: 10 }, citizens: [{ ...citizen, name: 'Streamed citizen' }], structures: [structure] })
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Streamed citizen' })).toBeInTheDocument())
+    expect(screen.getByText(/Current:.*00:02/)).toBeInTheDocument()
+    expect(statusCalls).toBe(1)
+
     liveMock.state.emitWorldChanged({ revision: 3, worldMinute: 3, hostState: 'Running', persistenceState: 'Ready' })
-    await waitFor(() => expect(statusCalls).toBe(4))
+    expect(statusCalls).toBe(1)
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith('/api/v1/history?'))).toHaveLength(0)
 
     liveMock.state.emitReconnecting()
     await waitFor(() => expect(screen.getByText('Live updates: reconnecting…')).toBeInTheDocument())
     liveMock.state.emitReconnected()
-    await waitFor(() => expect(statusCalls).toBe(5))
+    await waitFor(() => expect(screen.getByText('Live updates: connected')).toBeInTheDocument())
+    expect(statusCalls).toBe(1)
     expect(screen.getByText('Live updates: connected')).toBeInTheDocument()
   })
 
-  it('refreshes after the first SignalR connection start to capture state changes during startup', async () => {
+  it('accepts the first streamed frame after a slow SignalR startup without restarting REST scene polling', async () => {
     vi.useFakeTimers()
     liveMock.state.startMode = 'resolve'
     const start = deferred<void>()
@@ -457,11 +508,13 @@ describe('citizen observer', () => {
       await vi.advanceTimersByTimeAsync(0)
     })
 
+    liveMock.state.emitWorldFrame({ sequence: 1, sentAtUnixMilliseconds: 1000, revision: 2, status: { state: 'Running', worldMinute: 2, pendingEventCount: 1, worldSeed: '42', paused: false, operationalSpeed: 10 }, citizens: [{ ...citizen, name: 'Citizen 2' }], structures: [structure] })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByRole('heading', { name: 'Citizen 2' })).toBeInTheDocument()
     expect(screen.getByText(/Current:.*00:02/)).toBeInTheDocument()
-    expect(statusCalls).toBe(2)
+    expect(statusCalls).toBe(1)
     await act(async () => { await vi.advanceTimersByTimeAsync(9999) })
-    expect(statusCalls).toBe(2)
+    expect(statusCalls).toBe(1)
   })
 
   it('uses a visible degraded state and two-second visible REST fallback when SignalR is unavailable', async () => {

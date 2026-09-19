@@ -12,6 +12,7 @@ public sealed record ServerOptions
     public const int DefaultCheckpointRetryCount = 3;
     public const int DefaultCheckpointRetryDelaySeconds = 2;
     public const int DefaultBrowserUpdateIntervalMilliseconds = 500;
+    public const int DefaultObserverStreamIntervalMilliseconds = 100;
     public const double DefaultSimulationMinutesPerSecond = 10;
     public const double MaximumSimulationMinutesPerSecond = 1_000;
 
@@ -25,6 +26,7 @@ public sealed record ServerOptions
     public int CheckpointRetryCount { get; init; } = DefaultCheckpointRetryCount;
     public int CheckpointRetryDelaySeconds { get; init; } = DefaultCheckpointRetryDelaySeconds;
     public int BrowserUpdateIntervalMilliseconds { get; init; } = DefaultBrowserUpdateIntervalMilliseconds;
+    public int ObserverStreamIntervalMilliseconds { get; init; } = DefaultObserverStreamIntervalMilliseconds;
 
     public string DatabasePath => Path.Combine(DataRoot, ActiveWorld + ".db");
 
@@ -63,7 +65,8 @@ public sealed record ServerOptions
             CheckpointMinimumRealSeconds = ParseNonNegativeInt(configuration, "CheckpointMinimumRealSeconds", DefaultCheckpointMinimumRealSeconds),
             CheckpointRetryCount = ParseNonNegativeInt(configuration, "CheckpointRetryCount", DefaultCheckpointRetryCount),
             CheckpointRetryDelaySeconds = ParseNonNegativeInt(configuration, "CheckpointRetryDelaySeconds", DefaultCheckpointRetryDelaySeconds),
-            BrowserUpdateIntervalMilliseconds = ParsePositiveInt(configuration, "BrowserUpdateIntervalMilliseconds", DefaultBrowserUpdateIntervalMilliseconds)
+            BrowserUpdateIntervalMilliseconds = ParsePositiveInt(configuration, "BrowserUpdateIntervalMilliseconds", DefaultBrowserUpdateIntervalMilliseconds),
+            ObserverStreamIntervalMilliseconds = ParsePositiveInt(configuration, "ObserverStreamIntervalMilliseconds", DefaultObserverStreamIntervalMilliseconds)
         };
         options.Validate();
         return options;
@@ -87,6 +90,7 @@ public sealed record ServerOptions
         if (CheckpointRetryCount < 0 || CheckpointRetryCount == int.MaxValue) throw new ArgumentOutOfRangeException(nameof(CheckpointRetryCount), "CheckpointRetryCount must be between zero and Int32.MaxValue - 1 so the total attempt count can be represented safely.");
         if (CheckpointRetryDelaySeconds < 0) throw new ArgumentOutOfRangeException(nameof(CheckpointRetryDelaySeconds), "CheckpointRetryDelaySeconds must be non-negative.");
         if (BrowserUpdateIntervalMilliseconds <= 0) throw new ArgumentOutOfRangeException(nameof(BrowserUpdateIntervalMilliseconds), "BrowserUpdateIntervalMilliseconds must be positive.");
+        if (ObserverStreamIntervalMilliseconds <= 0) throw new ArgumentOutOfRangeException(nameof(ObserverStreamIntervalMilliseconds), "ObserverStreamIntervalMilliseconds must be positive.");
         ValidateListenUrls(ListenUrls);
     }
 

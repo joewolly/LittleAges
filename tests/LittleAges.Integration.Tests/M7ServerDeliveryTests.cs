@@ -60,6 +60,42 @@ public sealed class M7ServerDeliveryTests
     }
 
     [Fact]
+    public async Task WorldHubStreamsFramesContinuouslyWithoutSimulationMutation()
+    {
+        var root = CreateDataRoot();
+        using var host = BuildHost(root, "continuous-stream");
+        try
+        {
+            await host.StartAsync();
+            var simulationHost = host.Services.GetRequiredService<SimulationHost>();
+            await simulationHost.WaitForRunningForTestingAsync();
+            var options = host.Services.GetRequiredService<ServerOptions>();
+            var hub = new WorldHub(simulationHost, options);
+            using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var frames = hub.StreamWorld(cancellation.Token).GetAsyncEnumerator(cancellation.Token);
+
+            Assert.True(await frames.MoveNextAsync());
+            var first = frames.Current;
+            Assert.True(await frames.MoveNextAsync());
+            var second = frames.Current;
+
+            Assert.Equal(1, first.Sequence);
+            Assert.Equal(2, second.Sequence);
+            Assert.Equal(first.Revision, second.Revision);
+            Assert.Equal(first.Status.WorldMinute, second.Status.WorldMinute);
+            Assert.True(second.SentAtUnixMilliseconds >= first.SentAtUnixMilliseconds);
+            Assert.Same(simulationHost.Observation.Citizens, second.Citizens);
+            Assert.Same(simulationHost.Observation.Structures, second.Structures);
+        }
+        finally
+        {
+            _ = await Record.ExceptionAsync(() => host.StopAsync());
+            host.Dispose();
+            CleanupDataRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task StaticSpaFallbackApiAndWorldHubRoutesAreSeparated()
     {
         var root = CreateDataRoot();
@@ -132,7 +168,8 @@ public sealed class M7ServerDeliveryTests
             CheckpointMinimumRealSeconds = 0,
             CheckpointRetryCount = 0,
             CheckpointRetryDelaySeconds = 0,
-            BrowserUpdateIntervalMilliseconds = 1
+            BrowserUpdateIntervalMilliseconds = 1,
+            ObserverStreamIntervalMilliseconds = 1
         };
         builder.Services.Configure<HostOptions>(hostOptions => hostOptions.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.StopHost);
         builder.Services.AddSingleton(options);

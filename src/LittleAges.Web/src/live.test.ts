@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const signalRMock = vi.hoisted(() => {
+  const subscription = { dispose: vi.fn() }
+  let subscriber: { next: (value: unknown) => void; error: (error: unknown) => void; complete: () => void } | null = null
   const connection = {
     start: vi.fn(async () => undefined),
     stop: vi.fn(async () => undefined),
@@ -8,6 +10,7 @@ const signalRMock = vi.hoisted(() => {
     onreconnecting: vi.fn(),
     onreconnected: vi.fn(),
     onclose: vi.fn(),
+    stream: vi.fn(() => ({ subscribe: vi.fn(nextSubscriber => { subscriber = nextSubscriber; return subscription }) })),
   }
   class FakeBuilder {
     withUrl = vi.fn().mockReturnThis()
@@ -15,7 +18,7 @@ const signalRMock = vi.hoisted(() => {
     configureLogging = vi.fn().mockReturnThis()
     build = vi.fn(() => connection)
   }
-  return { connection, FakeBuilder, builder: null as FakeBuilder | null }
+  return { connection, subscription, getSubscriber: () => subscriber, setSubscriber: (value: typeof subscriber) => { subscriber = value }, FakeBuilder, builder: null as FakeBuilder | null }
 })
 
 vi.mock('@microsoft/signalr', () => ({
@@ -31,6 +34,11 @@ vi.mock('@microsoft/signalr', () => ({
 import { createWorldConnection } from './live'
 
 describe('world live connection adapter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    signalRMock.setSubscriber(null)
+  })
+
   it('configures the world hub with automatic reconnect', async () => {
     const live = createWorldConnection()
     expect(signalRMock.builder?.withUrl).toHaveBeenCalledWith('/hubs/world')
@@ -41,6 +49,8 @@ describe('world live connection adapter', () => {
     await live.stop()
     expect(signalRMock.connection.start).toHaveBeenCalledOnce()
     expect(signalRMock.connection.stop).toHaveBeenCalledOnce()
+    expect(signalRMock.connection.stream).toHaveBeenCalledWith('StreamWorld')
+    expect(signalRMock.subscription.dispose).toHaveBeenCalledOnce()
   })
 
   it('maps world and connection lifecycle callbacks without interpreting payloads', () => {
@@ -66,5 +76,29 @@ describe('world live connection adapter', () => {
     expect(reconnecting).toHaveBeenCalledOnce()
     expect(reconnected).toHaveBeenCalledOnce()
     expect(closed).toHaveBeenCalledOnce()
+  })
+
+  it('strictly parses streamed frames before delivering them', async () => {
+    const live = createWorldConnection()
+    const frameHandler = vi.fn()
+    const errorHandler = vi.fn()
+    live.onWorldFrame(frameHandler)
+    live.onStreamError(errorHandler)
+    await live.start()
+
+    const subscriber = signalRMock.getSubscriber()
+    expect(subscriber).not.toBeNull()
+    subscriber?.next({
+      sequence: 1,
+      sentAtUnixMilliseconds: 1000,
+      revision: 2,
+      status: { state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', paused: false, operationalSpeed: 10 },
+      citizens: [],
+      structures: [],
+    })
+    expect(frameHandler).toHaveBeenCalledWith(expect.objectContaining({ sequence: 1, revision: 2, citizens: [], structures: [] }))
+
+    subscriber?.next({ sequence: 0 })
+    expect(errorHandler).toHaveBeenCalledOnce()
   })
 })

@@ -212,12 +212,14 @@ CheckpointMinimumRealSeconds
 CheckpointRetryCount
 CheckpointRetryDelaySeconds
 BrowserUpdateIntervalMilliseconds
+ObserverStreamIntervalMilliseconds
 ```
 
 Current defaults are `10` simulation minutes per second, checkpoints every
 `360` simulated minutes subject to `30` real seconds, three retries with a
-two-second delay, and observer invalidation every `500` milliseconds. These are
-operational values, not simulation-rule controls.
+two-second delay, observer invalidation every `500` milliseconds, and connected
+live frames every `100` milliseconds. These are operational values, not
+simulation-rule controls.
 
 ### Logs and troubleshooting
 
