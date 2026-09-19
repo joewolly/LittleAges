@@ -493,10 +493,9 @@ public sealed class WorldCheckpointStore
 
             if (metadataRows.Count == 0)
             {
-                if (tileCount != 0 || resourceCount != 0 || eventCount != 0 || citizenCount != 0)
-                {
-                    throw new InvalidDataException("Canonical rows exist without a world_meta row.");
-                }
+                // Later milestones have canonical tables too. Reject every
+                // orphaned row group before allowing fresh-world initialization.
+                _ = await HasCheckpointAsync(cancellationToken);
 
                 await transaction.CommitAsync(cancellationToken);
                 return false;
@@ -782,6 +781,14 @@ public sealed class WorldCheckpointStore
         var relationshipCount = await _context.Relationships.AsNoTracking().CountAsync(cancellationToken);
         var householdCount = await _context.Households.AsNoTracking().CountAsync(cancellationToken);
         if (metadataCount == 0 && (scheduledEventCount > 0 || tileCount > 0 || resourceCount > 0 || resourceStateCount > 0 || settlementCount > 0 || citizenCount > 0 || structureCount > 0 || contributionCount > 0 || relationshipCount > 0 || householdCount > 0)) throw new InvalidDataException("Checkpoint rows exist without a world_meta checkpoint.");
+        if (metadataCount == 0 &&
+            (await _context.HistoryStates.AnyAsync(cancellationToken) ||
+             await _context.HistoricalEvents.AnyAsync(cancellationToken) ||
+             await _context.HistoricalEventCitizens.AnyAsync(cancellationToken) ||
+             await _context.HistoricalEventStructures.AnyAsync(cancellationToken) ||
+             await _context.StatisticsSamples.AnyAsync(cancellationToken) ||
+             await _context.Memories.AnyAsync(cancellationToken)))
+            throw new InvalidDataException("History rows exist without a world_meta checkpoint.");
         if (metadataCount > 1) throw new InvalidDataException("More than one world_meta checkpoint exists.");
         return metadataCount == 1;
     }
@@ -1002,10 +1009,10 @@ public sealed class WorldCheckpointStore
 
             // M6 checkpoints are append-only for history, but the immutable world
             // rows still need to be written on the first checkpoint of a new DB.
-            // Existing rows are retained and validated by LoadAsync on the next
-            // open; never replace them during an incremental M6 write.
-            var persistedTiles = await _context.WorldTiles.ToListAsync(cancellationToken);
-            if (persistedTiles.Count == 0)
+            // Validate retained rows before committing: success must not leave
+            // a checkpoint that will fail to reopen. Never repair missing rows.
+            var persistedTiles = await _context.WorldTiles.OrderBy(row => row.TileIndex).ToListAsync(cancellationToken);
+            if (persistedTiles.Count == 0 && persistedMetadata is null)
             {
                 _context.WorldTiles.AddRange(world.Tiles.Select(tile => ToWorldTileRow(tile, world.Width)));
             }
@@ -1013,14 +1020,40 @@ public sealed class WorldCheckpointStore
             {
                 throw new InvalidDataException("The persisted world tile set is incomplete.");
             }
-            var persistedNodes = await _context.ResourceNodes.ToListAsync(cancellationToken);
-            if (persistedNodes.Count == 0)
+            else
+            {
+                for (var index = 0; index < persistedTiles.Count; index++)
+                {
+                    var actual = persistedTiles[index];
+                    var expected = ToWorldTileRow(world.Tiles[index], world.Width);
+                    if (actual.TileIndex != expected.TileIndex || actual.X != expected.X || actual.Y != expected.Y ||
+                        actual.Terrain != expected.Terrain || actual.Elevation != expected.Elevation ||
+                        actual.Fertility != expected.Fertility || actual.WaterAccess != expected.WaterAccess ||
+                        actual.Walkable != expected.Walkable || actual.MovementCost != expected.MovementCost)
+                        throw new InvalidDataException("Persisted immutable world tiles conflict with the checkpoint.");
+                }
+            }
+            var persistedNodes = await _context.ResourceNodes.OrderBy(row => row.Id).ToListAsync(cancellationToken);
+            if (persistedNodes.Count == 0 && persistedMetadata is null)
             {
                 _context.ResourceNodes.AddRange(world.Resources.Select(node => ToResourceNodeRow(node, world.Width)));
             }
             else if (persistedNodes.Count != world.Resources.Count)
             {
                 throw new InvalidDataException("The persisted resource node set is incomplete.");
+            }
+            else
+            {
+                for (var index = 0; index < persistedNodes.Count; index++)
+                {
+                    var actual = persistedNodes[index];
+                    var expected = ToResourceNodeRow(world.Resources[index], world.Width);
+                    if (actual.Id != expected.Id || actual.TileIndex != expected.TileIndex ||
+                        actual.X != expected.X || actual.Y != expected.Y || actual.Resource != expected.Resource ||
+                        actual.InitialQuantity != expected.InitialQuantity || actual.MaximumQuantity != expected.MaximumQuantity ||
+                        actual.RegenerationPotential != expected.RegenerationPotential)
+                        throw new InvalidDataException("Persisted immutable resource nodes conflict with the checkpoint.");
+                }
             }
 
             _context.ScheduledEvents.RemoveRange(await _context.ScheduledEvents.ToListAsync(cancellationToken));

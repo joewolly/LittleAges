@@ -74,3 +74,22 @@ the existing LAN-preservation behavior on upgrade.
 
 Audit coverage and final validation remain in progress. An ordinary green test
 suite alone is not a certification decision.
+
+### P1 — MUST FIX — Orphaned history mistaken for an empty world (fixed)
+
+Empty-world detection checked M0–M5 tables but omitted all six M6 history
+tables. A database containing only history state returned `HasCheckpoint=false`
+and could have its state overwritten by fresh-world initialization. Opening
+and empty detection now reject every canonical row group without metadata.
+The disposable history-state regression failed before the fix and passes after it.
+
+### P2 — MUST FIX — Checkpoint success despite changed immutable rows (fixed)
+
+Incremental M6/M8 checkpoints retained immutable map/resource rows and checked
+only their counts. Changing a valid-range elevation or regeneration value
+between open and checkpoint produced a successful commit that failed on reload.
+Checkpoint now compares every retained immutable field and rejects missing
+rows before commit. Both injected-corruption regressions failed before the fix
+and pass afterward, with previous checkpoint metadata retained and corruption
+left intact for investigation. These changes reject invalid data; they do not
+change simulation decisions, valid saves, migrations, or goldens.
