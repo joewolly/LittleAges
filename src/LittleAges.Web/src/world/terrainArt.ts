@@ -12,3 +12,11 @@ export function createGroundTexture(map: Map, seed: string | null): THREE.DataTe
   texture.needsUpdate = true
   return texture
 }
+
+export function upgradeGroundTexture(texture: THREE.DataTexture, map: Pick<Map, 'width' | 'height'>, pixels: Uint8Array<ArrayBuffer>): void {
+  // WebGL allocates immutable texture storage on first upload. Release that
+  // allocation so Three creates new storage for the larger worker image.
+  texture.dispose()
+  texture.image = { data: pixels, width: map.width * 4, height: map.height * 4 }
+  texture.needsUpdate = true
+}

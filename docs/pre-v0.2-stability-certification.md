@@ -162,6 +162,24 @@ idempotent second invocation. It passes in PowerShell 7 and Windows PowerShell
 5.1 and is included by the installer test script. No real installation ACL
 was modified. This also avoids relying solely on mocked permission checks.
 
+### F3 — MUST FIX — Worker terrain upload exceeds allocated GPU texture dimensions (fixed)
+
+Real browser console capture during repeated scene remounts reported
+`GL_INVALID_VALUE: glTexSubImage2DRobustANGLE: Offset overflows texture dimensions`.
+The first-paint texture allocates one pixel per tile; the worker later supplies
+four pixels per tile in each dimension. Changing its image without releasing
+the earlier immutable WebGL allocation prevents that intended detailed upload.
+`upgradeGroundTexture` now releases the previous GPU allocation before changing
+the image and marking it for upload. The terrain also invalidates a demand
+frame so reduced-motion mode displays the result without waiting for input.
+Pixel generation and art assets are unchanged.
+
+The new lifecycle regression fails before the correction and passes afterward.
+All 142 frontend tests, lint, typecheck and production build pass. Ten real
+browser remounts with delayed worker loading produce no allocation errors or
+uncaught exceptions. Dependency Clock/shadow-mode deprecation warnings remain
+separate diagnostics; the shadow implementation already falls back to PCF.
+
 | Area | Review and evidence |
 | --- | --- |
 | Build/dependencies/CI | Pinned SDK, locked portable restores, warnings-as-errors, project boundaries, fast/Long workflow separation, Windows publish/package scripts reviewed. NuGet including transitives and npm including development dependencies report zero known vulnerabilities on 2026-09-19. |

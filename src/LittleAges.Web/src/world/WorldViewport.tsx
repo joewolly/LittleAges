@@ -10,7 +10,7 @@ import { GroundContacts } from './GroundContacts'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
 import { worldGeometry } from './assetGeometry'
 import { createResourceLod } from './resourceLod'
-import { createGroundTexture } from './terrainArt'
+import { createGroundTexture, upgradeGroundTexture } from './terrainArt'
 import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
 import artManifest from './art-manifest.json'
 import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
@@ -42,18 +42,19 @@ class SceneBoundary extends Component<{ children: ReactNode; onError: () => void
 
 function Terrain({ map, worldSeed }: { map: Map; worldSeed: string | null }) {
   const texture = useMemo(() => createGroundTexture(map, worldSeed), [map, worldSeed])
+  const invalidate = useThree(state => state.invalidate)
   useEffect(() => {
     if (typeof Worker === 'undefined') return () => texture.dispose()
     const worker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (event: MessageEvent<Uint8Array<ArrayBuffer>>) => {
-      texture.image = { data: event.data, width: map.width * 4, height: map.height * 4 }
-      texture.needsUpdate = true
+      upgradeGroundTexture(texture, map, event.data)
+      invalidate()
       worker.terminate()
     }
     worker.onerror = () => worker.terminate() // Keep the quick texture if worker loading fails.
     worker.postMessage([{ width: map.width, height: map.height, terrain: map.terrain }, worldSeed])
     return () => { worker.terminate(); texture.dispose() }
-  }, [map, worldSeed, texture])
+  }, [map, worldSeed, texture, invalidate])
   const geometry = useMemo(() => {
     const positions = new Float32Array((map.width + 1) * (map.height + 1) * 3)
     const uvs = new Float32Array((map.width + 1) * (map.height + 1) * 2)
