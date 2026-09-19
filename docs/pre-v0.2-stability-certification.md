@@ -142,6 +142,26 @@ without Origin remain compatible. Tests verify all three controls, rejection
 without state changes, and successful same-origin/control requests. This is
 not LAN authentication; the documented trusted-network boundary remains.
 
+### F4 — MUST FIX — Repeated 3D remounts retain retired WebGL contexts (fixed)
+
+Heap snapshots after 40 ordinary 2D/3D toggles showed 41 native WebGL contexts
+and 43 canvas objects, versus one context and three canvas objects initially.
+Retaining paths led through cached GLTF textures/materials and Three r186's
+global DFG lighting lookup texture. Calling renderer disposal alone did not
+release those shared allocations; this was not merely DevTools/JIT retention.
+
+The Canvas now tracks shared asset GPU resources and the late-bound lighting
+uniform, and releases them on retirement. Decoded models, pixels and geometry
+remain cached for retry; canonical data and art remain unchanged. Unit coverage
+checks deduplication, idempotence, late uniform assignment and registry isolation.
+
+With the fix, ten and eighty remounts both retain only two native contexts and
+four canvas objects (the active scene and one retained predecessor), rather than
+one additional context per toggle. After warmup, collected heap levels flatten:
+20/40/60/80 remounts used 20.95/21.70/21.98/21.82 MB. No uncaught errors or
+texture allocation errors occurred. Evidence: `renderer-80.json`, before/after
+heap snapshots and `stable-comparison.txt` under `artifacts/pre-v02`.
+All 145 frontend tests, lint, typecheck and production build pass.
 ## Broader audit coverage
 
 ### S2 — MUST FIX — Inherited directory permission permits planted world files (fixed)
@@ -196,6 +216,26 @@ are unchanged; no migration, historical edits or golden regeneration is needed.
 Both rules versions pass snapshot round trips and SQLite close/reopen/continuation
 regressions. The 100-year acceptance rerun is in progress with this correction.
 
+### F4 — MUST FIX — Repeated 3D remounts retain retired WebGL contexts (fixed)
+
+Heap snapshots after 40 ordinary 2D/3D toggles showed 41 native WebGL contexts
+and 43 canvas objects, versus one context and three canvas objects initially.
+Retaining paths led through cached GLTF textures/materials and Three r186's
+global DFG lighting lookup texture. Calling renderer disposal alone did not
+release those shared allocations; this was not merely DevTools/JIT retention.
+
+The Canvas now tracks shared asset GPU resources and the late-bound lighting
+uniform, and releases them on retirement. Decoded models, pixels and geometry
+remain cached for retry; canonical data and art remain unchanged. Unit coverage
+checks deduplication, idempotence, late uniform assignment and registry isolation.
+
+With the fix, ten and eighty remounts both retain only two native contexts and
+four canvas objects (the active scene and one retained predecessor), rather than
+one additional context per toggle. After warmup, collected heap levels flatten:
+20/40/60/80 remounts used 20.95/21.70/21.98/21.82 MB. No uncaught errors or
+texture allocation errors occurred. Evidence: `renderer-80.json`, before/after
+heap snapshots and `stable-comparison.txt` under `artifacts/pre-v02`.
+All 145 frontend tests, lint, typecheck and production build pass.
 ## Broader audit coverage
 | Area | Review and evidence |
 | --- | --- |
@@ -281,4 +321,3 @@ directory and are machine-local, not fabricated application mockups.
 - An exploratory console restart used the repository working directory and
   correctly warned that its `wwwroot` was absent there. Packaged UI checks
   use the package directory; Windows service hosting sets its content root.
-
