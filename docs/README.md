@@ -28,6 +28,9 @@ historical or design context rather than a claim about the current runtime.
 
 ## Acceptance and compatibility evidence
 
+- [`pre-v0.2-stability-certification.md`](./pre-v0.2-stability-certification.md)
+  — stabilization findings, fixes, deterministic and recovery evidence,
+  deployment/browser checks, validation limits, and certification status.
 - [`performance-pass-2026-09-19.md`](./performance-pass-2026-09-19.md) — local
   crash recovery, loading, movement, deployment, and validation evidence.
 - [`v0.1-acceptance-report.md`](./v0.1-acceptance-report.md) — candidate-only
