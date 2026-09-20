@@ -16,6 +16,7 @@ public sealed record ServerOptions
     public const double DefaultSimulationMinutesPerSecond = 10;
     public const double MaximumSimulationMinutesPerSecond = 1_000;
 
+    public string NewWorldRules { get; init; } = LittleAges.Simulation.SimulationEngine.CurrentSimulationRulesVersion;
     public required string DataRoot { get; init; }
     public required string ActiveWorld { get; init; }
     public required WorldSeed WorldSeed { get; init; }
@@ -57,6 +58,7 @@ public sealed record ServerOptions
         var options = new ServerOptions
         {
             DataRoot = Path.GetFullPath(dataRoot),
+            NewWorldRules = configuration["NewWorldRules"] ?? LittleAges.Simulation.SimulationEngine.CurrentSimulationRulesVersion,
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(seed),
             ListenUrls = configuration["ListenUrls"] ?? DefaultListenUrls,
@@ -82,6 +84,7 @@ public sealed record ServerOptions
 
     internal void Validate()
     {
+        if (NewWorldRules is not (LittleAges.Simulation.SimulationEngine.CurrentSimulationRulesVersion or LittleAges.Simulation.SimulationEngine.LivingSimulationRulesVersion)) throw new ArgumentException("NewWorldRules is not supported.", nameof(NewWorldRules));
         if (string.IsNullOrWhiteSpace(DataRoot)) throw new ArgumentException("DataRoot is required.", nameof(DataRoot));
         if (string.IsNullOrWhiteSpace(ActiveWorld) || ActiveWorld != Path.GetFileName(ActiveWorld) || ActiveWorld.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("ActiveWorld must be a simple file-safe world name.", nameof(ActiveWorld));
         if (!double.IsFinite(SimulationMinutesPerSecond) || SimulationMinutesPerSecond < 0 || SimulationMinutesPerSecond > MaximumSimulationMinutesPerSecond) throw new ArgumentOutOfRangeException(nameof(SimulationMinutesPerSecond), $"Simulation advancement must be finite, non-negative, and no greater than {MaximumSimulationMinutesPerSecond.ToString(CultureInfo.InvariantCulture)}.");

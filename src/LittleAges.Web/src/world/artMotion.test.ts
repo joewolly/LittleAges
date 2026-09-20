@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
+import type { LivingOrder } from '../living'
 
 describe('authoritative activity presentation', () => {
+  it('depicts living work and cargo from the authoritative order', () => {
+    const work: LivingOrder = { id: '1', kind: 'Harvest', location: { x: 1, y: 1 }, citizenId: '1', subjectId: '2', technique: null, phase: 'Work', workDone: 0, requiredWork: 120, blockedReason: '', ingredients: [], cargo: [] }
+    const citizen = { currentAction: 'LivingWork', actionPhase: 'Perform', carriedResource: null } as const
+    expect(citizenAnimation(citizen, work)).toBe('Gather')
+    expect(citizenAnimation(citizen, { ...work, kind: 'Teach' })).toBe('Socialize')
+    expect(citizenAnimation({ ...citizen, actionPhase: 'TravelToTarget' }, { ...work, phase: 'Deliver', cargoInTransit: true, cargo: [{ good: 'Grain', quantity: 60 }] })).toBe('Carry')
+    expect(citizenAnimation({ ...citizen, actionPhase: 'TravelToTarget' }, work)).toBe('Walk')
+    expect(work.cargo).toEqual([])
+  })
   it('walks to a build or rest target instead of playing a work or rest pose in transit', () => {
     for (const currentAction of ['Build', 'Rest', 'Socialize'] as const) {
       expect(citizenAnimation({ currentAction, actionPhase: 'TravelToTarget', carriedResource: null })).toBe('Walk')

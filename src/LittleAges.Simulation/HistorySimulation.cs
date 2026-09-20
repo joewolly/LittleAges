@@ -128,6 +128,7 @@ public sealed partial class SimulationEngine
         }
         static string I<T>(T value) where T : IFormattable => value.ToString(null, CultureInfo.InvariantCulture);
         Add(hash, "social=" + ComputeSocialFingerprint());
+        if (LivingStateJson is { } livingJson) Add(hash, "living=" + livingJson);
         Add(hash, "history-version=" + I(HistoryVersion));
         Add(hash, "history-start-minute=" + I(_historyState.HistoryStartMinute));
         Add(hash, "history-start-event=" + I(_historyState.HistoryStartEventId));
@@ -278,7 +279,7 @@ public sealed partial class SimulationEngine
             EmitHistory(HistoricalEventType.SeasonStarted, HistoricalImportance.Routine, null, HistoricalEventPayloads.SeasonStarted(date.Season, date.Year));
         }
         _statisticsSamples.Add(new StatisticsSample(CurrentMinute.Value, _historyState.PeriodStartMinute, living.Length, _historyState.BirthsSinceSample, _historyState.DeathsSinceSample, Settlement.FoodStored, _historyState.FoodProducedSinceSample, _historyState.FoodConsumedSinceSample, Settlement.WoodStored, Settlement.StoneStored, ShelterCapacity, checked((int)averageHealth), checked((int)averageHunger)));
-        if (SimulationRulesVersion == CurrentSimulationRulesVersion) ReevaluateFoodShortageAtStatisticsSample();
+        if (SimulationRulesVersion is CurrentSimulationRulesVersion or LivingSimulationRulesVersion) ReevaluateFoodShortageAtStatisticsSample();
         _historyState.PeriodStartMinute = CurrentMinute.Value;
         _historyState.BirthsSinceSample = 0;
         _historyState.DeathsSinceSample = 0;

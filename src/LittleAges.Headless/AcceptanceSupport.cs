@@ -37,8 +37,10 @@ internal static class HeadlessSnapshotComparer
         return new HeadlessSnapshotComparison(mismatches.Length == 0 && string.Equals(leftFingerprint, rightFingerprint, StringComparison.Ordinal), mismatches, leftFingerprint, rightFingerprint);
     }
 
-    private static Dictionary<string, object?> Components(SimulationPersistenceSnapshot snapshot) => new(StringComparer.Ordinal)
+    private static Dictionary<string, object?> Components(SimulationPersistenceSnapshot snapshot)
     {
+        var components = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
         ["metadata"] = new { Seed = snapshot.Seed.Value, snapshot.WorldMinute, snapshot.WorldSchemaVersion, snapshot.SimulationRulesVersion, snapshot.ApplicationVersion, snapshot.WorldConfiguration, snapshot.CitizenGenerationVersion, snapshot.SurvivalVersion, snapshot.SettlementVersion, snapshot.SocialVersion, snapshot.HistoryVersion },
         ["counters"] = snapshot.Counters,
         ["world"] = snapshot.World,
@@ -56,7 +58,10 @@ internal static class HeadlessSnapshotComparer
         ["historicalEventStructures"] = snapshot.HistoricalEventStructures.OrderBy(item => item.HistoricalEventId.Value).ThenBy(item => item.StructureId.Value).ThenBy(item => item.Role, StringComparer.Ordinal).ToArray(),
         ["statisticsSamples"] = snapshot.StatisticsSamples.OrderBy(item => item.WorldMinute).ToArray(),
         ["memories"] = snapshot.Memories.OrderBy(item => item.CitizenId.Value).ThenBy(item => item.HistoricalEventId.Value).ThenBy(item => item.MemoryType).ToArray()
-    };
+        };
+        if (snapshot.LivingStateJson is not null) components["livingState"] = snapshot.LivingStateJson;
+        return components;
+    }
 
     private static string Fingerprint(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 }
@@ -138,6 +143,7 @@ internal static class HeadlessInvariantValidator
     {
         var citizenIds = snapshot.Citizens.Select(item => item.Id.Value).ToHashSet();
         var knownNames = new HashSet<string>(StringComparer.Ordinal) { CitizenEventNames.Decision, CitizenEventNames.MoveStep, CitizenEventNames.ActionComplete, CitizenEventNames.SurvivalCheck, CitizenEventNames.ResourceRegenerate, CitizenEventNames.SettlementEvaluateDemand, CitizenEventNames.FamilyCheck, CitizenEventNames.LifecycleCheck, CitizenEventNames.StatisticsSample };
+        if (snapshot.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion) knownNames.Add(SimulationEngine.LivingPulseEvent);
         foreach (var item in snapshot.ScheduledEvents)
         {
             item.Validate();

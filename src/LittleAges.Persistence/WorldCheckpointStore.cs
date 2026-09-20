@@ -563,6 +563,7 @@ public sealed class WorldCheckpointStore
             _context.ChangeTracker.Clear();
             var existingMetadata = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
             if (existingMetadata.Count > 1) throw new InvalidDataException("A checkpoint cannot replace a database with multiple world_meta rows.");
+            if (existingMetadata.Count == 1) LivingValidation.ValidateRetainedFacts(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson);
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
 
             await WriteSnapshotRowsAsync(snapshot, world, createdUtc, checkpointUtc, cancellationToken);
@@ -760,7 +761,7 @@ public sealed class WorldCheckpointStore
             if (metadata.SettlementVersion == 0 && (structureRows.Count != 0 || contributionRows.Count != 0)) throw new InvalidDataException("Pre-M4 checkpoint contains M4 structure rows.");
             if (metadata.SocialVersion == 0 && (relationshipRows.Count != 0 || householdRows.Count != 0)) throw new InvalidDataException("Pre-M5 checkpoint contains social rows.");
             var historyState = historyStateRows.Count == 1 ? FromHistoryStateRow(historyStateRows[0], minute) : null;
-            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion, metadata.SettlementVersion, persistedStructures, persistedContributions, metadata.SocialVersion, relationshipRows.Select(FromRelationshipRow).ToArray(), householdRows.Select(FromHouseholdRow).ToArray(), metadata.HistoryVersion, historyState, historicalEvents, historicalCitizenLinks, historicalStructureLinks, statistics, memories);
+            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion, metadata.SettlementVersion, persistedStructures, persistedContributions, metadata.SocialVersion, relationshipRows.Select(FromRelationshipRow).ToArray(), householdRows.Select(FromHouseholdRow).ToArray(), metadata.HistoryVersion, historyState, historicalEvents, historicalCitizenLinks, historicalStructureLinks, statistics, memories, metadata.LivingStateJson);
             SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
         }
         catch (ArgumentException exception) { throw new InvalidDataException("The persisted checkpoint is not a valid persistence snapshot.", exception); }
@@ -904,6 +905,7 @@ public sealed class WorldCheckpointStore
         WorldConfigurationJson = world.Configuration.CanonicalJson, GenerationVersion = world.GenerationVersion, GenerationAttempt = world.GenerationAttempt,
         StartingX = world.StartingSite.X, StartingY = world.StartingSite.Y, WorldFingerprint = world.Fingerprint,
         CitizenGenerationVersion = snapshot.CitizenGenerationVersion, SurvivalVersion = snapshot.SurvivalVersion, SettlementVersion = snapshot.SettlementVersion, SocialVersion = snapshot.SocialVersion, HistoryVersion = snapshot.HistoryVersion, NextEntityId = snapshot.Counters.NextEntityId, NextHistoricalEventId = snapshot.Counters.NextHistoricalEventId, NextScheduledEventSequence = snapshot.Counters.NextScheduledEventSequence,
+        LivingStateJson = snapshot.LivingStateJson,
         CreatedUtc = createdUtc, LastCheckpointUtc = checkpointUtc
     };
 

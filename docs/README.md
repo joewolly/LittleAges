@@ -7,6 +7,12 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
+- [`living-settlement-v0.2.md`](./living-settlement-v0.2.md) — opt-in successor
+  rules, autonomous work and economy, personal life, environment, knowledge,
+  persistence, and observer contracts.
+- [`living-settlement-acceptance.md`](./living-settlement-acceptance.md) — measured
+  validation and current release acceptance status.
+
 - [`architecture.md`](./architecture.md) — current M0–M8 project boundaries,
   canonical ownership, persistence, server lifecycle, observer delivery, CI
   split, and implemented/deferred milestone context.

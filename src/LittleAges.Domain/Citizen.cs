@@ -15,7 +15,8 @@ public enum CitizenAction : int
     Dead = 9,
     HaulConstruction = 10,
     Build = 11,
-    Socialize = 12
+    Socialize = 12,
+    LivingWork = 13
 }
 
 public enum CitizenActionPhase : int
@@ -178,7 +179,7 @@ public sealed class Citizen : IEquatable<Citizen>
     public CitizenNeeds GetProjectedNeeds(WorldMinute worldMinute) => NeedsProjection.Project(Needs, NeedsUpdatedMinute, worldMinute);
     public Citizen Validate(WorldMap? world = null)
     {
-        if (Health is < 0 or > 10000 || (DeathMinute is null && Health < 1) || (DeathMinute is not null && Health != 0) || CurrentAction is < CitizenAction.None or > CitizenAction.Socialize || ActionPhase is < CitizenActionPhase.None or > CitizenActionPhase.WaitingForStorage || ActionSequence < 0 || NeedsUpdatedMinute < 0 || HealthUpdatedMinute < 0 || CarriedResourceQuantity < 0 || LifetimeForagingMinutes < 0 || LifetimeWoodcuttingMinutes < 0 || LifetimeStoneworkingMinutes < 0 || LifetimeConstructionMinutes < 0 || LifetimeHaulingMinutes < 0 || (CarriedResourceQuantity == 0 && CarriedResourceType is not null) || (CarriedResourceQuantity > 0 && CarriedResourceType is null)) throw new ArgumentException("Citizen canonical state is invalid.");
+        if (Health is < 0 or > 10000 || (DeathMinute is null && Health < 1) || (DeathMinute is not null && Health != 0) || CurrentAction is < CitizenAction.None or > CitizenAction.LivingWork || ActionPhase is < CitizenActionPhase.None or > CitizenActionPhase.WaitingForStorage || ActionSequence < 0 || NeedsUpdatedMinute < 0 || HealthUpdatedMinute < 0 || CarriedResourceQuantity < 0 || LifetimeForagingMinutes < 0 || LifetimeWoodcuttingMinutes < 0 || LifetimeStoneworkingMinutes < 0 || LifetimeConstructionMinutes < 0 || LifetimeHaulingMinutes < 0 || (CarriedResourceQuantity == 0 && CarriedResourceType is not null) || (CarriedResourceQuantity > 0 && CarriedResourceType is null)) throw new ArgumentException("Citizen canonical state is invalid.");
         if (world is not null && (!world.GetTile(Location).Walkable || (ActionTarget is { } target && !world.GetTile(target).Walkable))) throw new ArgumentException("Citizen location or target is not walkable.");
         if (CurrentAction == CitizenAction.Dead && (DeathMinute is null || Health != 0 || string.IsNullOrWhiteSpace(DeathCause) || ActionPhase != CitizenActionPhase.None || ActionTarget is not null || ActionStartedMinute is not null || ActionCompletesMinute is not null || TargetResourceNodeId is not null || CarriedResourceQuantity != 0)) throw new ArgumentException("A dead citizen must have no active state.");
         if (DeathMinute is not null && (Health != 0 || string.IsNullOrWhiteSpace(DeathCause) || DeathCause is not ("starvation" or "exhaustion" or "exposure" or "deprivation" or "natural"))) throw new ArgumentException("A dead citizen must have zero health and a canonical death cause.");
@@ -194,6 +195,7 @@ public sealed class Citizen : IEquatable<Citizen>
         if (CurrentAction == CitizenAction.Socialize && (ActionPhase != CitizenActionPhase.Perform || TargetCitizenId is null || ActionTarget is not null || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("Socialize requires a citizen target and perform timing.");
         if (CurrentAction != CitizenAction.Socialize && TargetCitizenId is not null) throw new ArgumentException("Only Socialize may target a citizen.");
         if (CurrentAction is CitizenAction.Wander or CitizenAction.Explore && (ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.TravelToTarget) || ActionTarget is null || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("A moving citizen requires a target and timing.");
+        if (CurrentAction == CitizenAction.LivingWork && (ActionPhase is not (CitizenActionPhase.TravelToTarget or CitizenActionPhase.Perform or CitizenActionPhase.WaitingForStorage) || ActionStartedMinute is null || ActionCompletesMinute is null || (ActionPhase == CitizenActionPhase.TravelToTarget) != (ActionTarget is not null) || TargetResourceNodeId is not null || TargetStructureId is not null || TargetCitizenId is not null || CarriedResourceQuantity != 0 || CarriedResourceType is not null)) throw new ArgumentException("Living work phase is invalid.");
         if (CurrentAction == CitizenAction.Eat && (ActionPhase is not (CitizenActionPhase.TravelToTarget or CitizenActionPhase.Perform) || (ActionPhase == CitizenActionPhase.TravelToTarget && ActionTarget is null) || (ActionPhase == CitizenActionPhase.Perform && ActionTarget is not null) || ActionStartedMinute is null || ActionCompletesMinute is null)) throw new ArgumentException("Eating phase state is invalid.");
         if (CurrentAction is CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone)
         {

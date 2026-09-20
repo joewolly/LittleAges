@@ -73,6 +73,7 @@ foreach (var listenUri in serverOptions.GetListenUris())
 }
 app.MapHealthChecks("/api/v1/health", new HealthCheckOptions());
 app.MapHub<WorldHub>("/hubs/world");
+app.MapGet("/api/v1/living", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Living));
 app.MapGet("/api/v1/status", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Status));
 app.MapPost("/api/v1/control/pause", async (SimulationHost simulationHost, CancellationToken cancellationToken) =>
 {

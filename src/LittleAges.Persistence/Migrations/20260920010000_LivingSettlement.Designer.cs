@@ -9,10 +9,10 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace LittleAges.Persistence.Migrations
 {
-    [DbContext(typeof(LittleAgesDbContext))]
-    partial class LittleAgesDbContextModelSnapshot : ModelSnapshot
+
+    public sealed partial class LivingSettlement
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");

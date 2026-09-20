@@ -16,10 +16,11 @@ public sealed record WorldStreamFrame(
     long Revision,
     ServerStatusSnapshot Status,
     IReadOnlyList<ServerCitizenSnapshot> Citizens,
-    IReadOnlyList<ServerStructureSnapshot> Structures)
+    IReadOnlyList<ServerStructureSnapshot> Structures,
+    System.Text.Json.JsonElement? Living = null)
 {
     internal static WorldStreamFrame Create(long sequence, ServerObservationSnapshot observation) =>
-        new(sequence, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), observation.Revision, observation.Status, observation.Citizens, observation.Structures);
+        new(sequence, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), observation.Revision, observation.Status, observation.Citizens, observation.Structures, observation.Living);
 }
 
 /// <summary>Observer-only SignalR endpoint. Canonical simulation state is never exposed here.</summary>

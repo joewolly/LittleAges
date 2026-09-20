@@ -51,6 +51,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.SurvivalVersion).HasColumnName("survival_version").IsRequired();
             entity.Property(row => row.SettlementVersion).HasColumnName("settlement_version").IsRequired();
             entity.Property(row => row.SocialVersion).HasColumnName("social_version").IsRequired();
+            entity.Property(row => row.LivingStateJson).HasColumnName("living_state_json").HasColumnType("TEXT");
             entity.Property(row => row.HistoryVersion).HasColumnName("history_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();
@@ -129,7 +130,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
                 table.HasCheckConstraint("CK_citizens_founder", "founder_ordinal IS NULL OR founder_ordinal BETWEEN 0 AND 19");
                 table.HasCheckConstraint("CK_citizens_health", "health BETWEEN 0 AND 10000");
                 table.HasCheckConstraint("CK_citizens_needs", "hunger BETWEEN 0 AND 10000 AND rest BETWEEN 0 AND 10000 AND shelter BETWEEN 0 AND 10000 AND social BETWEEN 0 AND 10000");
-                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12)");
+                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12,13)");
                 table.HasCheckConstraint("CK_citizens_m4_state", "health_updated_minute >= 0 AND action_phase IN (0,1,2,3,4,5,6) AND (target_citizen_id IS NULL OR target_citizen_id > 0) AND (target_resource_node_id IS NULL OR target_resource_node_id > 0) AND (target_structure_id IS NULL OR target_structure_id > 0) AND carried_resource_quantity >= 0 AND lifetime_foraging_minutes >= 0 AND lifetime_woodcutting_minutes >= 0 AND lifetime_stoneworking_minutes >= 0 AND lifetime_construction_minutes >= 0 AND lifetime_hauling_minutes >= 0 AND ((carried_resource_quantity = 0 AND carried_resource_type IS NULL) OR (carried_resource_quantity > 0 AND carried_resource_type IN (1,2,3)))");
             });
             entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();

@@ -549,7 +549,7 @@ export async function fetchStatistics(query: StatisticsQuery = {}): Promise<Stat
   return parseStatistics(await get(`/api/v1/statistics?${suffix}`))
 }
 
-const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize'] as const
+const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize', 'LivingWork'] as const
 const ACTION_PHASES = ['None', 'TravelToTarget', 'Perform', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction', 'WaitingForStorage'] as const
 const RESOURCE_TYPES = ['Food', 'Wood', 'Stone'] as const
 const OCCUPATIONS = ['Generalist', 'Forager', 'Lumberjack', 'Stoneworker', 'Builder', 'Hauler'] as const

@@ -2,6 +2,10 @@
 
 This document describes the implementation that exists through M8 candidate acceptance. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
 
+The opt-in successor is documented in [Living Settlement v0.2](living-settlement-v0.2.md).
+Its modules reuse these engine, persistence, and observer boundaries while old
+worlds retain the rules described here.
+
 ## Project and reference graph
 
 All .NET projects target `net10.0` through `Directory.Build.props`.

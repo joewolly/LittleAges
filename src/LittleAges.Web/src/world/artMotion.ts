@@ -1,9 +1,15 @@
 import type { AnimationMixer } from 'three'
 import type { Citizen } from '../api'
+import type { LivingOrder } from '../living'
 
-export function citizenAnimation(citizen: Pick<Citizen, 'currentAction' | 'actionPhase' | 'carriedResource'>): string {
+export function citizenAnimation(citizen: Pick<Citizen, 'currentAction' | 'actionPhase' | 'carriedResource'>, work?: LivingOrder): string {
   const travelling = ['TravelToTarget', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction'].includes(citizen.actionPhase)
-  if (travelling) return citizen.carriedResource !== null ? 'Carry' : 'Walk'
+  if (travelling) return citizen.carriedResource !== null || work && (work.cargoInTransit || work.phase === 'Travel' && !work.suppliesDelivered && work.ingredients.length > 0) ? 'Carry' : 'Walk'
+  if (citizen.currentAction === 'LivingWork' && work) {
+    if (['Care', 'Teach', 'Recreate', 'RepairRelationship'].includes(work.kind)) return 'Socialize'
+    if (['Sow', 'Tend', 'Harvest', 'Hunt', 'EstablishField'].includes(work.kind)) return 'Gather'
+    return 'Build'
+  }
   if (citizen.currentAction === 'Rest') return 'Rest'
   if (citizen.currentAction === 'Socialize') return 'Socialize'
   if (citizen.currentAction === 'Build') return 'Build'
