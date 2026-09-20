@@ -153,6 +153,9 @@ th { color: #817468; font-weight: 400; text-transform: uppercase; letter-spacing
 .world-accessibility-note { position: absolute; overflow: hidden; width: 1px; height: 1px; clip: rect(0 0 0 0); white-space: nowrap; }
 .world-fallback { position: absolute; inset: 0; min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; background: #f7f0e5; }
 .world-fallback canvas { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; }
+.world-fallback-legend { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 6px 9px; border-radius: 6px; background: #fff8e9e8; color: #302a24; font-size: 12px; text-align: center; }
+.world-fallback-legend b { -webkit-text-stroke: 1px #302a24; }
+.farm-activity { color: #d3ef9a; } .harvest-activity { color: #ffe375; } .market-activity { color: #f54aa1; }
 
 .world-hud { display: grid; grid-template-columns: minmax(260px, 2fr) minmax(100px, .6fr) auto; gap: 1px; margin: 0; color: #f7efe0; background: #47382b; border: 1px solid #594839; }
 .world-hud > div { display: grid; gap: 4px; padding: 13px 16px; border-right: 1px solid rgba(255,255,255,.1); }

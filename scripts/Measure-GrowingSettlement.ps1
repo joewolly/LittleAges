@@ -56,6 +56,8 @@ if (years > 0)
     }
 }
 preparation.Stop();
+// Warm the runtime and path caches before comparing ordinary and larger saves.
+engine.AdvanceUntil(engine.CurrentMinute.Add(WorldCalendar.MinutesPerDay));
 var start = engine.CurrentMinute.Value;
 var initialPopulation = engine.LivingPopulation;
 var save = Stopwatch.StartNew();
@@ -79,7 +81,7 @@ await using (var db = await WorldDatabase.OpenAsync(afterPath)) restored = Simul
 if (restored.ComputeEconomyFingerprint() != engine.ComputeEconomyFingerprint() || restored.ComputeHistoryFingerprint() != engine.ComputeHistoryFingerprint() || restored.ComputeSocialFingerprint() != engine.ComputeSocialFingerprint() || restored.ComputeAgricultureFingerprint() != engine.ComputeAgricultureFingerprint()) throw new InvalidOperationException("Benchmark checkpoint mismatch.");
 using var process = Process.GetCurrentProcess();
 var metrics = new { engine.SimulationRulesVersion, Seed = engine.Seed.Value, StartMinute = start, InitialPopulation = initialPopulation, FinalPopulation = engine.LivingPopulation,
-    Days = 10, Events = eventCount, AdvanceMilliseconds = clock.Elapsed.TotalMilliseconds, EventsPerSecond = eventCount / clock.Elapsed.TotalSeconds,
+    WarmupDays = 1, Days = 10, Events = eventCount, AdvanceMilliseconds = clock.Elapsed.TotalMilliseconds, EventsPerSecond = eventCount / clock.Elapsed.TotalSeconds,
     SnapshotMilliseconds = snapshotClock.Elapsed.TotalMilliseconds, InitialCheckpointMilliseconds = save.Elapsed.TotalMilliseconds, FinalCheckpointMilliseconds = checkpointClock.Elapsed.TotalMilliseconds,
     DatabaseBytesBefore = beforeBytes, DatabaseBytesAfter = new FileInfo(afterPath).Length, DatabaseGrowthBytes = new FileInfo(afterPath).Length - beforeBytes,
     WorkingSetBytes = process.WorkingSet64, PeakWorkingSetBytes = process.PeakWorkingSet64, ManagedHeapBytes = GC.GetTotalMemory(false), ProcessorCount = Environment.ProcessorCount,
