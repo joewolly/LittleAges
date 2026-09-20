@@ -4,6 +4,8 @@ namespace LittleAges.Persistence;
 
 public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> options) : DbContext(options)
 {
+    public DbSet<EconomyStateRow> EconomyStates => Set<EconomyStateRow>();
+    public DbSet<AgricultureStateRow> AgricultureStates => Set<AgricultureStateRow>();
     public DbSet<WorldMetaRow> WorldMeta => Set<WorldMetaRow>();
     public DbSet<ScheduledEventRow> ScheduledEvents => Set<ScheduledEventRow>();
     public DbSet<WorldTileRow> WorldTiles => Set<WorldTileRow>();
@@ -24,6 +26,20 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<EconomyStateRow>(entity =>
+        {
+            entity.ToTable("economy_state", table => table.HasCheckConstraint("CK_economy_state_singleton", "id = 1"));
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(row => row.CanonicalJson).HasColumnName("canonical_json").IsRequired();
+        });
+        modelBuilder.Entity<AgricultureStateRow>(entity =>
+        {
+            entity.ToTable("agriculture_state", table => table.HasCheckConstraint("CK_agriculture_state_singleton", "id = 1"));
+            entity.HasKey(row => row.Id);
+            entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(row => row.CanonicalJson).HasColumnName("canonical_json").IsRequired();
+        });
         modelBuilder.Entity<WorldMetaRow>(entity =>
         {
             entity.ToTable("world_meta", table =>
@@ -129,8 +145,8 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
                 table.HasCheckConstraint("CK_citizens_founder", "founder_ordinal IS NULL OR founder_ordinal BETWEEN 0 AND 19");
                 table.HasCheckConstraint("CK_citizens_health", "health BETWEEN 0 AND 10000");
                 table.HasCheckConstraint("CK_citizens_needs", "hunger BETWEEN 0 AND 10000 AND rest BETWEEN 0 AND 10000 AND shelter BETWEEN 0 AND 10000 AND social BETWEEN 0 AND 10000");
-                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12)");
-                table.HasCheckConstraint("CK_citizens_m4_state", "health_updated_minute >= 0 AND action_phase IN (0,1,2,3,4,5,6) AND (target_citizen_id IS NULL OR target_citizen_id > 0) AND (target_resource_node_id IS NULL OR target_resource_node_id > 0) AND (target_structure_id IS NULL OR target_structure_id > 0) AND carried_resource_quantity >= 0 AND lifetime_foraging_minutes >= 0 AND lifetime_woodcutting_minutes >= 0 AND lifetime_stoneworking_minutes >= 0 AND lifetime_construction_minutes >= 0 AND lifetime_hauling_minutes >= 0 AND ((carried_resource_quantity = 0 AND carried_resource_type IS NULL) OR (carried_resource_quantity > 0 AND carried_resource_type IN (1,2,3)))");
+                table.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)");
+                table.HasCheckConstraint("CK_citizens_m4_state", "health_updated_minute >= 0 AND action_phase IN (0,1,2,3,4,5,6) AND (target_citizen_id IS NULL OR target_citizen_id > 0) AND (target_resource_node_id IS NULL OR target_resource_node_id > 0) AND (target_structure_id IS NULL OR target_structure_id > 0) AND carried_resource_quantity >= 0 AND lifetime_foraging_minutes >= 0 AND lifetime_woodcutting_minutes >= 0 AND lifetime_stoneworking_minutes >= 0 AND lifetime_construction_minutes >= 0 AND lifetime_hauling_minutes >= 0 AND ((carried_resource_quantity = 0 AND carried_resource_type IS NULL) OR (carried_resource_quantity > 0 AND carried_resource_type IN (1,2,3,4,5)))");
             });
             entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
             entity.Property(row => row.FounderOrdinal).HasColumnName("founder_ordinal");
@@ -290,10 +306,10 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.ToTable("structures", table =>
             {
                 table.HasCheckConstraint("CK_structures_id", "id > 0");
-                table.HasCheckConstraint("CK_structures_type", "type IN (1,2,3)");
+                table.HasCheckConstraint("CK_structures_type", "type IN (1,2,3,4,5,6)");
                 table.HasCheckConstraint("CK_structures_status", "status IN (1,2)");
                 table.HasCheckConstraint("CK_structures_coordinates", "location_x >= 0 AND location_y >= 0");
-                table.HasCheckConstraint("CK_structures_values", "construction_started_minute >= 0 AND ((type = 1 AND required_wood = 40 AND required_stone = 10 AND required_work = 600) OR (type = 2 AND required_wood = 60 AND required_stone = 30 AND required_work = 900) OR (type = 3 AND required_wood = 80 AND required_stone = 50 AND required_work = 1200)) AND delivered_wood BETWEEN 0 AND required_wood AND delivered_stone BETWEEN 0 AND required_stone AND completed_work BETWEEN 0 AND required_work AND ((status = 1 AND completed_minute IS NULL AND condition = 0) OR (status = 2 AND completed_minute IS NOT NULL AND delivered_wood = required_wood AND delivered_stone = required_stone AND completed_work = required_work AND condition = 10000))");
+                table.HasCheckConstraint("CK_structures_values", "construction_started_minute >= 0 AND ((type = 1 AND required_wood = 40 AND required_stone = 10 AND required_work = 600) OR (type = 2 AND required_wood = 60 AND required_stone = 30 AND required_work = 900) OR (type = 3 AND required_wood = 80 AND required_stone = 50 AND required_work = 1200) OR (type = 4 AND required_wood = 60 AND required_stone = 10 AND required_work = 900) OR (type = 5 AND required_wood = 100 AND required_stone = 60 AND required_work = 1500) OR (type = 6 AND required_wood = 80 AND required_stone = 30 AND required_work = 1000)) AND delivered_wood BETWEEN 0 AND required_wood AND delivered_stone BETWEEN 0 AND required_stone AND completed_work BETWEEN 0 AND required_work AND ((status = 1 AND completed_minute IS NULL AND condition = 0) OR (status = 2 AND completed_minute IS NOT NULL AND delivered_wood = required_wood AND delivered_stone = required_stone AND completed_work = required_work AND condition = 10000))");
             });
             entity.HasKey(row => row.Id); entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
             entity.Property(row => row.Type).HasColumnName("type"); entity.Property(row => row.Status).HasColumnName("status"); entity.Property(row => row.Condition).HasColumnName("condition"); entity.Property(row => row.LocationX).HasColumnName("location_x"); entity.Property(row => row.LocationY).HasColumnName("location_y"); entity.Property(row => row.ConstructionStartedMinute).HasColumnName("construction_started_minute"); entity.Property(row => row.CompletedMinute).HasColumnName("completed_minute"); entity.Property(row => row.RequiredWood).HasColumnName("required_wood"); entity.Property(row => row.DeliveredWood).HasColumnName("delivered_wood"); entity.Property(row => row.RequiredStone).HasColumnName("required_stone"); entity.Property(row => row.DeliveredStone).HasColumnName("delivered_stone"); entity.Property(row => row.RequiredWork).HasColumnName("required_work"); entity.Property(row => row.CompletedWork).HasColumnName("completed_work");

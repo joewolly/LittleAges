@@ -11,10 +11,10 @@ public sealed class M8BalanceAcceptanceTests
     public void M8FreshHistoryUsesSampledTwentyRecoveryWhileM6RemainsImmediateTwenty()
     {
         var m6 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
-        var m8 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var m8 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
 
         Assert.Equal(SimulationEngine.M6SimulationRulesVersion, m6.SimulationRulesVersion);
-        Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, m8.SimulationRulesVersion);
+        Assert.Equal(SimulationEngine.M8SimulationRulesVersion, m8.SimulationRulesVersion);
         Assert.Equal(20, SimulationEngine.FoodShortageRecoveryMultiplier(m6.SimulationRulesVersion));
         Assert.Equal(20, SimulationEngine.FoodShortageRecoveryMultiplier(m8.SimulationRulesVersion));
 
@@ -53,7 +53,7 @@ public sealed class M8BalanceAcceptanceTests
     [Fact]
     public void M8OrdinaryRecoveredFoodDoesNotEndShortageAndReloadPreservesIt()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
         var living = source.LivingPopulation;
         source.Settlement.FoodStored = living * 10 - 1;
         InvokePrivate(source, "ReevaluateFoodShortage", false);
@@ -75,8 +75,8 @@ public sealed class M8BalanceAcceptanceTests
     [Fact]
     public void M8ShortRunFingerprintIsRepeatableAndChunkIndependent()
     {
-        var whole = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
-        var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var whole = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
+        var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
         whole.AdvanceUntil(new WorldMinute(720));
         chunked.AdvanceUntil(new WorldMinute(240));
         chunked.AdvanceUntil(new WorldMinute(720));
@@ -92,7 +92,7 @@ public sealed class M8BalanceAcceptanceTests
     public void M6AndM8ShortRunGameplayQueueRemainIdenticalOutsideHistory()
     {
         var m6 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M6SimulationRulesVersion);
-        var m8 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var m8 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
         m6.AdvanceUntil(new WorldMinute(720));
         m8.AdvanceUntil(new WorldMinute(720));
         var left = m6.CreatePersistenceSnapshot();
@@ -115,11 +115,11 @@ public sealed class M8BalanceAcceptanceTests
     [Fact]
     public void M8SnapshotReloadPreservesRulesAndHistoryContinuation()
     {
-        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(720));
         var restored = SimulationEngine.FromPersistenceSnapshot(source.CreatePersistenceSnapshot());
 
-        Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, restored.SimulationRulesVersion);
+        Assert.Equal(SimulationEngine.M8SimulationRulesVersion, restored.SimulationRulesVersion);
         source.AdvanceUntil(new WorldMinute(1_440));
         restored.AdvanceUntil(new WorldMinute(1_440));
         Assert.Equal(source.HistoryFingerprint, restored.HistoryFingerprint);

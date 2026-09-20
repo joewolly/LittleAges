@@ -1,0 +1,12 @@
+.agriculture-surface { margin-block: 1rem; color: #42351f; }
+.agriculture-surface h3 { font: 1.65rem Georgia, serif; }
+.agriculture-surface p, .agriculture-surface li { font-size: .85rem; line-height: 1.5; }
+.farm-records { display: grid; gap: .65rem; max-height: 24rem; overflow: auto; }
+.farm-records article { border: 1px solid #c2af82; border-radius: .7rem; padding: .8rem; background: #f8f1d9; }
+.farm-records h4 { margin: 0 0 .7rem; }
+.farm-records label { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-block: .4rem; font-size: .8rem; }
+.farm-records progress { width: 65%; accent-color: #5f8840; }
+.agriculture-surface nav { display: flex; gap: .5rem; }
+.agriculture-surface nav button { padding: .6rem; border: 1px solid #a18a60; border-radius: .4rem; background: #fff7df; color: #65472c; }
+.agriculture-surface svg { display: block; width: 100%; background: #f8f1d9; border-radius: .6rem; }
+.observer-drawer-body[data-tab="buildings"] > .agriculture-surface { display: block; }

@@ -576,7 +576,7 @@ public sealed class M7PersistentHostTests
             SimulationPersistenceSnapshot source;
             await using (var database = await WorldDatabase.OpenAsync(path))
             {
-                var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+                var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
                 engine.AdvanceUntil(new WorldMinute(20));
                 source = engine.CreatePersistenceSnapshot();
                 await database.CreateCheckpointStore().CheckpointAsync(source, new DateTime(2026, 9, 16, 2, 0, 0, DateTimeKind.Utc));

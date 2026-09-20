@@ -58,7 +58,7 @@ export type Citizen = {
 export type CitizenMovementWaypoint = { x: number; y: number; arriveMinute: number }
 export type CitizenMovementPlan = { actionSequence: number; observedMinute: number; segmentStartedMinute?: number; waypoints: CitizenMovementWaypoint[] }
 
-export type CitizenOccupation = 'Generalist' | 'Forager' | 'Lumberjack' | 'Stoneworker' | 'Builder' | 'Hauler'
+export type CitizenOccupation = 'Farmer' | 'Woodcutter' | 'Generalist' | 'Forager' | 'Lumberjack' | 'Stoneworker' | 'Builder' | 'Hauler'
 export type WorkActivity = { foragingMinutes: number; woodcuttingMinutes: number; stoneworkingMinutes: number; constructionMinutes: number; haulingMinutes: number }
 
 export type SettlementResourceQuantity = { resourceType: ResourceType; quantity: number }
@@ -81,6 +81,9 @@ export type Settlement = {
   completedShelters: number
   completedStockpiles: number
   completedWorkshops: number
+  completedFarms?: number
+  completedGranaries?: number
+  completedMarketplaces?: number
   exposureGraceUntilMinute: number
   activeConstructionProject: Structure | null
   householdCount: number
@@ -121,12 +124,13 @@ export type Household = {
   childrenIds: string[]
 }
 
-export type StructureType = 'Shelter' | 'Stockpile' | 'Workshop'
+export type StructureType = 'Shelter' | 'Stockpile' | 'Workshop' | 'Farm' | 'Granary' | 'Marketplace'
 export type StructureStatus = 'UnderConstruction' | 'Complete'
 export type StructureContribution = { citizenId: string; constructionWork: number; woodDelivered: number; stoneDelivered: number }
 export type Structure = {
   structureId: string
   type: StructureType
+  cropStage?: string | null
   status: StructureStatus
   location: { x: number; y: number }
   startedMinute: number
@@ -549,11 +553,11 @@ export async function fetchStatistics(query: StatisticsQuery = {}): Promise<Stat
   return parseStatistics(await get(`/api/v1/statistics?${suffix}`))
 }
 
-const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize'] as const
+const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize', 'WorkFarm', 'HaulHarvest', 'TradeDelivery'] as const
 const ACTION_PHASES = ['None', 'TravelToTarget', 'Perform', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction', 'WaitingForStorage'] as const
 const RESOURCE_TYPES = ['Food', 'Wood', 'Stone'] as const
-const OCCUPATIONS = ['Generalist', 'Forager', 'Lumberjack', 'Stoneworker', 'Builder', 'Hauler'] as const
-const STRUCTURE_TYPES = ['Shelter', 'Stockpile', 'Workshop'] as const
+const OCCUPATIONS = ['Farmer', 'Woodcutter', 'Generalist', 'Forager', 'Lumberjack', 'Stoneworker', 'Builder', 'Hauler'] as const
+const STRUCTURE_TYPES = ['Shelter', 'Stockpile', 'Workshop', 'Farm', 'Granary', 'Marketplace'] as const
 const STRUCTURE_STATUSES = ['UnderConstruction', 'Complete'] as const
 const RELATIONSHIP_LABELS = ['Partner', 'Family', 'Rival', 'Close Friend', 'Friend', 'Acquaintance', 'Stranger'] as const
 
@@ -776,6 +780,7 @@ export function parseStructure(value: unknown): Structure {
   if (!isRecord(value)) throw new Error('The server returned an invalid structure.')
   if (typeof value.type !== 'string' || !STRUCTURE_TYPES.includes(value.type as StructureType)) throw new Error('The server returned an invalid structure type.')
   if (typeof value.status !== 'string' || !STRUCTURE_STATUSES.includes(value.status as StructureStatus)) throw new Error('The server returned an invalid structure status.')
+  if (value.cropStage !== undefined && value.cropStage !== null && (typeof value.cropStage !== 'string' || !['Fallow', 'Planted', 'Growing', 'Harvest', 'Dormant'].includes(value.cropStage))) throw new Error('The server returned an invalid crop stage.')
   const requiredWood = parseRequiredNonNegativeInteger(value.requiredWood, 'The server returned invalid structure materials.')
   const deliveredWood = parseRequiredNonNegativeInteger(value.deliveredWood, 'The server returned invalid structure materials.')
   const requiredStone = parseRequiredNonNegativeInteger(value.requiredStone, 'The server returned invalid structure materials.')
@@ -792,7 +797,7 @@ export function parseStructure(value: unknown): Structure {
   if (deliveredWood > requiredWood || deliveredStone > requiredStone || completedWork > requiredWork || value.condition !== 0 && value.condition !== 10000 || (value.status === 'UnderConstruction' && completedMinute !== null) || (value.status === 'Complete' && (completedMinute === null || completedWork !== requiredWork))) throw new Error('The server returned incoherent structure progress.')
   if (new Set(parsedContributions.map(entry => entry.citizenId)).size !== parsedContributions.length || new Set(occupants).size !== occupants.length) throw new Error('The server returned duplicate structure references.')
   return {
-    structureId: parsePositiveDecimalId(value.structureId, 'The server returned an invalid structure ID.'), type: value.type as StructureType, status: value.status as StructureStatus,
+    structureId: parsePositiveDecimalId(value.structureId, 'The server returned an invalid structure ID.'), type: value.type as StructureType, cropStage: value.cropStage as string | null | undefined, status: value.status as StructureStatus,
     location: parseCoordinate(value.location, 'The server returned an invalid structure location.'), startedMinute: parseRequiredNonNegativeInteger(value.startedMinute, 'The server returned an invalid structure start minute.'), completedMinute,
     requiredWood, deliveredWood, requiredStone, deliveredStone, requiredWork, completedWork, condition: parseRequiredNonNegativeInteger(value.condition, 'The server returned an invalid structure condition.'),
     capacity: parseNullablePositiveInteger(value.capacity, 'The server returned an invalid structure capacity.'), storageBonus: parseNullablePositiveInteger(value.storageBonus, 'The server returned an invalid structure storage bonus.'), constructionMultiplierBasisPoints: parseNullablePositiveInteger(value.constructionMultiplierBasisPoints, 'The server returned an invalid construction multiplier.'), currentOccupantIds: occupants, contributions: parsedContributions,
@@ -879,6 +884,9 @@ export function parseSettlement(value: unknown): Settlement {
   const completedShelters = value.completedShelters === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedShelters, 'The server returned an invalid completed shelter count.')
   const completedStockpiles = value.completedStockpiles === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedStockpiles, 'The server returned an invalid completed stockpile count.')
   const completedWorkshops = value.completedWorkshops === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedWorkshops, 'The server returned an invalid completed workshop count.')
+  const completedFarms = value.completedFarms === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedFarms, 'Invalid farm count.')
+  const completedGranaries = value.completedGranaries === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedGranaries, 'Invalid granary count.')
+  const completedMarketplaces = value.completedMarketplaces === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedMarketplaces, 'Invalid marketplace count.')
   const exposureGraceUntilMinute = value.exposureGraceUntilMinute === undefined ? 0 : parseRequiredNonNegativeInteger(value.exposureGraceUntilMinute, 'The server returned an invalid exposure grace minute.')
   const householdCount = value.householdCount === undefined ? 0 : parseRequiredNonNegativeInteger(value.householdCount, 'The server returned an invalid household count.')
   const activeHouseholdCount = value.activeHouseholdCount === undefined ? 0 : parseRequiredNonNegativeInteger(value.activeHouseholdCount, 'The server returned an invalid active household count.')
@@ -903,7 +911,7 @@ export function parseSettlement(value: unknown): Settlement {
     totalPopulation,
     remainingResources: remainingResources.map(parseSettlementResourceQuantity),
     resources: resources.map(parseSettlementResource),
-    storageCapacity, storageUsed, shelterCapacity, shelteredPopulation, unhousedPopulation, completedShelters, completedStockpiles, completedWorkshops, exposureGraceUntilMinute, activeConstructionProject,
+    storageCapacity, storageUsed, shelterCapacity, shelteredPopulation, unhousedPopulation, completedShelters, completedStockpiles, completedWorkshops, completedFarms, completedGranaries, completedMarketplaces, exposureGraceUntilMinute, activeConstructionProject,
     householdCount, activeHouseholdCount, partnershipCount, relationshipCount, friendCount, rivalCount, youngChildCount, childCount, adolescentCount, adultCount, elderCount,
   }
 }

@@ -5,7 +5,10 @@ public enum StructureType : int
 {
     Shelter = 1,
     Stockpile = 2,
-    Workshop = 3
+    Workshop = 3,
+    Farm = 4,
+    Granary = 5,
+    Marketplace = 6
 }
 
 /// <summary>Persistent M4 construction lifecycle values. Values are compatibility data.</summary>
@@ -34,6 +37,9 @@ public static class StructureDefinitions
             (StructureType.Shelter, ShelterRequiredWood, ShelterRequiredStone, ShelterRequiredWork) => true,
             (StructureType.Stockpile, StockpileRequiredWood, StockpileRequiredStone, StockpileRequiredWork) => true,
             (StructureType.Workshop, WorkshopRequiredWood, WorkshopRequiredStone, WorkshopRequiredWork) => true,
+            (StructureType.Farm, AgricultureRules.FarmWood, AgricultureRules.FarmStone, AgricultureRules.FarmWork) => true,
+            (StructureType.Granary, AgricultureRules.GranaryWood, AgricultureRules.GranaryStone, AgricultureRules.GranaryWork) => true,
+            (StructureType.Marketplace, EconomyRules.MarketWood, EconomyRules.MarketStone, EconomyRules.MarketWork) => true,
             _ => false
         };
 }

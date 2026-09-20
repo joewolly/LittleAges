@@ -155,6 +155,7 @@ public sealed partial class SimulationEngine
     private void RecordHistoryTransitions(int foodBefore)
     {
         if (_historyState is null) return;
+        if (EconomyEnabled) { if (foodBefore != Settlement.FoodStored) ReevaluateFoodShortage(false); return; }
         var foodDelta = Settlement.FoodStored - foodBefore;
         if (foodDelta > 0) _historyState.FoodProducedSinceSample = checked(_historyState.FoodProducedSinceSample + foodDelta);
         else if (foodDelta < 0) _historyState.FoodConsumedSinceSample = checked(_historyState.FoodConsumedSinceSample - foodDelta);
@@ -278,7 +279,7 @@ public sealed partial class SimulationEngine
             EmitHistory(HistoricalEventType.SeasonStarted, HistoricalImportance.Routine, null, HistoricalEventPayloads.SeasonStarted(date.Season, date.Year));
         }
         _statisticsSamples.Add(new StatisticsSample(CurrentMinute.Value, _historyState.PeriodStartMinute, living.Length, _historyState.BirthsSinceSample, _historyState.DeathsSinceSample, Settlement.FoodStored, _historyState.FoodProducedSinceSample, _historyState.FoodConsumedSinceSample, Settlement.WoodStored, Settlement.StoneStored, ShelterCapacity, checked((int)averageHealth), checked((int)averageHunger)));
-        if (SimulationRulesVersion == CurrentSimulationRulesVersion) ReevaluateFoodShortageAtStatisticsSample();
+        if (UsesSampledShortageRecovery(SimulationRulesVersion)) ReevaluateFoodShortageAtStatisticsSample();
         _historyState.PeriodStartMinute = CurrentMinute.Value;
         _historyState.BirthsSinceSample = 0;
         _historyState.DeathsSinceSample = 0;

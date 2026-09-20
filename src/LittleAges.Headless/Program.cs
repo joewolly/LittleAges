@@ -13,7 +13,8 @@ public enum HeadlessCommand
 {
     Run,
     Benchmark,
-    Acceptance
+    Acceptance,
+    Diagnose
 }
 
 public sealed record HeadlessOptions(
@@ -42,7 +43,7 @@ public static class HeadlessCommandLine
 {
     private static readonly HashSet<string> Commands = new(StringComparer.OrdinalIgnoreCase)
     {
-        "run", "benchmark", "acceptance"
+        "run", "benchmark", "acceptance", "diagnose"
     };
 
     public static HeadlessParseResult Parse(IReadOnlyList<string> args)
@@ -90,8 +91,8 @@ public static class HeadlessCommandLine
                         return HeadlessParseResult.Failure("--years must be one of: 1, 10, 100, 500.");
                     break;
                 case "--rules":
-                    if (value is not (SimulationEngine.M6SimulationRulesVersion or SimulationEngine.CurrentSimulationRulesVersion))
-                        return HeadlessParseResult.Failure($"Unsupported rules '{value}'. This headless runner supports '{SimulationEngine.M6SimulationRulesVersion}' and '{SimulationEngine.CurrentSimulationRulesVersion}'.");
+                    if (!SimulationEngine.IsHistoryRulesVersion(value))
+                        return HeadlessParseResult.Failure($"Unsupported rules '{value}'. This runner supports explicitly versioned history rules only.");
                     rules = value;
                     break;
                 case "--output":
@@ -190,6 +191,10 @@ public sealed record HeadlessReport
     public int Households { get; init; }
     public int Relationships { get; init; }
     public int Structures { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AgricultureState? Agriculture { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public EconomyState? Economy { get; init; }
     public int FoodStored { get; init; }
     public int WoodStored { get; init; }
     public int StoneStored { get; init; }
@@ -295,8 +300,8 @@ public static class HeadlessRunner
 
     private static void ValidateOptions(HeadlessOptions options)
     {
-        if (options.Rules is not (SimulationEngine.M6SimulationRulesVersion or SimulationEngine.CurrentSimulationRulesVersion))
-            throw new ArgumentException($"Unsupported rules '{options.Rules}'. This headless runner supports '{SimulationEngine.M6SimulationRulesVersion}' and '{SimulationEngine.CurrentSimulationRulesVersion}'.", nameof(options));
+        if (!SimulationEngine.IsHistoryRulesVersion(options.Rules))
+            throw new ArgumentException($"Unsupported rules '{options.Rules}'. This runner supports explicitly versioned history rules only.", nameof(options));
         if (options.Years is not (1 or 10 or 100 or 500)) throw new ArgumentOutOfRangeException(nameof(options), "Years must be one of: 1, 10, 100, 500.");
         if (options.ChunkMinutes <= 0) throw new ArgumentOutOfRangeException(nameof(options), "Chunk minutes must be positive.");
     }
@@ -316,7 +321,9 @@ public static class HeadlessRunner
         while (engine.CurrentMinute.Value < targetMinute)
         {
             var nextMinute = checked(engine.CurrentMinute.Value + Math.Min(targetMinute - engine.CurrentMinute.Value, chunkMinutes));
+            var previousYear = engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear;
             engine.AdvanceUntil(new WorldMinute(nextMinute));
+            if (engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear != previousYear) Console.Error.WriteLine($"seed={engine.Seed.Value} rules={engine.SimulationRulesVersion} year={engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear} living={engine.LivingPopulation}");
         }
     }
 
@@ -357,6 +364,8 @@ public static class HeadlessRunner
             Households = engine.Households.Count,
             Relationships = engine.Relationships.Count,
             Structures = engine.Structures.Count,
+            Agriculture = engine.CaptureAgriculture(),
+            Economy = engine.CaptureEconomy(),
             FoodStored = engine.Settlement.FoodStored,
             WoodStored = engine.Settlement.WoodStored,
             StoneStored = engine.Settlement.StoneStored,
@@ -539,7 +548,9 @@ public static class HeadlessReportSerialization
                 report.Acceptance.Mismatches
             }
         };
-        return JsonSerializer.Serialize(projection, JsonOptions);
+        if (report.Economy is not null) return JsonSerializer.Serialize(new { Summary = projection, report.Agriculture, report.Economy }, JsonOptions);
+        return report.Agriculture is null ? JsonSerializer.Serialize(projection, JsonOptions)
+            : JsonSerializer.Serialize(new { Summary = projection, report.Agriculture }, JsonOptions);
     }
 
     public static void WriteArtifacts(HeadlessReport report, HeadlessOptions options)
@@ -653,6 +664,7 @@ public static class HeadlessReportSerialization
 
 public static class Program
 {
+    private static readonly JsonSerializerOptions DiagnosisJsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     public static async Task<int> Main(string[] args)
     {
         var parse = HeadlessCommandLine.Parse(args);
@@ -666,6 +678,18 @@ public static class Program
         try
         {
             var options = parse.Options!;
+            if (options.Command == HeadlessCommand.Diagnose)
+            {
+                var diagnosis = PopulationDiagnosis.Run(options);
+                var json = JsonSerializer.Serialize(diagnosis, DiagnosisJsonOptions);
+                if (options.Output is { } output)
+                {
+                    Directory.CreateDirectory(output);
+                    await File.WriteAllTextAsync(Path.Combine(output, $"population-{options.Rules}-seed-{options.Seed}-years-{options.Years}.json"), json);
+                }
+                Console.WriteLine(json);
+                return 0;
+            }
             var report = options.Command == HeadlessCommand.Acceptance
                 ? await HeadlessRunner.RunAcceptanceAsync(options)
                 : HeadlessRunner.Run(options);
@@ -684,7 +708,7 @@ public static class Program
 Little Ages headless deterministic runner
 
 Usage:
-  LittleAges.Headless <run|benchmark|acceptance> [options]
+  LittleAges.Headless <run|benchmark|acceptance|diagnose> [options]
 
 Options:
   --seed <uint64>       World seed (default: 42)

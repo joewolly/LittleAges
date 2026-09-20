@@ -1,5 +1,6 @@
 using System.Globalization;
 using LittleAges.Domain;
+using LittleAges.Simulation;
 
 namespace LittleAges.Server;
 
@@ -20,6 +21,7 @@ public sealed record ServerOptions
     public required string ActiveWorld { get; init; }
     public required WorldSeed WorldSeed { get; init; }
     public required string ListenUrls { get; init; }
+    public string NewWorldRules { get; init; } = SimulationEngine.CurrentSimulationRulesVersion;
     public double SimulationMinutesPerSecond { get; init; } = DefaultSimulationMinutesPerSecond;
     public int CheckpointSimulationMinutes { get; init; } = DefaultCheckpointSimulationMinutes;
     public int CheckpointMinimumRealSeconds { get; init; } = DefaultCheckpointMinimumRealSeconds;
@@ -60,6 +62,7 @@ public sealed record ServerOptions
             ActiveWorld = activeWorld,
             WorldSeed = new WorldSeed(seed),
             ListenUrls = configuration["ListenUrls"] ?? DefaultListenUrls,
+            NewWorldRules = configuration["NewWorldRules"] ?? SimulationEngine.CurrentSimulationRulesVersion,
             SimulationMinutesPerSecond = rate,
             CheckpointSimulationMinutes = ParseNonNegativeInt(configuration, "CheckpointSimulationMinutes", DefaultCheckpointSimulationMinutes),
             CheckpointMinimumRealSeconds = ParseNonNegativeInt(configuration, "CheckpointMinimumRealSeconds", DefaultCheckpointMinimumRealSeconds),
@@ -82,6 +85,7 @@ public sealed record ServerOptions
 
     internal void Validate()
     {
+        if (!SimulationEngine.IsHistoryRulesVersion(NewWorldRules)) throw new ArgumentException("NewWorldRules must select a supported history rules version.", nameof(NewWorldRules));
         if (string.IsNullOrWhiteSpace(DataRoot)) throw new ArgumentException("DataRoot is required.", nameof(DataRoot));
         if (string.IsNullOrWhiteSpace(ActiveWorld) || ActiveWorld != Path.GetFileName(ActiveWorld) || ActiveWorld.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) throw new ArgumentException("ActiveWorld must be a simple file-safe world name.", nameof(ActiveWorld));
         if (!double.IsFinite(SimulationMinutesPerSecond) || SimulationMinutesPerSecond < 0 || SimulationMinutesPerSecond > MaximumSimulationMinutesPerSecond) throw new ArgumentOutOfRangeException(nameof(SimulationMinutesPerSecond), $"Simulation advancement must be finite, non-negative, and no greater than {MaximumSimulationMinutesPerSecond.ToString(CultureInfo.InvariantCulture)}.");

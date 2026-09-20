@@ -81,7 +81,7 @@ public sealed class M8ScaleBenchmarkTests(ITestOutputHelper output)
 
     private static ScaleWorld CreateScaleWorld(int targetLivingCitizens)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
         var citizens = (Dictionary<long, Citizen>)typeof(SimulationEngine)
             .GetField("_citizens", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(engine)!;

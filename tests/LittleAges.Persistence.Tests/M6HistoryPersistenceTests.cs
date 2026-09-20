@@ -13,7 +13,7 @@ public sealed class M6HistoryPersistenceTests
 
     [Theory]
     [InlineData(SimulationEngine.M6SimulationRulesVersion)]
-    [InlineData(SimulationEngine.CurrentSimulationRulesVersion)]
+    [InlineData(SimulationEngine.M8SimulationRulesVersion)]
     public async Task SameMinutePartnerDeathsCheckpointAndReloadWithoutChangingHistory(string rules)
     {
         await WithDatabaseAsync(async path =>
@@ -47,7 +47,7 @@ public sealed class M6HistoryPersistenceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
             var citizens = Citizens(source);
             var parents = citizens.Values
                 .Where(citizen => citizen.FounderOrdinal is not null && (0L - citizen.BirthMinute) / WorldCalendar.MinutesPerYear is >= 18 and <= 45)
@@ -78,7 +78,7 @@ public sealed class M6HistoryPersistenceTests
 
             await using var reopened = await WorldDatabase.OpenAsync(path);
             var loaded = await reopened.CreateCheckpointStore().LoadAsync();
-            Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, loaded.SimulationRulesVersion);
+            Assert.Equal(SimulationEngine.M8SimulationRulesVersion, loaded.SimulationRulesVersion);
             Assert.Equal(SimulationEngine.CitizenGenerationVersion, loaded.CitizenGenerationVersion);
             Assert.Equal(SimulationEngine.SurvivalVersion, loaded.SurvivalVersion);
             Assert.Equal(SimulationEngine.SettlementVersion, loaded.SettlementVersion);

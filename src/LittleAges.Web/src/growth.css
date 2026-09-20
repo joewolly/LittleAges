@@ -1,0 +1,11 @@
+.growth-surface { margin-block: 1rem; padding: 1rem; border: 1px solid #8f79514d; border-radius: 16px; background: #f4ecd9; color: #352f24; }
+.growth-surface h3 { margin: .35rem 0 .8rem; }
+.growth-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+.growth-metrics div { padding: .7rem; background: #fffaf0; border-radius: 10px; }
+.growth-metrics dt { font-size: .75rem; }
+.growth-metrics dd { margin: .3rem 0 0; font-size: 1.5rem; font-weight: 750; }
+.growth-households { display: grid; gap: .5rem; max-height: 20rem; overflow: auto; }
+.growth-households article { display: grid; gap: .3rem; padding: .7rem; border-left: 4px solid #bf9655; border-radius: 5px; background: #fffaf0; }
+.growth-households article.is-ready { border-color: #397758; background: #e7f0df; }
+.growth-households span { font-size: .85rem; line-height: 1.5; }
+@media (max-width: 500px) { .growth-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -3,7 +3,7 @@ import type { Citizen, Map, Structure } from '../api'
 import { containMap } from './visuals'
 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
-const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a' }
+const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175' }
 
 export function LegacyMap({ map, structures, citizens }: { map: Map; structures: Structure[]; citizens: Citizen[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -38,13 +38,15 @@ export function LegacyMap({ map, structures, citizens }: { map: Map; structures:
       for (const structure of structures) {
         const x = offsetX + structure.location.x * scale
         const y = offsetY + structure.location.y * scale
-        context.fillStyle = structureColors[structure.type]
+        context.fillStyle = structure.type === 'Farm' ? ({ Fallow: '#735332', Planted: '#8eaa49', Growing: '#467e32', Harvest: '#e1b63f', Dormant: '#97866a' }[structure.cropStage ?? 'Fallow'] ?? '#735332') : structureColors[structure.type]
         context.globalAlpha = structure.status === 'Complete' ? 1 : 0.52
         context.fillRect(x + scale * 0.18, y + scale * 0.18, scale * 0.64, scale * 0.64)
         context.globalAlpha = 1
       }
-      context.fillStyle = '#302a24'
-      for (const citizen of citizens.filter(entry => entry.isAlive)) context.fillRect(offsetX + citizen.location.x * scale + scale * 0.38, offsetY + citizen.location.y * scale + scale * 0.38, Math.max(2, scale * 0.24), Math.max(2, scale * 0.24))
+      for (const citizen of citizens.filter(entry => entry.isAlive)) {
+        context.fillStyle = citizen.currentAction === 'WorkFarm' ? '#d3ef9a' : citizen.currentAction === 'HaulHarvest' ? '#ffe375' : citizen.currentAction === 'TradeDelivery' ? '#f54aa1' : '#302a24'
+        context.fillRect(offsetX + citizen.location.x * scale + scale * 0.38, offsetY + citizen.location.y * scale + scale * 0.38, Math.max(2, scale * 0.24), Math.max(2, scale * 0.24))
+      }
     }
     render()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(render)
@@ -56,5 +58,5 @@ export function LegacyMap({ map, structures, citizens }: { map: Map; structures:
     }
   }, [citizens, map, structures])
 
-  return <div className="world-fallback" role="img" aria-label={`Settlement map, ${map.width} by ${map.height} tiles. Colored squares mark structures and dark points mark living citizens.`}><canvas ref={canvasRef} /></div>
+  return <div className="world-fallback" role="img" aria-label={`Settlement map, ${map.width} by ${map.height} tiles. Colored squares mark structures. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
 }
