@@ -1,3 +1,4 @@
+import { parseLivingWorld, type LivingWorld } from './living'
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr'
 import { parseCitizens, parseStatus, parseStructures, type Citizen, type Status, type Structure } from './api'
 
@@ -17,6 +18,7 @@ export type WorldFrame = {
   status: Status
   citizens: Citizen[]
   structures: Structure[]
+  living?: LivingWorld | null
 }
 export type WorldFrameHandler = (frame: WorldFrame) => void
 
@@ -37,6 +39,7 @@ export function parseWorldFrame(value: unknown): WorldFrame {
     status: parseStatus(frame.status),
     citizens: parseCitizens(frame.citizens),
     structures: parseStructures(frame.structures),
+    ...(frame.living !== undefined ? { living: parseLivingWorld(frame.living) } : {}),
   }
 }
 

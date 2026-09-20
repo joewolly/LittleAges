@@ -296,3 +296,19 @@ footer { display: none; }
   .observer-drawer-body .reading-grid, .observer-drawer-body .settlement-grid, .observer-drawer-body .settlement-grid-expanded { grid-template-columns: 1fr; }
   .citizen-browser { grid-template-columns: 112px minmax(0,1fr); gap: 8px; }
 }
+
+.living-supplies { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .55rem; margin-bottom: 1.5rem; }
+.living-supplies span { display: flex; justify-content: space-between; gap: .5rem; padding: .65rem; background: #ede3cc; border-radius: .4rem; }
+.living-work-list { display: grid; gap: .75rem; }
+.living-work-list article { padding: .85rem; background: #f5eddf; border: 1px solid #d8c8aa; border-radius: .55rem; }
+.living-work-list article > div { display: flex; justify-content: space-between; gap: 1rem; }
+.living-work-list progress { width: 100%; height: .35rem; accent-color: #687c50; }
+.living-work-list small { display: block; margin-top: .45rem; color: #635a49; }
+.living-person { border-top: 1px solid #d8c8aa; margin-top: 1rem; padding-top: .5rem; }
+.living-facts { padding-left: 1.2rem; }
+.living-facts li { margin-bottom: .5rem; }
+.living-weather { color: #594b36; font-weight: 600; }
+.world-title .living-weather { color: #f7e0ad; opacity: 1; }
+.observer-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.observer-drawer-body[data-tab="living"] > * { display: block; }
+@media (max-width: 600px) { .observer-tabs { grid-template-columns: repeat(6, minmax(78px, 1fr)); } }

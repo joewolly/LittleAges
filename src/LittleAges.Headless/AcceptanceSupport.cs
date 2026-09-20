@@ -46,7 +46,12 @@ internal static class HeadlessSnapshotComparer
         ["world"] = snapshot.World,
         ["scheduledEvents"] = snapshot.ScheduledEvents.OrderBy(item => item.Order.DueWorldMinute).ThenBy(item => item.Order.Priority).ThenBy(item => item.Order.EntitySortKey).ThenBy(item => item.Order.Sequence).ToArray(),
         ["resourceStates"] = snapshot.ResourceStates.OrderBy(item => item.ResourceNodeId.Value).ToArray(),
-        ["citizens"] = snapshot.Citizens.OrderBy(item => item.Id.Value).ToArray(),
+        ["citizens"] = snapshot.Citizens.OrderBy(item => item.Id.Value).Select(item =>
+        {
+            var node = JsonSerializer.SerializeToNode(item, JsonOptions)!;
+            node["CurrentAction"] = CitizenActionCodec.ToCanonicalValue(item.CurrentAction);
+            return node;
+        }).ToArray(),
         ["settlement"] = snapshot.Settlement,
         ["structures"] = snapshot.Structures.OrderBy(item => item.Id.Value).ToArray(),
         ["structureContributions"] = snapshot.StructureContributions.OrderBy(item => item.StructureId.Value).ThenBy(item => item.CitizenId.Value).ToArray(),
@@ -61,6 +66,7 @@ internal static class HeadlessSnapshotComparer
         };
         if (snapshot.Economy is not null) components.Add("economy", snapshot.Economy);
         if (snapshot.Agriculture is not null) components.Add("agriculture", snapshot.Agriculture);
+        if (snapshot.LivingStateJson is not null) components["livingState"] = snapshot.LivingStateJson;
         return components;
     }
 
@@ -147,6 +153,7 @@ internal static class HeadlessInvariantValidator
     {
         var citizenIds = snapshot.Citizens.Select(item => item.Id.Value).ToHashSet();
         var knownNames = new HashSet<string>(StringComparer.Ordinal) { CitizenEventNames.Decision, CitizenEventNames.MoveStep, CitizenEventNames.ActionComplete, CitizenEventNames.SurvivalCheck, CitizenEventNames.ResourceRegenerate, CitizenEventNames.SettlementEvaluateDemand, CitizenEventNames.FamilyCheck, CitizenEventNames.LifecycleCheck, CitizenEventNames.StatisticsSample };
+        if (snapshot.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion) knownNames.Add(SimulationEngine.LivingPulseEvent);
         foreach (var item in snapshot.ScheduledEvents)
         {
             item.Validate();

@@ -9,6 +9,7 @@ namespace LittleAges.Domain;
 /// <summary>A zero-based immutable map coordinate. Ordering is row-major (Y, then X).</summary>
 public readonly record struct TileCoordinate : IComparable<TileCoordinate>
 {
+    [System.Text.Json.Serialization.JsonConstructor]
     public TileCoordinate(int x, int y)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(x);

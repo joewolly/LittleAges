@@ -67,6 +67,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.SurvivalVersion).HasColumnName("survival_version").IsRequired();
             entity.Property(row => row.SettlementVersion).HasColumnName("settlement_version").IsRequired();
             entity.Property(row => row.SocialVersion).HasColumnName("social_version").IsRequired();
+            entity.Property(row => row.LivingStateJson).HasColumnName("living_state_json").HasColumnType("TEXT");
             entity.Property(row => row.HistoryVersion).HasColumnName("history_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();

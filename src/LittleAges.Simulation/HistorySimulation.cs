@@ -128,6 +128,7 @@ public sealed partial class SimulationEngine
         }
         static string I<T>(T value) where T : IFormattable => value.ToString(null, CultureInfo.InvariantCulture);
         Add(hash, "social=" + ComputeSocialFingerprint());
+        if (LivingStateJson is { } livingJson) Add(hash, "living=" + livingJson);
         Add(hash, "history-version=" + I(HistoryVersion));
         Add(hash, "history-start-minute=" + I(_historyState.HistoryStartMinute));
         Add(hash, "history-start-event=" + I(_historyState.HistoryStartEventId));

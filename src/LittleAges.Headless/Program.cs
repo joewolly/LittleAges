@@ -220,6 +220,7 @@ public sealed record HeadlessReport
     public string SettlementFingerprint { get; init; } = string.Empty;
     public string SocialFingerprint { get; init; } = string.Empty;
     public string HistoryFingerprint { get; init; } = string.Empty;
+    public JsonElement? Living { get; init; }
     public IReadOnlyList<HeadlessEvidence> Evidence { get; init; } = Array.Empty<HeadlessEvidence>();
     public HeadlessAcceptanceResult? Acceptance { get; init; }
     public IReadOnlyList<HeadlessInvariantResult> Invariants { get; init; } = Array.Empty<HeadlessInvariantResult>();
@@ -249,15 +250,21 @@ public static class HeadlessRunner
         var targetMinute = checked((long)options.Years * WorldCalendar.MinutesPerYear);
         if (checkpointMinute <= 0 || checkpointMinute >= targetMinute) throw new ArgumentException("The checkpoint must be strictly between minute zero and the target horizon.", nameof(options));
         var databasePath = ResolveDatabasePath(options);
-        var runA = RunEngine(options.Seed, options.Rules, targetMinute, options.ChunkMinutes);
+        // Separate worlds retain one writer each. Running the reference alongside
+        // the reload case makes century acceptance practical without sharing state.
+        var living = options.Rules == SimulationEngine.LivingSimulationRulesVersion;
+        var runATask = living ? Task.Run(() => RunEngine(options.Seed, options.Rules, targetMinute, options.ChunkMinutes, "uninterrupted"), cancellationToken) : null;
+        var runA = living ? null : RunEngine(options.Seed, options.Rules, targetMinute, options.ChunkMinutes);
+        var reloadChunkMinutes = living ? Math.Max(1, options.ChunkMinutes / 7 + 1) : options.ChunkMinutes;
         var runBStopwatch = Stopwatch.StartNew();
         var runBEngine = new SimulationEngine(new WorldSeed(options.Seed), simulationRulesVersion: options.Rules);
-        AdvanceToTarget(runBEngine, checkpointMinute, options.ChunkMinutes);
+        AdvanceToTarget(runBEngine, checkpointMinute, reloadChunkMinutes, "reloaded");
         var reloadedSnapshot = await PersistAndReloadAsync(databasePath, runBEngine.CreatePersistenceSnapshot(), cancellationToken);
         runBEngine = SimulationEngine.FromPersistenceSnapshot(reloadedSnapshot);
-        AdvanceToTarget(runBEngine, targetMinute, options.ChunkMinutes);
+        AdvanceToTarget(runBEngine, targetMinute, reloadChunkMinutes, "reloaded");
         runBStopwatch.Stop();
         var runB = new HeadlessEngineRun(runBEngine, runBStopwatch.Elapsed.TotalMilliseconds, ComputeExactPeak(runBEngine));
+        runA ??= await runATask!;
         var reportA = BuildReport(options, runA, targetMinute);
         var reportB = BuildReport(options, runB, targetMinute);
         var comparison = HeadlessSnapshotComparer.Compare(runA.Engine.CreatePersistenceSnapshot(), runB.Engine.CreatePersistenceSnapshot());
@@ -306,24 +313,41 @@ public static class HeadlessRunner
         if (options.ChunkMinutes <= 0) throw new ArgumentOutOfRangeException(nameof(options), "Chunk minutes must be positive.");
     }
 
-    private static HeadlessEngineRun RunEngine(ulong seed, string rules, long targetMinute, long chunkMinutes)
+    private static HeadlessEngineRun RunEngine(ulong seed, string rules, long targetMinute, long chunkMinutes, string runName = "single")
     {
         var engine = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: rules);
         var stopwatch = Stopwatch.StartNew();
-        AdvanceToTarget(engine, targetMinute, chunkMinutes);
+        AdvanceToTarget(engine, targetMinute, chunkMinutes, runName);
         stopwatch.Stop();
         return new HeadlessEngineRun(engine, stopwatch.Elapsed.TotalMilliseconds, ComputeExactPeak(engine));
     }
 
-    private static void AdvanceToTarget(SimulationEngine engine, long targetMinute, long chunkMinutes)
+    private static void AdvanceToTarget(SimulationEngine engine, long targetMinute, long chunkMinutes, string runName = "single")
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(targetMinute, engine.CurrentMinute.Value);
         while (engine.CurrentMinute.Value < targetMinute)
         {
             var nextMinute = checked(engine.CurrentMinute.Value + Math.Min(targetMinute - engine.CurrentMinute.Value, chunkMinutes));
             var previousYear = engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear;
+            if (engine.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion)
+                nextMinute = Math.Min(nextMinute, (engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear + 1) * WorldCalendar.MinutesPerYear);
             engine.AdvanceUntil(new WorldMinute(nextMinute));
-            if (engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear != previousYear) Console.Error.WriteLine($"seed={engine.Seed.Value} rules={engine.SimulationRulesVersion} year={engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear} living={engine.LivingPopulation}");
+            if (engine.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion && nextMinute % WorldCalendar.MinutesPerYear == 0)
+            {
+                var snapshot = engine.CreatePersistenceSnapshot();
+                var living = LivingWorldCodec.Deserialize(snapshot.LivingStateJson!);
+                Console.Error.WriteLine(JsonSerializer.Serialize(new
+                {
+                    seed = engine.Seed.Value, run = runName, year = nextMinute / WorldCalendar.MinutesPerYear, population = engine.LivingPopulation,
+                    engine.Settlement.FoodStored, engine.Settlement.WoodStored, engine.StorageCapacity,
+                    living.CompletedOrders, living.FoodHarvested, living.FoodPrepared, living.CareGiven,
+                    living.Stock, livingBytes = Encoding.UTF8.GetByteCount(snapshot.LivingStateJson!),
+                    managedBytes = GC.GetTotalMemory(false), workingSetBytes = Environment.WorkingSet,
+                    deaths = snapshot.Citizens.Where(x => !x.IsAlive).GroupBy(x => x.DeathCause).ToDictionary(x => x.Key!, x => x.Count()),
+                    oldestPendingDays = living.Orders.Count == 0 ? 0 : (nextMinute - living.Orders.Min(x => x.CreatedMinute)) / WorldCalendar.MinutesPerDay
+                }));
+            }
+            if (engine.SimulationRulesVersion != SimulationEngine.LivingSimulationRulesVersion && engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear != previousYear) Console.Error.WriteLine($"seed={engine.Seed.Value} rules={engine.SimulationRulesVersion} year={engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear} living={engine.LivingPopulation}");
         }
     }
 
@@ -391,6 +415,7 @@ public static class HeadlessRunner
             SettlementFingerprint = engine.SettlementFingerprint,
             SocialFingerprint = engine.SocialFingerprint,
             HistoryFingerprint = engine.HistoryFingerprint,
+            Living = engine.CreateLivingObservation(),
             Evidence = HeadlessFactEvidence.Build(snapshot),
             Invariants = invariants
         };
@@ -548,9 +573,15 @@ public static class HeadlessReportSerialization
                 report.Acceptance.Mismatches
             }
         };
+        if (report.Living is null)
+        {
         if (report.Economy is not null) return JsonSerializer.Serialize(new { Summary = projection, report.Agriculture, report.Economy }, JsonOptions);
         return report.Agriculture is null ? JsonSerializer.Serialize(projection, JsonOptions)
             : JsonSerializer.Serialize(new { Summary = projection, report.Agriculture }, JsonOptions);
+        }
+        var extended = JsonSerializer.SerializeToNode(projection, JsonOptions)!.AsObject();
+        extended["living"] = JsonSerializer.SerializeToNode(report.Living.Value);
+        return extended.ToJsonString(JsonOptions);
     }
 
     public static void WriteArtifacts(HeadlessReport report, HeadlessOptions options)

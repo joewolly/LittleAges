@@ -85,6 +85,18 @@ precedence. A fresh installation defaults to loopback. Upgrades preserve the
 existing LAN mode when `-EnableLan` is omitted; use `-EnableLan:$false` to
 explicitly return to loopback.
 
+Growing Settlement and Living Settlement saves retain their own rules during
+upgrade. The combined host supports `m11-rng1-barter1` and `v02-rng1-living1`;
+installing it does not convert one civilization into the other. New worlds keep
+the configured `NewWorldRules`, with M11 as the application default.
+
+Both branches originally persisted citizen action 13 with different meanings.
+The checkpoint reader interprets it using the saved rules, while checkpoint
+writes and fingerprints retain the original numeric value. M10/M11 migrations
+copy columns by name so they also accept the reordered citizen table produced
+by the original Living Settlement installation. The Living migration adds its
+state column without narrowing an existing Growing Settlement action constraint.
+
 The registered service executable must belong to the selected
 `InstallDirectory`. A mismatched or unreadable registration rejects installation
 and removal before service changes. Service updates use the structured Windows

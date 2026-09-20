@@ -387,11 +387,12 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null, System.Text.Json.JsonElement? living = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentOutOfRangeException.ThrowIfNegative(revision);
         Revision = revision;
+        Living = living?.Clone();
         Status = status;
         Citizens = Array.AsReadOnly((citizens ?? Array.Empty<ServerCitizenSnapshot>()).OrderBy(static citizen => long.Parse(citizen.CitizenId, CultureInfo.InvariantCulture)).ToArray());
         Settlement = settlement;
@@ -425,6 +426,7 @@ public sealed record ServerObservationSnapshot
     public GrowthObservation? Growth { get; }
     public AgricultureObservation? Agriculture { get; }
     public EconomyObservation? Economy { get; }
+    public System.Text.Json.JsonElement? Living { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -1007,7 +1009,7 @@ public sealed partial class SimulationHost : BackgroundService
             Paused: Volatile.Read(ref _paused) != 0,
             OperationalSpeed: Volatile.Read(ref _operationalSpeed));
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()));
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation());
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)

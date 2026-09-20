@@ -1,3 +1,6 @@
+import type { LivingOrder, LivingWorld } from '../living'
+import { livingLabel, livingWorkStage } from '../living'
+import { LivingScene } from './LivingScene'
 import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AdaptiveDpr, Clone, MapControls, OrthographicCamera, PerformanceMonitor, useAnimations, useGLTF } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
@@ -236,12 +239,17 @@ function ResourceTypeInstances({ type, map, resources, quantities, worldSeed, de
     <instancedMesh ref={distant} args={[coarse, undefined, resources.length]}><meshStandardMaterial vertexColors roughness={1} /></instancedMesh></>
 }
 
-function StructureModel({ map, structure, detailTier }: { map: Map; structure: Structure; detailTier: DetailTier }) {
+function StructureModel({ map, structure, detailTier, fitTile = false }: { map: Map; structure: Structure; detailTier: DetailTier; fitTile?: boolean }) {
   const point = worldToScene(map, structure.location.x, structure.location.y, 0.05)
   const incomplete = structure.status === 'UnderConstruction'
   const asset = useGLTF(`/assets/diorama/${structure.type.toLowerCase()}.glb`)
   useSharedAssetResources(asset.scene)
-  return <group position={[point.x, point.y, point.z]} scale={0.9}>
+  const scale = useMemo(() => {
+    if (!fitTile) return 0.9
+    const size = new THREE.Box3().setFromObject(asset.scene).getSize(new THREE.Vector3())
+    return Math.min(0.9, 0.94 / Math.max(size.x, size.z, 0.01))
+  }, [asset.scene, fitTile])
+  return <group position={[point.x, point.y, point.z]} scale={scale}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]} receiveShadow><circleGeometry args={[1.05, 18]} /><meshBasicMaterial color="#34251b" transparent opacity={detailTier === 'full' ? 0.2 : 0.12} depthWrite={false} /></mesh>
     <Clone object={asset.scene} deep="materialsOnly" castShadow receiveShadow />
     {incomplete && <group>
@@ -251,7 +259,7 @@ function StructureModel({ map, structure, detailTier }: { map: Map; structure: S
   </group>
 }
 
-function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, operationalSpeed, paused, reducedMotion, selected, onSelect }: { structures: Structure[]; presentationClock: PresentationClock; citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
+function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, presentationClock, worldSeed, operationalSpeed, paused, reducedMotion, selected, onSelect }: { livingOrder?: LivingOrder; fitTile?: boolean; structures: Structure[]; presentationClock: PresentationClock; citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
   const group = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const target = useRef(new THREE.Vector3())
@@ -259,6 +267,7 @@ function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, 
   const initialized = useRef(false)
   const indoorHome = useRef<Structure | null>(null)
   const home = restingHome(citizen, structures)
+  const carried = citizen.carriedResource ?? (livingOrder?.cargoInTransit ? livingOrder.cargo[0]?.good : livingOrder?.phase === 'Travel' && !livingOrder.suppliesDelivered ? livingOrder.ingredients[0]?.resource : null)
   const displayPlan = useMemo(() => doorwayPlan(citizen, structures), [citizen, structures])
   const asset = useGLTF('/assets/diorama/villager.glb')
   useSharedAssetResources(asset.scene)
@@ -288,7 +297,7 @@ function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, 
     if (object instanceof THREE.SkinnedMesh) object.skeleton.dispose()
   }), [painted])
   const stageScale = citizen.lifeStage === 'YoungChild' || citizen.lifeStage === 'Young Child' ? 0.58 : citizen.lifeStage === 'Child' ? 0.7 : citizen.lifeStage === 'Adolescent' ? 0.86 : citizen.lifeStage === 'Elder' ? 0.94 : 1
-  const animationClip = citizenAnimation(citizen)
+  const animationClip = citizenAnimation(citizen, livingOrder)
   useLayoutEffect(() => {
     const current = group.current
     if (!current) return
@@ -349,12 +358,12 @@ function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, 
     const moving = routeMotion && visualMinute < (plan?.waypoints.at(-1)?.arriveMinute ?? 0)
     if (body.current) body.current.position.y = animationClip === 'Rest' ? -0.12 : moving ? Math.abs(Math.sin(clock.elapsedTime * 8 + Number(citizen.citizenId) % 7)) * 0.06 : Math.sin(clock.elapsedTime * 1.7 + Number(citizen.citizenId) % 11) * 0.015
   })
-  return <group ref={group} scale={stageScale} onClick={event => { event.stopPropagation(); onSelect() }}>
+  return <group ref={group} scale={stageScale * (fitTile ? 0.55 : 1)} onClick={event => { event.stopPropagation(); onSelect() }}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}><circleGeometry args={[0.3, 16]} /><meshBasicMaterial color="#2c2018" transparent opacity={0.2} depthWrite={false} /></mesh>
     {selected && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}><ringGeometry args={[0.36, 0.48, 24]} /><meshBasicMaterial color="#f3d287" side={THREE.DoubleSide} /></mesh>}
     <group ref={body}>
       <primitive object={painted} />
-      {citizen.carriedResource !== null && <mesh position={[0, 0.6, 0.24]}><boxGeometry args={[0.32, 0.24, 0.22]} /><meshStandardMaterial color={citizen.carriedResource === 'Food' ? '#a9554a' : citizen.carriedResource === 'Wood' ? '#765137' : '#817971'} /></mesh>}
+      {carried != null && <mesh position={[0, 0.6, 0.24]}><boxGeometry args={[0.32, 0.24, 0.22]} /><meshStandardMaterial color={['Food', 'Meal', 'Grain', 'PreservedFood'].includes(carried) ? '#a9554a' : ['Wood', 'Fuel'].includes(carried) ? '#765137' : '#817971'} /></mesh>}
       {(citizen.currentAction === 'Build' || citizen.currentAction === 'HaulConstruction' || citizen.currentAction === 'WorkFarm' || citizen.currentAction === 'HaulHarvest') && <mesh position={[0.3, 0.58, 0]} rotation={[0, 0, -0.65]}><boxGeometry args={[0.38, 0.05, 0.06]} /><meshStandardMaterial color="#6e5038" /></mesh>}
     </group>
   </group>
@@ -484,18 +493,19 @@ function useSharedAssetResources(scene: THREE.Object3D) {
   useLayoutEffect(() => trackAssetResources(gl, scene), [gl, scene])
 }
 
-function DioramaScene({ map, citizens, structures, worldMinute, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
+function DioramaScene({ map, living, citizens, structures, worldMinute, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; living?: LivingWorld | null; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
   const [presentationClock] = useState(() => new PresentationClock())
   const observedMinute = worldMinute ?? Math.max(0, ...citizens.map(c => c.movementPlan?.observedMinute ?? 0))
   useLayoutEffect(() => { presentationClock.observe(observedMinute, operationalSpeed, paused, performance.now()) }, [presentationClock, observedMinute, operationalSpeed, paused])
   const focus = useMemo(() => cameraFocus(map, structures), [map, structures])
+  const livingOrders = useMemo(() => new Map(living?.orders.filter(order => order.citizenId !== null).map(order => [order.citizenId, order])), [living])
   const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && citizen.isAlive)
   const followedPlan = followed ? doorwayPlan(followed, structures) : null
   const follow = followed ? () => followedPlan && !reducedMotion && (operationalSpeed ?? 0) <= 10
     ? scenePointAlongMovementPlan(map, followedPlan, presentationClock.at(performance.now()))
     : worldToScene(map, followed.location.x, followed.location.y) : null
   return <>
-    <color attach="background" args={['#c9b792']} />
+    <color attach="background" args={[living?.weather === 'ColdSpell' ? '#bdcbd1' : living?.weather === 'Rain' ? '#aeb7b0' : '#c9b792']} />
     <fog attach="fog" args={['#c9b792', 70, 210]} />
     <ambientLight intensity={0.5} color="#fff7e5" />
     <SettlementSun enabled={detailTier === 'full'} />
@@ -505,11 +515,12 @@ function DioramaScene({ map, citizens, structures, worldMinute, settlement, worl
       <Terrain map={map} worldSeed={worldSeed} />
       <Water map={map} />
       <GroundContacts map={map} structures={structures} settlement={settlement} />
+      <LivingScene map={map} world={living ?? null} />
       <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
       <Suspense fallback={null}>
         <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
-        {structures.map(structure => structure.type === 'Marketplace' ? <MarketplaceModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
-        {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} structures={structures} presentationClock={presentationClock} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
+        {structures.map(structure => structure.type === 'Marketplace' ? <MarketplaceModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} fitTile={!!living} />)}
+        {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} livingOrder={livingOrders.get(citizen.citizenId)} fitTile={!!living} map={map} structures={structures} presentationClock={presentationClock} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
         {diagnosticsEnabled && <SceneStats onStats={onStats} />}
       </Suspense>
     </group>
@@ -520,6 +531,7 @@ function DioramaScene({ map, citizens, structures, worldMinute, settlement, worl
 }
 
 export type WorldViewportProps = {
+  living?: LivingWorld | null
   map: Map
   citizens: Citizen[]
   structures: Structure[]
@@ -538,6 +550,7 @@ export type WorldViewportProps = {
 
 export function WorldViewport(props: WorldViewportProps) {
   const [fallback, setFallback] = useState(() => !supportsWebGL())
+  const [wholeMap, setWholeMap] = useState(false)
   const [rotation, setRotation] = useState(0)
   const [resetToken, setResetToken] = useState(0)
   const [followCitizenId, setFollowCitizenId] = useState<string | null>(null)
@@ -547,6 +560,7 @@ export function WorldViewport(props: WorldViewportProps) {
   const [nudge, setNudge] = useState<CameraNudge>({ x: 0, z: 0, zoom: 0, sequence: 0 })
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   const selected = props.citizens.find(citizen => citizen.citizenId === props.selectedCitizenId) ?? null
+  const selectedWork = props.living?.orders.find(order => order.citizenId === selected?.citizenId)
   const effectiveFollowCitizenId = followCitizenId !== null && props.citizens.some(citizen => citizen.citizenId === followCitizenId && citizen.isAlive) ? followCitizenId : null
   const issueNudge = (x: number, z: number, zoom = 0) => setNudge(previous => ({ x, z, zoom, sequence: previous.sequence + 1 }))
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -562,23 +576,24 @@ export function WorldViewport(props: WorldViewportProps) {
   }
 
   return <section className="world-viewport" aria-labelledby="world-heading" tabIndex={0} onKeyDown={onKeyDown}>
-    <div className="world-title"><span>Living diorama</span><h2 id="world-heading">The settlement grounds</h2><p>Drag to pan · scroll to zoom · select a villager to follow their day</p></div>
+    <div className="world-title"><span>Living diorama</span><h2 id="world-heading">The settlement grounds</h2>{props.living && <p className="living-weather">{props.living.age} · {livingLabel(props.living.weather)} · {props.living.temperature}°C</p>}<p>{fallback && props.living ? 'Gold fields are ready to harvest · outlined sites have active work' : 'Drag to pan · scroll to zoom · select a villager to follow their day'}</p></div>
     <div className="world-toolbar" aria-label="World camera controls">
       <button type="button" onClick={() => setRotation(value => (value + 3) % 4)} aria-label="Rotate world left">↶</button>
       <button type="button" onClick={() => setRotation(value => (value + 1) % 4)} aria-label="Rotate world right">↷</button>
       <button type="button" onClick={() => { setResetToken(value => value + 1); setFollowCitizenId(null) }}>Reset view</button>
       <button type="button" disabled={selected === null || !selected.isAlive} onClick={() => setFollowCitizenId(current => current === selected?.citizenId ? null : selected?.citizenId ?? null)}>{effectiveFollowCitizenId === selected?.citizenId ? 'Unfollow' : 'Follow selected'}</button>
       <button type="button" onClick={() => setFallback(value => !value)}>{fallback ? 'Try 3D' : '2D fallback'}</button>
+      {fallback && props.living && <button type="button" onClick={() => setWholeMap(value => !value)}>{wholeMap ? 'Settlement view' : 'Whole map'}</button>}
     </div>
     <div className="world-stage">
-      {fallback ? <LegacyMap map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
+      {fallback ? <LegacyMap living={props.living} focusSettlement={!!props.living && !wholeMap} map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
         <Canvas dpr={[1, 1.5]} shadows frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05 }}>
           <ContextLossGuard onLoss={() => setFallback(true)} />
           <DioramaScene {...props} controlsEnabled={props.controlsEnabled !== false} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={effectiveDetailTier} onDetailTier={setDetailTier} onStats={setStats} />
         </Canvas>
       </SceneBoundary>}
     </div>
-    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{restingHome(selected, props.structures) ? 'Resting indoors' : `${selected.currentAction} · ${selected.actionPhase}`}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
+    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
     {diagnosticsEnabled && !fallback && <output className="world-perf" aria-label="3D performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · ready {(stats.readyMs / 1000).toFixed(2)} s · {stats.calls} calls · {stats.triangles.toLocaleString()} tris · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {(DIORAMA_ASSET_BYTES / 1024).toFixed(1)} KB assets · {effectiveDetailTier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom, R rotates. All citizen details remain available in Observer records.</span>
   </section>

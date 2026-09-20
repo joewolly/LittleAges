@@ -27,7 +27,7 @@ public sealed partial class SimulationEngine
     private int AvailableStorage(ResourceType type)
     {
         var owned = EconomyEnabled ? OwnedStoredGoods : new Goods();
-        var totalFree = checked((int)Math.Max(0, StorageCapacity - Settlement.StorageUsed - owned.Total - (EconomyEnabled ? TradeCargoReserved : 0)));
+        var totalFree = checked((int)Math.Max(0, StorageCapacity - Settlement.StorageUsed - LivingStoredQuantity - owned.Total - (EconomyEnabled ? TradeCargoReserved : 0)));
         return type == ResourceType.Food ? totalFree : Math.Min(totalFree,
             Math.Max(0, checked((int)(StorageCapacity - GranaryCapacity - Settlement.WoodStored - Settlement.StoneStored - owned.Wood - owned.Stone - (EconomyEnabled ? TradeNonFoodReserved : 0)))));
     }

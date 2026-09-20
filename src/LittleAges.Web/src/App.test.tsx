@@ -113,7 +113,7 @@ function responseFor(path: string, worldMinute: number, name = citizen.name) {
   return new Response(JSON.stringify([{ ...citizen, name }]))
 }
 
-function renderAppWithRecords(tab: 'Overview' | 'Citizens' | 'Buildings' | 'History' | 'Statistics' = 'Citizens') {
+function renderAppWithRecords(tab: 'Overview' | 'Citizens' | 'Buildings' | 'Living' | 'History' | 'Statistics' = 'Citizens') {
   const result = render(<App />)
   fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
   if (tab !== 'Overview') fireEvent.click(screen.getByRole('tab', { name: tab }))
@@ -201,6 +201,21 @@ describe('citizen observer', () => {
     expect(screen.getByText('Preparing the living diorama…')).toBeInTheDocument()
   })
 
+  it('renders living records and refreshes them from REST after reconnect', async () => {
+    liveMock.state.startMode = 'resolve'
+    let harvested = 120
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input) === '/api/v1/living'
+      ? new Response(JSON.stringify({ version: 1, rulesVersion: 'v02-rng1-living1', worldMinute: 1440, age: 'Agrarian', capabilities: ['work', 'knowledge'], weather: 'ColdSpell', temperature: -12, rainfall: 25, completedOrders: 4, foodHarvested: harvested, foodPrepared: 30, careGiven: 1, goodsSpoiled: 0, totalFacts: 0, stock: [{ good: 'Grain', quantity: 40 }], people: [], orders: [], fields: [], facilities: [], animals: [], facts: [] }))
+      : responseFor(String(input), 1440))
+    renderAppWithRecords('Living')
+    expect(await screen.findByRole('heading', { name: 'A world at work' })).toBeInTheDocument()
+    expect(screen.getByText(/Agrarian life/)).toHaveTextContent('Cold Spell')
+    expect(screen.getByText('120')).toBeInTheDocument()
+    harvested = 240
+    await act(async () => { liveMock.state.emitReconnecting(); liveMock.state.emitReconnected() })
+    expect(await screen.findByText('240')).toBeInTheDocument()
+  })
+
   it('renders the citizen list after successful polling', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const path = String(input)
@@ -278,20 +293,20 @@ describe('citizen observer', () => {
     })
 
     renderAppWithRecords()
-    expect(requests).toHaveLength(7)
+    expect(requests).toHaveLength(8)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-    expect(requests).toHaveLength(7)
+    expect(requests).toHaveLength(8)
 
     await act(async () => {
       requests.forEach((request, index) => request.resolve(responseFor(paths[index], 1)))
       await Promise.all(requests.map(request => request.promise))
     })
     await act(async () => { await vi.advanceTimersByTimeAsync(1999) })
-    expect(requests).toHaveLength(7)
+    expect(requests).toHaveLength(8)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     await act(async () => { await Promise.resolve() })
-    expect(requests.length).toBeGreaterThan(7)
+    expect(requests.length).toBeGreaterThan(8)
     expect(paths).toContain('/api/v1/settlement')
     expect(paths.filter(path => path.endsWith('/map'))).toHaveLength(1)
   })
@@ -329,7 +344,7 @@ describe('citizen observer', () => {
     })
 
     const { unmount } = render(<App />)
-    expect(requests).toHaveLength(7)
+    expect(requests).toHaveLength(8)
     unmount()
 
     await act(async () => {
@@ -337,7 +352,7 @@ describe('citizen observer', () => {
       await Promise.all(requests.map(request => request.promise))
       await vi.advanceTimersByTimeAsync(10000)
     })
-    expect(requests).toHaveLength(7)
+    expect(requests).toHaveLength(8)
   })
 
   it('shows settlement survival metrics and citizen survival details', async () => {
@@ -539,7 +554,7 @@ describe('citizen observer', () => {
     await waitFor(() => expect(screen.getByText('Live updates: reconnecting…')).toBeInTheDocument())
     liveMock.state.emitReconnected()
     await waitFor(() => expect(screen.getByText('Live updates: connected')).toBeInTheDocument())
-    expect(statusCalls).toBe(1)
+    expect(statusCalls).toBe(2)
     expect(screen.getByText('Live updates: connected')).toBeInTheDocument()
   })
 

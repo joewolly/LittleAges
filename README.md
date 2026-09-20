@@ -12,6 +12,12 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
+The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
+adds coordinated work, farming and production, personal lives, weather and
+wildlife, and knowledge passed between generations. Existing saves retain
+their original rules. See its [acceptance status](docs/living-settlement-acceptance.md)
+before selecting the new rules for development.
+
 Little Ages creates a deterministic world and lets its citizens live inside it.
 They gather resources, survive changing pressures, form relationships, build a
 settlement, create families, age, die, and leave behind factual history that
