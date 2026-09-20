@@ -42,7 +42,7 @@ public sealed class CheckpointSafetyTests
         Directory.CreateDirectory(directory);
         try
         {
-            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion);
+            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion);
             await using var database = await WorldDatabase.OpenAsync(Path.Combine(directory, "world.db"));
             var store = database.CreateCheckpointStore();
             await store.CheckpointAsync(engine.CreatePersistenceSnapshot());

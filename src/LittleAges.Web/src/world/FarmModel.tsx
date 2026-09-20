@@ -30,3 +30,14 @@ export function GranaryModel({ map, structure }: { map: Map; structure: Structur
     {[-.52, .52].map(x => <mesh key={x} position={[x, .58, .86]} castShadow><cylinderGeometry args={[.17, .21, .5, 8]} /><meshStandardMaterial color="#e2c58c" /></mesh>)}
   </group>
 }
+
+export function MarketplaceModel({ map, structure }: { map: Map; structure: Structure }) {
+  const point = worldToScene(map, structure.location.x, structure.location.y, .04)
+  return <group position={[point.x, point.y, point.z]}>
+    <mesh receiveShadow><boxGeometry args={[1.9, .12, 1.9]} /><meshStandardMaterial color="#ba9d72" /></mesh>
+    {[-.75, .75].flatMap(x => [-.65, .65].map(z => <mesh key={`${x}:${z}`} position={[x, .65, z]} castShadow><boxGeometry args={[.12, 1.3, .12]} /><meshStandardMaterial color="#785638" /></mesh>))}
+    <mesh position={[0, .5, .4]} castShadow><boxGeometry args={[1.7, .15, .65]} /><meshStandardMaterial color="#bc894a" /></mesh>
+    {structure.status === 'Complete' && [-.6, -.2, .2, .6].map((x, i) => <mesh key={x} position={[x, 1.38, 0]} rotation={[-.08, 0, 0]} castShadow><boxGeometry args={[.4, .12, 1.65]} /><meshStandardMaterial color={i % 2 ? '#f0d59a' : '#b85569'} /></mesh>)}
+    {[-.55, 0, .55].map((x, i) => <mesh key={x} position={[x, .7, .4]} castShadow><boxGeometry args={[.38, .25, .38]} /><meshStandardMaterial color={['#cba64a', '#845333', '#92918a'][i]} /></mesh>)}
+  </group>
+}

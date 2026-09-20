@@ -17,6 +17,13 @@ namespace LittleAges.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.12");
 
+            modelBuilder.Entity("LittleAges.Persistence.EconomyStateRow", b =>
+            {
+                b.Property<int>("Id").HasColumnType("INTEGER").HasColumnName("id");
+                b.Property<string>("CanonicalJson").IsRequired().HasColumnType("TEXT").HasColumnName("canonical_json");
+                b.HasKey("Id");
+                b.ToTable("economy_state", t => t.HasCheckConstraint("CK_economy_state_singleton", "id = 1"));
+            });
             modelBuilder.Entity("LittleAges.Persistence.AgricultureStateRow", b =>
             {
                 b.Property<int>("Id").HasColumnType("INTEGER").HasColumnName("id");
@@ -281,7 +288,7 @@ namespace LittleAges.Persistence.Migrations
 
                     b.ToTable("citizens", null, t =>
                         {
-                            t.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12,13,14)");
+                            t.HasCheckConstraint("CK_citizens_action", "current_action IN (0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)");
 
                             t.HasCheckConstraint("CK_citizens_founder", "founder_ordinal IS NULL OR founder_ordinal BETWEEN 0 AND 19");
 
@@ -836,9 +843,9 @@ namespace LittleAges.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_structures_status", "status IN (1,2)");
 
-                            t.HasCheckConstraint("CK_structures_type", "type IN (1,2,3,4,5)");
+                            t.HasCheckConstraint("CK_structures_type", "type IN (1,2,3,4,5,6)");
 
-                            t.HasCheckConstraint("CK_structures_values", "construction_started_minute >= 0 AND ((type = 1 AND required_wood = 40 AND required_stone = 10 AND required_work = 600) OR (type = 2 AND required_wood = 60 AND required_stone = 30 AND required_work = 900) OR (type = 3 AND required_wood = 80 AND required_stone = 50 AND required_work = 1200) OR (type = 4 AND required_wood = 60 AND required_stone = 10 AND required_work = 900) OR (type = 5 AND required_wood = 100 AND required_stone = 60 AND required_work = 1500)) AND delivered_wood BETWEEN 0 AND required_wood AND delivered_stone BETWEEN 0 AND required_stone AND completed_work BETWEEN 0 AND required_work AND ((status = 1 AND completed_minute IS NULL AND condition = 0) OR (status = 2 AND completed_minute IS NOT NULL AND delivered_wood = required_wood AND delivered_stone = required_stone AND completed_work = required_work AND condition = 10000))");
+                            t.HasCheckConstraint("CK_structures_values", "construction_started_minute >= 0 AND ((type = 1 AND required_wood = 40 AND required_stone = 10 AND required_work = 600) OR (type = 2 AND required_wood = 60 AND required_stone = 30 AND required_work = 900) OR (type = 3 AND required_wood = 80 AND required_stone = 50 AND required_work = 1200) OR (type = 4 AND required_wood = 60 AND required_stone = 10 AND required_work = 900) OR (type = 5 AND required_wood = 100 AND required_stone = 60 AND required_work = 1500) OR (type = 6 AND required_wood = 80 AND required_stone = 30 AND required_work = 1000)) AND delivered_wood BETWEEN 0 AND required_wood AND delivered_stone BETWEEN 0 AND required_stone AND completed_work BETWEEN 0 AND required_work AND ((status = 1 AND completed_minute IS NULL AND condition = 0) OR (status = 2 AND completed_minute IS NOT NULL AND delivered_wood = required_wood AND delivered_stone = required_stone AND completed_work = required_work AND condition = 10000))");
                         });
                 });
 

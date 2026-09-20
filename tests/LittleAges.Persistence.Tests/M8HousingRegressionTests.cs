@@ -16,7 +16,7 @@ public sealed class M8HousingRegressionTests
         {
             // Production failure: seed 20260918, 160x160, first failed checkpoint 177600.
             var configuration = WorldGenerationConfiguration.Default with { Width = 160, Height = 160 };
-            var engine = new SimulationEngine(new WorldSeed(20260918), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, worldConfiguration: configuration.CanonicalJson);
+            var engine = new SimulationEngine(new WorldSeed(20260918), simulationRulesVersion: SimulationEngine.M8SimulationRulesVersion, worldConfiguration: configuration.CanonicalJson);
             engine.AdvanceUntil(new WorldMinute(177240));
             engine.AdvanceUntil(new WorldMinute(177600));
             var snapshot = engine.CreatePersistenceSnapshot();

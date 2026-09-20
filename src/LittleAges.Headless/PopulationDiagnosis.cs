@@ -42,7 +42,7 @@ public static class PopulationDiagnosis
         return new(engine.CurrentMinute.Value, living.Length, citizens.Count(c => c.ParentAId is not null),
             living.Count(c => c.AgeYears(engine.CurrentMinute) >= 18 && c.PartnerId is not null),
             living.Count(c => c.AgeYears(engine.CurrentMinute) >= 18 && c.PartnerId is null),
-            living.Count(c => c.HomeStructureId is not null), engine.Settlement.FoodStored, engine.ShelterCapacity,
+            living.Count(c => c.HomeStructureId is not null), checked((int)engine.TotalStoredFood), engine.ShelterCapacity,
             living.GroupBy(c => c.LifeStage(engine.CurrentMinute)).OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
             citizens.Where(c => !c.IsAlive).GroupBy(c => c.DeathCause ?? "unknown").OrderBy(g => g.Key, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal),
             Enum.GetValues<FamilyCheckBlocker>().Where(b => b != FamilyCheckBlocker.None).ToDictionary(b => b.ToString(), b => opportunities.Count(o => (o.Blockers & b) != 0), StringComparer.Ordinal),

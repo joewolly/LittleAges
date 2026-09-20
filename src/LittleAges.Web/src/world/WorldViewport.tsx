@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import type { Citizen, Map, Settlement, Structure } from '../api'
 import { LegacyMap } from './LegacyMap'
-import { FarmModel, GranaryModel } from './FarmModel'
+import { FarmModel, GranaryModel, MarketplaceModel } from './FarmModel'
 import { GroundContacts } from './GroundContacts'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
 import { worldGeometry } from './assetGeometry'
@@ -508,7 +508,7 @@ function DioramaScene({ map, citizens, structures, worldMinute, settlement, worl
       <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
       <Suspense fallback={null}>
         <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
-        {structures.map(structure => structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
+        {structures.map(structure => structure.type === 'Marketplace' ? <MarketplaceModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
         {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} structures={structures} presentationClock={presentationClock} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
         {diagnosticsEnabled && <SceneStats onStats={onStats} />}
       </Suspense>

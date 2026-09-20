@@ -90,6 +90,27 @@ app.MapGet("/api/v1/agriculture", (SimulationHost host, int? offset, int? limit)
     });
 });
 
+app.MapGet("/api/v1/economy", (SimulationHost host, int? offset, int? limit) =>
+{
+    var start = offset ?? 0; var count = limit ?? 50;
+    if (start < 0 || count is < 1 or > 200) return Results.BadRequest("offset must be nonnegative and limit between 1 and 200.");
+    var economy = host.Observation.Economy;
+    return economy is null ? Results.Ok(new { enabled = false }) : Results.Ok(new
+    {
+        enabled = true, economy.Version, economy.CommunalPercent, economy.Commons, economy.Produced,
+        economy.FoodConsumed, economy.EmergencyFoodConsumed, economy.PublicWorkPaid, economy.ReservedPublicFood,
+        households = economy.Households.Skip(start).Take(count), totalHouseholds = economy.Households.Count,
+        occupations = economy.Occupations.Skip(start).Take(count), totalOccupations = economy.Occupations.Count,
+        offers = economy.Offers.Skip(start).Take(count), totalOffers = economy.Offers.Count,
+        trades = economy.Trades.Reverse().Skip(start).Take(count), totalTrades = economy.Trades.Count,
+        events = economy.Events.Reverse().Skip(start).Take(count), totalEvents = economy.Events.Count,
+        recoverable = economy.Recoverable.Skip(start).Take(count), totalRecoverable = economy.Recoverable.Count,
+        publicSupplyTrades = economy.PublicSupplyTrades.Reverse().Skip(start).Take(count), totalPublicSupplyTrades = economy.PublicSupplyTrades.Count,
+        wealth = new { minimum = economy.Households.Count == 0 ? 0 : economy.Households.Min(h => h.Wealth), maximum = economy.Households.Count == 0 ? 0 : economy.Households.Max(h => h.Wealth), total = economy.Households.Sum(h => h.Wealth) },
+        offset = start, limit = count
+    });
+});
+
 app.MapPost("/api/v1/control/pause", async (SimulationHost simulationHost, CancellationToken cancellationToken) =>
 {
     try { return Results.Ok(await simulationHost.RequestPauseAsync(cancellationToken)); }
@@ -228,7 +249,7 @@ app.MapGet("/api/v1/households/{id}", (string id, SimulationHost simulationHost)
     if (!long.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0 || value.ToString(System.Globalization.CultureInfo.InvariantCulture) != id) return Results.BadRequest();
     var observation = simulationHost.Observation;
     var household = observation.Households.FirstOrDefault(x => x.Id.Value == value);
-    return household is null ? Results.NotFound() : Results.Ok(ToHouseholdSnapshot(household, observation.Citizens));
+    return household is null ? Results.NotFound() : Results.Ok(ToHouseholdSnapshot(household, observation.Citizens, observation.Economy?.Households.FirstOrDefault(h => h.HouseholdId == id)));
 });
 app.MapFallback(async context =>
 {
@@ -250,12 +271,12 @@ app.MapFallback(async context =>
     await context.Response.SendFileAsync(indexPath);
 });
 
-static ServerHouseholdSnapshot ToHouseholdSnapshot(Household household, IReadOnlyList<ServerCitizenSnapshot> citizens)
+static ServerHouseholdSnapshot ToHouseholdSnapshot(Household household, IReadOnlyList<ServerCitizenSnapshot> citizens, HouseholdEconomyObservation? economy = null)
 {
     var members = citizens.Where(x => x.HouseholdId == household.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)).OrderBy(x => long.Parse(x.CitizenId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
     var partners = members.Where(x => x.PartnerId is not null && members.Any(y => y.CitizenId == x.PartnerId)).Select(x => x.CitizenId).OrderBy(x => long.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
     var children = members.Where(x => x.ParentAId is not null || x.ParentBId is not null).Select(x => x.CitizenId).OrderBy(x => long.Parse(x, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
-    return new ServerHouseholdSnapshot(household.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), household.CreatedMinute, household.DissolvedMinute, household.DwellingStructureId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), Array.AsReadOnly(members.Select(x => x.CitizenId).ToArray()), Array.AsReadOnly(members.Where(x => x.IsAlive).Select(x => x.CitizenId).ToArray()), partners.Length == 2 ? Array.AsReadOnly(partners) : null, Array.AsReadOnly(children));
+    return new ServerHouseholdSnapshot(household.Id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), household.CreatedMinute, household.DissolvedMinute, household.DwellingStructureId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), Array.AsReadOnly(members.Select(x => x.CitizenId).ToArray()), Array.AsReadOnly(members.Where(x => x.IsAlive).Select(x => x.CitizenId).ToArray()), partners.Length == 2 ? Array.AsReadOnly(partners) : null, Array.AsReadOnly(children), economy);
 }
 
 static bool AreFamily(ServerCitizenSnapshot first, ServerCitizenSnapshot second, IReadOnlyList<ServerCitizenSnapshot> citizens)

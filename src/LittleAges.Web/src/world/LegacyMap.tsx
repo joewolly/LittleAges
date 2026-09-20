@@ -3,7 +3,7 @@ import type { Citizen, Map, Structure } from '../api'
 import { containMap } from './visuals'
 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
-const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938' }
+const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175' }
 
 export function LegacyMap({ map, structures, citizens }: { map: Map; structures: Structure[]; citizens: Citizen[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)

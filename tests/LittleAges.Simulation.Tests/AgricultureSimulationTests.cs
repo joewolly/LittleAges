@@ -7,10 +7,12 @@ namespace LittleAges.Simulation.Tests;
 
 public sealed class AgricultureSimulationTests(ITestOutputHelper output)
 {
-    [Fact]
-    public void UnderTendedCropHasPoorYieldAndNextSeasonRecoversThroughWork()
+    [Theory]
+    [InlineData(SimulationEngine.AgricultureSimulationRulesVersion)]
+    [InlineData(SimulationEngine.BarterSimulationRulesVersion)]
+    public void UnderTendedCropHasPoorYieldAndNextSeasonRecoversThroughWork(string rules)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.AgricultureSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: rules);
         engine.AdvanceUntil(new WorldMinute(179L * WorldCalendar.MinutesPerDay));
         // A diagnostic labor-loss fixture: discard completed tending, never add goods,
         // citizens, health, or completed structures. All subsequent work is autonomous.

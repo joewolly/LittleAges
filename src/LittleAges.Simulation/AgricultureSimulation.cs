@@ -9,7 +9,7 @@ public sealed partial class SimulationEngine
     private readonly SortedDictionary<long, FarmCrop> _farms = [];
     private readonly List<HarvestRecord> _harvests = [];
     private long _agricultureSeasonIndex;
-    public static bool AgricultureSystemsEnabled(string rules) => rules == AgricultureSimulationRulesVersion;
+    public static bool AgricultureSystemsEnabled(string rules) => rules is AgricultureSimulationRulesVersion or BarterSimulationRulesVersion;
     public int GranaryCapacity => _structures.Values.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
     public int WinterFoodTarget => checked(LivingPopulation * 810);
     public AgricultureState? CaptureAgriculture() => AgricultureSystemsEnabled(SimulationRulesVersion)
@@ -26,9 +26,10 @@ public sealed partial class SimulationEngine
 
     private int AvailableStorage(ResourceType type)
     {
-        var totalFree = Math.Max(0, StorageCapacity - Settlement.StorageUsed);
+        var owned = EconomyEnabled ? OwnedStoredGoods : new Goods();
+        var totalFree = checked((int)Math.Max(0, StorageCapacity - Settlement.StorageUsed - owned.Total - (EconomyEnabled ? TradeCargoReserved : 0)));
         return type == ResourceType.Food ? totalFree : Math.Min(totalFree,
-            Math.Max(0, StorageCapacity - GranaryCapacity - Settlement.WoodStored - Settlement.StoneStored));
+            Math.Max(0, checked((int)(StorageCapacity - GranaryCapacity - Settlement.WoodStored - Settlement.StoneStored - owned.Wood - owned.Stone - (EconomyEnabled ? TradeNonFoodReserved : 0)))));
     }
 
     private void AdvanceAgricultureSeason()
@@ -115,6 +116,7 @@ public sealed partial class SimulationEngine
         var amount = Math.Min(farm.Remaining, Math.Min(AgricultureRules.HarvestPerShift, AvailableStorage(ResourceType.Food)));
         if (amount <= 0 || FindPathCached(citizen.Location, World.StartingSite) is null) return;
         _farms[id.Value] = farm with { Remaining = farm.Remaining - amount, Harvested = checked(farm.Harvested + amount) };
+        RecordProduction(citizen, ResourceType.Food, amount);
         citizen.CarriedResourceType = ResourceType.Food;
         citizen.CarriedResourceQuantity = amount;
         BeginTravel(citizen, CitizenAction.HaulHarvest, World.StartingSite, null, CitizenActionPhase.ReturnToStockpile, id);

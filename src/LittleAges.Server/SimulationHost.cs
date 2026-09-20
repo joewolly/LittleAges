@@ -171,7 +171,7 @@ public sealed record ServerCitizenSnapshot
 public sealed record ServerRelationshipSnapshot(string OtherCitizenId, string OtherCitizenName, int Familiarity, int Affinity, int Trust, int Conflict, long LastInteractionMinute, long InteractionCount, string Label);
 public sealed record ServerHouseholdSnapshot
 {
-    public ServerHouseholdSnapshot(string householdId, long createdMinute, long? dissolvedMinute, string? dwellingStructureId, IEnumerable<string> memberIds, IEnumerable<string> livingMemberIds, IEnumerable<string>? partnerPair, IEnumerable<string> childrenIds)
+    public ServerHouseholdSnapshot(string householdId, long createdMinute, long? dissolvedMinute, string? dwellingStructureId, IEnumerable<string> memberIds, IEnumerable<string> livingMemberIds, IEnumerable<string>? partnerPair, IEnumerable<string> childrenIds, HouseholdEconomyObservation? economy = null)
     {
         HouseholdId = householdId;
         CreatedMinute = createdMinute;
@@ -181,6 +181,7 @@ public sealed record ServerHouseholdSnapshot
         LivingMemberIds = CopyIds(livingMemberIds);
         PartnerPair = partnerPair is null ? null : CopyIds(partnerPair);
         ChildrenIds = CopyIds(childrenIds);
+        Economy = economy;
     }
 
     public string HouseholdId { get; }
@@ -191,6 +192,9 @@ public sealed record ServerHouseholdSnapshot
     public IReadOnlyList<string> LivingMemberIds { get; }
     public IReadOnlyList<string>? PartnerPair { get; }
     public IReadOnlyList<string> ChildrenIds { get; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public HouseholdEconomyObservation? Economy { get; }
 
     private static ReadOnlyCollection<string> CopyIds(IEnumerable<string> ids) => Array.AsReadOnly((ids ?? throw new ArgumentNullException(nameof(ids))).ToArray());
 }
@@ -319,7 +323,7 @@ public sealed record ServerSettlementSnapshot
         int completedWorkshops = 0,
         long exposureGraceUntilMinute = 0,
         ServerStructureSnapshot? activeConstructionProject = null,
-        int householdCount = 0, int activeHouseholdCount = 0, int partnershipCount = 0, int relationshipCount = 0, int friendCount = 0, int rivalCount = 0, int youngChildCount = 0, int childCount = 0, int adolescentCount = 0, int adultCount = 0, int elderCount = 0)
+        int householdCount = 0, int activeHouseholdCount = 0, int partnershipCount = 0, int relationshipCount = 0, int friendCount = 0, int rivalCount = 0, int youngChildCount = 0, int childCount = 0, int adolescentCount = 0, int adultCount = 0, int elderCount = 0, int completedFarms = 0, int completedGranaries = 0, int completedMarketplaces = 0)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(foodStored);
         ArgumentOutOfRangeException.ThrowIfNegative(woodStored);
@@ -341,6 +345,7 @@ public sealed record ServerSettlementSnapshot
         CompletedShelters = completedShelters;
         CompletedStockpiles = completedStockpiles;
         CompletedWorkshops = completedWorkshops;
+        CompletedFarms = completedFarms; CompletedGranaries = completedGranaries; CompletedMarketplaces = completedMarketplaces;
         ExposureGraceUntilMinute = exposureGraceUntilMinute;
         ActiveConstructionProject = activeConstructionProject;
         HouseholdCount = householdCount; ActiveHouseholdCount = activeHouseholdCount; PartnershipCount = partnershipCount; RelationshipCount = relationshipCount; FriendCount = friendCount; RivalCount = rivalCount; YoungChildCount = youngChildCount; ChildCount = childCount; AdolescentCount = adolescentCount; AdultCount = adultCount; ElderCount = elderCount;
@@ -362,6 +367,9 @@ public sealed record ServerSettlementSnapshot
     public int CompletedShelters { get; }
     public int CompletedStockpiles { get; }
     public int CompletedWorkshops { get; }
+    public int CompletedFarms { get; }
+    public int CompletedGranaries { get; }
+    public int CompletedMarketplaces { get; }
     public long ExposureGraceUntilMinute { get; }
     public ServerStructureSnapshot? ActiveConstructionProject { get; }
     public int HouseholdCount { get; } public int ActiveHouseholdCount { get; } public int PartnershipCount { get; } public int RelationshipCount { get; } public int FriendCount { get; } public int RivalCount { get; } public int YoungChildCount { get; } public int ChildCount { get; } public int AdolescentCount { get; } public int AdultCount { get; } public int ElderCount { get; }
@@ -379,7 +387,7 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentOutOfRangeException.ThrowIfNegative(revision);
@@ -397,6 +405,7 @@ public sealed record ServerObservationSnapshot
             Farms = Array.AsReadOnly(agriculture.Farms.ToArray()),
             Harvests = Array.AsReadOnly(agriculture.Harvests.ToArray())
         };
+        Economy = economy is null ? null : economy with { Households = Array.AsReadOnly(economy.Households.ToArray()), Occupations = Array.AsReadOnly(economy.Occupations.ToArray()), Offers = Array.AsReadOnly(economy.Offers.ToArray()), Trades = Array.AsReadOnly(economy.Trades.ToArray()), Events = Array.AsReadOnly(economy.Events.ToArray()), Recoverable = Array.AsReadOnly(economy.Recoverable.ToArray()), PublicSupplyTrades = Array.AsReadOnly(economy.PublicSupplyTrades.ToArray()) };
         Growth = growth is null ? null : growth with
         {
             DeathCauses = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(new Dictionary<string, int>(growth.DeathCauses, StringComparer.Ordinal)),
@@ -415,6 +424,7 @@ public sealed record ServerObservationSnapshot
     public ServerHistorySnapshot? History { get; }
     public GrowthObservation? Growth { get; }
     public AgricultureObservation? Agriculture { get; }
+    public EconomyObservation? Economy { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -973,11 +983,12 @@ public sealed partial class SimulationHost : BackgroundService
         var readSnapshot = engine?.CreateReadSnapshot();
         var citizenSnapshots = readSnapshot?.Citizens.Select(static citizen => new ServerCitizenSnapshot(citizen)).ToArray() ?? Array.Empty<ServerCitizenSnapshot>();
         var agriculture = engine?.CaptureAgriculture();
+        var economy = engine?.CaptureEconomy();
         var structureSnapshots = readSnapshot is null ? Array.Empty<ServerStructureSnapshot>() : CreateStructureSnapshots(readSnapshot, citizenSnapshots, agriculture);
         var map = readSnapshot?.World is null ? null : Observation.Map ?? new ServerMapSnapshot(readSnapshot.World);
         var livingPopulation = citizenSnapshots.Count(static citizen => citizen.IsAlive);
         var deadPopulation = citizenSnapshots.Length - livingPopulation;
-        var settlement = readSnapshot is null ? null : CreateSettlementSummary(readSnapshot, citizenSnapshots, structureSnapshots);
+        var settlement = readSnapshot is null ? null : CreateSettlementSummary(readSnapshot, citizenSnapshots, structureSnapshots, economy);
         var status = new ServerStatusSnapshot(
             state,
             readSnapshot?.WorldMinute.Value ?? 0,
@@ -996,7 +1007,7 @@ public sealed partial class SimulationHost : BackgroundService
             Paused: Volatile.Read(ref _paused) != 0,
             OperationalSpeed: Volatile.Read(ref _operationalSpeed));
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, engine?.Settlement.FoodStored ?? 0, engine?.GranaryCapacity ?? 0, livingPopulation));
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()));
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)
@@ -1035,7 +1046,7 @@ public sealed partial class SimulationHost : BackgroundService
             .ToArray();
     }
 
-    private static ServerSettlementSnapshot CreateSettlementSummary(SimulationStatusSnapshot readSnapshot, ServerCitizenSnapshot[] citizens, ServerStructureSnapshot[] structures)
+    private static ServerSettlementSnapshot CreateSettlementSummary(SimulationStatusSnapshot readSnapshot, ServerCitizenSnapshot[] citizens, ServerStructureSnapshot[] structures, EconomyState? economy)
     {
         var settlement = readSnapshot.Settlement ?? new SettlementState(0, 0, 0);
         var resourceTypes = readSnapshot.World?.Resources.ToDictionary(static node => node.Id.Value, static node => node.Type)
@@ -1067,7 +1078,7 @@ public sealed partial class SimulationHost : BackgroundService
             remaining,
             resources,
             storageCapacity,
-            settlement.StorageUsed,
+            checked((int)(economy?.StoredGoods(settlement).Total ?? settlement.StorageUsed)),
             checked(completedShelters * CitizenSimulationRules.ShelterCapacityPerBuilding),
             shelteredPopulation,
             living - shelteredPopulation,
@@ -1082,7 +1093,10 @@ public sealed partial class SimulationHost : BackgroundService
             readSnapshot.Relationships.Count,
             readSnapshot.Relationships.Count(x => RelationshipLabels.Derive(x, false, false) is RelationshipLabels.Friend or RelationshipLabels.CloseFriend),
             readSnapshot.Relationships.Count(x => RelationshipLabels.Derive(x, false, false) == RelationshipLabels.Rival),
-            citizens.Count(x => x.LifeStage == "Young Child"), citizens.Count(x => x.LifeStage == "Child"), citizens.Count(x => x.LifeStage == "Adolescent"), citizens.Count(x => x.LifeStage == "Adult"), citizens.Count(x => x.LifeStage == "Elder"));
+            citizens.Count(x => x.LifeStage == "Young Child"), citizens.Count(x => x.LifeStage == "Child"), citizens.Count(x => x.LifeStage == "Adolescent"), citizens.Count(x => x.LifeStage == "Adult"), citizens.Count(x => x.LifeStage == "Elder"),
+            structures.Count(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete),
+            structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete),
+            structures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete));
     }
 
     private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)

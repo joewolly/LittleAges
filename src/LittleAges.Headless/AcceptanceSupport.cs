@@ -59,6 +59,7 @@ internal static class HeadlessSnapshotComparer
         ["statisticsSamples"] = snapshot.StatisticsSamples.OrderBy(item => item.WorldMinute).ToArray(),
         ["memories"] = snapshot.Memories.OrderBy(item => item.CitizenId.Value).ThenBy(item => item.HistoricalEventId.Value).ThenBy(item => item.MemoryType).ToArray()
         };
+        if (snapshot.Economy is not null) components.Add("economy", snapshot.Economy);
         if (snapshot.Agriculture is not null) components.Add("agriculture", snapshot.Agriculture);
         return components;
     }

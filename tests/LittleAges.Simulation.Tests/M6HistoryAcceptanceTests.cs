@@ -184,7 +184,7 @@ public sealed class M6HistoryAcceptanceTests
 
     [Theory]
     [InlineData(SimulationEngine.M6SimulationRulesVersion)]
-    [InlineData(SimulationEngine.CurrentSimulationRulesVersion)]
+    [InlineData(SimulationEngine.M8SimulationRulesVersion)]
     public void PartnerDeathMemorySurvivesRecipientsLaterDeathInTheSameMinute(string rules)
     {
         var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: rules);

@@ -1,6 +1,10 @@
 # Little Ages M0-M8 Architecture
 
-This document describes the implementation that exists through M8 candidate acceptance. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
+The sections below retain the implementation record through M8 candidate acceptance.
+For the current M9 growth, M10 agriculture, and M11 household barter extensions,
+see [Growing Settlement](growing-settlement.md). Fresh worlds now select
+`m11-rng1-barter1`; all statements below about older defaults describe their
+historical milestone. Existing saves retain their rules. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
 
 ## Project and reference graph
 

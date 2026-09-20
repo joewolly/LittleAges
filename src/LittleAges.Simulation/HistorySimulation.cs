@@ -155,6 +155,7 @@ public sealed partial class SimulationEngine
     private void RecordHistoryTransitions(int foodBefore)
     {
         if (_historyState is null) return;
+        if (EconomyEnabled) { if (foodBefore != Settlement.FoodStored) ReevaluateFoodShortage(false); return; }
         var foodDelta = Settlement.FoodStored - foodBefore;
         if (foodDelta > 0) _historyState.FoodProducedSinceSample = checked(_historyState.FoodProducedSinceSample + foodDelta);
         else if (foodDelta < 0) _historyState.FoodConsumedSinceSample = checked(_historyState.FoodConsumedSinceSample - foodDelta);

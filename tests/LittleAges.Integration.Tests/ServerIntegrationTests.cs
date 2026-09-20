@@ -21,6 +21,68 @@ namespace LittleAges.Integration.Tests;
 public sealed class ServerIntegrationTests
 {
     [Fact]
+    public void FreshWorldConfigurationDefaultsToBarterWithoutChangingLegacyRules()
+    {
+        var options = ServerOptions.FromConfiguration(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+        Assert.Equal(SimulationEngine.BarterSimulationRulesVersion, options.NewWorldRules);
+        Assert.Equal("m8-rng1-balance1", SimulationEngine.M8SimulationRulesVersion);
+        Assert.Equal("m9-rng1-growth1", SimulationEngine.GrowthSimulationRulesVersion);
+        Assert.Equal("m10-rng1-agriculture1", SimulationEngine.AgricultureSimulationRulesVersion);
+    }
+
+    [Fact]
+    public async Task SettlementStorageIncludesPrivateStocksAndCountsNewBuildings()
+    {
+        var root = CreateDataRoot();
+        try
+        {
+            var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.BarterSimulationRulesVersion);
+            engine.AdvanceUntil(new WorldMinute(10L * WorldCalendar.MinutesPerDay));
+            var snapshot = engine.CreatePersistenceSnapshot();
+            Assert.True(snapshot.Economy!.Households.Sum(h => h.Holdings.Total) > 0);
+            await using (var db = await WorldDatabase.OpenAsync(Path.Combine(root, "integration-world.db"))) await db.CreateCheckpointStore().CheckpointAsync(snapshot);
+            using var factory = new ServerFactory(root, simulationMinutesPerSecond: 0, worldSeed: 42, suppressLogs: true);
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            using var json = JsonDocument.Parse(await client.GetStringAsync("/api/v1/settlement"));
+            Assert.Equal(snapshot.Economy.StoredGoods(snapshot.Settlement!).Total, json.RootElement.GetProperty("storageUsed").GetInt64());
+            Assert.Equal(snapshot.Structures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete), json.RootElement.GetProperty("completedMarketplaces").GetInt32());
+            Assert.Equal(snapshot.Structures.Count(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete), json.RootElement.GetProperty("completedFarms").GetInt32());
+            Assert.Equal(snapshot.Structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete), json.RootElement.GetProperty("completedGranaries").GetInt32());
+            Assert.Equal(snapshot.Settlement!.FoodStored, json.RootElement.GetProperty("foodStored").GetInt32());
+        }
+        finally { CleanupDataRoot(root); }
+    }
+
+    [Fact]
+    public async Task EconomyReadsAreBoundedLosslessAndDoNotAdvanceTheWorld()
+    {
+        var root = CreateDataRoot();
+        try
+        {
+            using var factory = new ServerFactory(root, simulationMinutesPerSecond: 0, worldSeed: 42,
+                suppressLogs: true, newWorldRules: SimulationEngine.BarterSimulationRulesVersion);
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            var first = await client.GetStringAsync("/api/v1/economy?limit=1");
+            Assert.Equal(first, await client.GetStringAsync("/api/v1/economy?limit=1"));
+            using var json = JsonDocument.Parse(first);
+            Assert.True(json.RootElement.GetProperty("enabled").GetBoolean());
+            Assert.Equal(20, json.RootElement.GetProperty("communalPercent").GetInt32());
+            Assert.Equal(20, json.RootElement.GetProperty("totalHouseholds").GetInt32());
+            var household = Assert.Single(json.RootElement.GetProperty("households").EnumerateArray());
+            Assert.Equal(JsonValueKind.String, household.GetProperty("householdId").ValueKind);
+            using var detail = JsonDocument.Parse(await client.GetStringAsync("/api/v1/households/" + household.GetProperty("householdId").GetString()));
+            Assert.Equal(0, detail.RootElement.GetProperty("economy").GetProperty("inventory").GetProperty("food").GetInt32());
+            using var invalid = await client.GetAsync("/api/v1/economy?limit=201");
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            using var status = JsonDocument.Parse(await client.GetStringAsync("/api/v1/status"));
+            Assert.Equal(0, status.RootElement.GetProperty("worldMinute").GetInt64());
+        }
+        finally { CleanupDataRoot(root); }
+    }
+
+    [Fact]
     public async Task AgricultureEndpointUsesBoundedReadOnlyPagesAndSelectedRules()
     {
         var root = CreateDataRoot();
@@ -969,7 +1031,7 @@ public sealed class ServerIntegrationTests
         }
     }
 
-    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false, string newWorldRules = SimulationEngine.CurrentSimulationRulesVersion) : WebApplicationFactory<Program>
+    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false, string newWorldRules = SimulationEngine.M8SimulationRulesVersion) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {

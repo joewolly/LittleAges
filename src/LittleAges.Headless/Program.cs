@@ -193,6 +193,8 @@ public sealed record HeadlessReport
     public int Structures { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public AgricultureState? Agriculture { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public EconomyState? Economy { get; init; }
     public int FoodStored { get; init; }
     public int WoodStored { get; init; }
     public int StoneStored { get; init; }
@@ -319,7 +321,9 @@ public static class HeadlessRunner
         while (engine.CurrentMinute.Value < targetMinute)
         {
             var nextMinute = checked(engine.CurrentMinute.Value + Math.Min(targetMinute - engine.CurrentMinute.Value, chunkMinutes));
+            var previousYear = engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear;
             engine.AdvanceUntil(new WorldMinute(nextMinute));
+            if (engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear != previousYear) Console.Error.WriteLine($"seed={engine.Seed.Value} rules={engine.SimulationRulesVersion} year={engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear} living={engine.LivingPopulation}");
         }
     }
 
@@ -361,6 +365,7 @@ public static class HeadlessRunner
             Relationships = engine.Relationships.Count,
             Structures = engine.Structures.Count,
             Agriculture = engine.CaptureAgriculture(),
+            Economy = engine.CaptureEconomy(),
             FoodStored = engine.Settlement.FoodStored,
             WoodStored = engine.Settlement.WoodStored,
             StoneStored = engine.Settlement.StoneStored,
@@ -543,6 +548,7 @@ public static class HeadlessReportSerialization
                 report.Acceptance.Mismatches
             }
         };
+        if (report.Economy is not null) return JsonSerializer.Serialize(new { Summary = projection, report.Agriculture, report.Economy }, JsonOptions);
         return report.Agriculture is null ? JsonSerializer.Serialize(projection, JsonOptions)
             : JsonSerializer.Serialize(new { Summary = projection, report.Agriculture }, JsonOptions);
     }

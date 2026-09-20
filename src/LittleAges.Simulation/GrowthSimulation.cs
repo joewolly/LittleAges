@@ -10,7 +10,7 @@ public sealed record GrowthObservation(int Living, int Births, int Deaths, int U
 
 public sealed partial class SimulationEngine
 {
-    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion;
+    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion;
     public static bool UsesSampledShortageRecovery(string rulesVersion) => rulesVersion == M8SimulationRulesVersion || GrowthSystemsEnabled(rulesVersion);
 
     private void EnsureIndependentHouseholds()
@@ -32,7 +32,7 @@ public sealed partial class SimulationEngine
             (c.AgeYears(CurrentMinute) < 18 && (c.ParentAId == first.Id || c.ParentBId == first.Id || c.ParentAId == second.Id || c.ParentBId == second.Id))))
         .OrderBy(c => c.Id.Value).ToArray();
 
-    private int GrowthFoodReserveTarget => checked(LivingPopulation * 60);
+    private int GrowthFoodReserveTarget => checked(LivingPopulation * (EconomyEnabled ? 12 : 60));
 
     private List<CitizenDecisionEvaluation> EvaluateGrowthDecision(Citizen citizen)
     {
@@ -44,11 +44,12 @@ public sealed partial class SimulationEngine
         void Add(CitizenAction action, int score, ulong purpose, long cost = 0)
         {
             if (!IsAgeEligible(action, age)) return;
+            score += OccupationBonus(citizen, action);
             var variation = Variation(random, citizen, purpose);
             var penalty = (int)Math.Min(2000, cost / 10);
             result.Add(new(action, score, 0, 0, variation, checked(score + variation - penalty), TravelPenalty: penalty));
         }
-        if (Settlement.FoodStored > 0 && needs.Hunger >= 3500 && travel.TryGetValue(World.StartingSite, out var mealCost))
+        if ((EconomyEnabled ? FoodAvailableTo(citizen) : Settlement.FoodStored) > 0 && needs.Hunger >= 3500 && travel.TryGetValue(World.StartingSite, out var mealCost))
             Add(CitizenAction.Eat, needs.Hunger * 4, 1, mealCost);
         if (needs.Rest >= 4000) Add(CitizenAction.Rest, needs.Rest * 3, 2);
         if (needs.Hunger < 8000 && needs.Rest < 8500 && needs.Social >= 3500 && SelectSocialTarget(citizen) is not null)
@@ -60,7 +61,7 @@ public sealed partial class SimulationEngine
         if (project is not null && travel.TryGetValue(project.Location, out var projectCost))
         {
             var urgency = project.Type == StructureType.Shelter && ShelterCapacity < LivingPopulation ? 9000 : 4500;
-            if ((woodMissing > 0 && Settlement.WoodStored > 0) || (stoneMissing > 0 && Settlement.StoneStored > 0))
+            if ((woodMissing > 0 && (Settlement.WoodStored > 0 || CanProcure(ResourceType.Wood))) || (stoneMissing > 0 && (Settlement.StoneStored > 0 || CanProcure(ResourceType.Stone))))
                 Add(CitizenAction.HaulConstruction, urgency, 9, projectCost);
             else if (woodMissing == 0 && stoneMissing == 0) Add(CitizenAction.Build, urgency, 10, projectCost);
         }
@@ -76,12 +77,14 @@ public sealed partial class SimulationEngine
             if (SelectFarmTarget(citizen, CitizenAction.WorkFarm) is { } field) Add(CitizenAction.WorkFarm, 6500, 201, travel[field.Location]);
             if (SelectFarmTarget(citizen, CitizenAction.HaulHarvest) is { } harvest) Add(CitizenAction.HaulHarvest, 8500, 202, travel[harvest.Location]);
         }
+        if (TradeFor(citizen) is not null) Add(CitizenAction.TradeDelivery, 10000, 203);
         // Once supplies and needs are satisfied, rest locally instead of aimless long trips.
         Add(CitizenAction.Idle, 500, 8);
         return result;
 
         void GatherCandidate(CitizenAction action, ResourceType type, int score, ulong purpose)
         {
+            score = EconomicGatherScore(citizen, type, score);
             if (score <= 0 || SelectResourceTarget(citizen, type) is not { } node || !travel.TryGetValue(node.Coordinate, out var cost)) return;
             // Reserve space for outbound workers as well as goods already in transit.
             // Otherwise a full stockpile can trap every gatherer in WaitingForStorage,

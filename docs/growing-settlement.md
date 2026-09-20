@@ -5,8 +5,9 @@ installation, and modifications to the installed civilization are outside this w
 
 ## Stage 1: sustainable generations
 
-Candidate rules: `m9-rng1-growth1`. The explicit compatibility rules are
-`m8-rng1-balance1`; the default remains M8 while development is in progress.
+Stage rules: `m9-rng1-growth1`. The explicit compatibility rules are
+`m8-rng1-balance1`; M8 remained the default until all three implementations were
+complete. The final new-world default is M11; saved rules remain authoritative.
 Fresh worlds can select growth with `--NewWorldRules m9-rng1-growth1`.
 An existing database retains its own rules regardless of that option.
 
@@ -164,5 +165,112 @@ worker until death. M8 and M9 behavior remains unchanged.
 
 ## Stage 3: occupations, ownership, and physical barter
 
-Pending the Stage 2 gate. Final century targets, conservation scenarios, focused
-transaction reopen checks, and performance evidence remain required.
+Implemented as `m11-rng1-barter1`. The canonical writer owns household stocks,
+production cargo owners, occupations, offers, reservations, market escrow,
+completed trades, public-work reservations, public supply transactions, and
+inheritance. Version-1 economic facts are separate from unchanged historical
+payloads and enum numbers. Agriculture and economy are focused partial modules.
+
+### Economic rules and balancing record
+
+Each living citizen belongs to one active household. Work specializations persist
+and prefer existing assignments, then relevant skills, then citizen ID. Quotas
+follow the workforce and available farms: builders/haulers/stoneworkers each
+approximately one tenth, woodcutters one eighth, farmers up to one quarter and
+two per field; remaining workers forage. Urgent hunger, rest, shelter, and food
+shortages override occupational preferences. Children begin eligible work at 13;
+adults always have a recorded occupation.
+
+Production remains in the worker's original household ownership while carried,
+even if the worker changes households. At delivery, 20% enters communal reserves;
+per-household integer remainders preserve the exact cumulative share across small
+loads. Private reserves target 120 Food per member for producers, 160 Wood, and
+100 Stone. Market offers use lower reserve targets of 60 Food per member, 20 Wood,
+and 10 Stone. The public gathering target is 12 Food per resident. Meals consume
+unreserved household food first, then available communal emergency food.
+
+A marketplace costs 80 Wood, 30 Stone, and 1000 work. Stable household/resource
+ordering matches reciprocal requests using Food=1, Wood=2, Stone=3 accounting
+weights, up to 20 integer multiples per trade. Goods are reserved before pickup.
+Citizens travel to the depot, collect their own household's goods, and carry them
+to the marketplace; both deliveries must reach escrow before ownership exchanges.
+Storage capacity remains reserved during those trips. Trades expire after two
+days. Cancellation or carrier death releases reservations, returns delivered
+escrow, and retains interrupted physical cargo at its actual tile with an owner.
+Ground cargo is conserved and observable; this version has no retrieval action.
+
+Public construction uses communal materials. When private producers hold needed
+surplus, a hauler may exchange available communal Food for those inputs at the
+depot, then physically deliver materials to construction. Procurement preserves a
+10-Food-per-resident communal floor for that purchase only; it does not create a
+population or resource floor. Builders and haulers reserve up to 4 Food above that
+meal reserve and receive it only for completed public work. Cancelled work returns
+its reservation. No money, currency wages, debt, or variable prices are used.
+
+Surviving households retain their property. An ending household transfers goods
+to surviving former members' households, or to living descendants' households in
+stable ID order, distributing integer remainders to the first recipients. Goods
+with no claimant become communal. Stored and interrupted goods are covered.
+Inheritance, household mergers, and the first trade are notable economic events;
+routine deliveries do not flood the main historical feed.
+
+Experimental trials are retained under `artifacts/v02/economy-trial*` and
+`economy-century-trial6`. The original 800-unit founding depot caused private
+stocks to obstruct essential building and early survival. M11 uses 4000 units of
+initial storage capacity with the **same 400 Food and zero Wood/Stone**. Public
+procurement resolves communal construction shortages while producers hold private
+materials. An intermediate procurement retry loop was corrected by accounting for
+an already-reserved work payment and delaying failed retries. The first century
+trial had populations 46, 46, 56, 40, 49 (seed order 7, 42, 123, 1001, 20260918),
+median 46. Four reports exposed a statistics validation mismatch: monthly Food
+stocks must retain their historical communal meaning. That was corrected; actual
+production and consumption include all owners. The revised candidate multiplies
+only the existing eligible birth probability by 125%, retaining all health, food,
+housing, relationship, reproductive-age, and two-year spacing requirements.
+M8, M9, and M10 retain their accepted constants and behavior.
+
+### Stage evidence
+
+The first full barter suite passed 466 backend tests. Subsequent focused checks
+pass contribution rounding, original cargo ownership after household changes,
+unclaimed inheritance, cancellation/death, finite-support extinction, and a poor
+harvest followed by autonomous recovery. Real SQLite close/reopen tests cover
+planting and harvest transport under both M10 and M11, one-sided marketplace
+escrow, completed trades, and descendant inheritance. The checkpoint failure test
+proves transactional rollback; corrupt duplicate ownership is rejected on load.
+Daily checkpoints validate exact global Food/Wood/Stone conservation and storage.
+
+Frontend lint, typecheck, production build, and all 152 tests pass (the complete
+suite was run with two workers to avoid a five-second App timeout under heavy
+parallel simulation load). Bounded agriculture/economy REST reads use decimal
+string IDs and never advance the simulation. Detailed inventory/trade arrays do
+not enter compact live scene frames. Household detail includes inventory; citizen
+observations expose specialization; wealth derives from owned stored, moving,
+escrowed, and interrupted goods. Social standing only describes food reserves.
+
+The packaged barter preview passed desktop/mobile layout, live updates,
+pause/resume/speed, reconnect, reduced motion, and 2D fallback checks. An observed
+market trip at minute 5619 has carrier 12 physically carrying 24 Food for a pending
+exchange of 8 Stone; neither side was delivered yet. Its authoritative JSON and
+inspected screenshot are `economy-market-cargo.*` in the visualization directory.
+The preview ZIP SHA-256 is
+`ea11b311c446a15430f3965dc8c49c0399dd72f328187a921eaee6f6123ba446`.
+It predates the final cargo-owner and balancing changes; the final package and
+acceptance results are recorded separately below.
+
+## Final v0.2 acceptance
+
+M11 balancing constants are frozen on 2026-09-20 before the final long-horizon
+acceptance runs. Four completed candidate worlds have year-100 populations 52
+(seed 7), 42 (42), 68 (123), and 54 (1001), all with five generations and all
+mandatory invariants passing. The fifth candidate is still finishing; even a zero
+result would leave four survivors and median 52. Final acceptance reruns all five
+seeds from this freeze and compares seed 42 against a real SQLite reopen at 37.
+
+Stage validation passes Release build with zero warnings; backend Domain 26,
+Simulation 220, Persistence 154, Integration 61 (59 full-suite plus two added
+observer/default regressions), and Headless 12. The new-default headless tests
+and final packaged application are rechecked during final acceptance.
+
+The final seed table, exact reopen fingerprints, package QA, and measured
+ordinary/larger-village performance are recorded after those runs finish.
