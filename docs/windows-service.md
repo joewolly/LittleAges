@@ -41,6 +41,17 @@ that address is display-only and is not the security boundary. LAN mode is for
 a trusted local network only. Little Ages v0.1 has no built-in authentication
 or TLS and must not be exposed to the public Internet.
 
+Browser requests to pause, resume, or change speed must use the observer's own
+origin (scheme, host, and port). Foreign or opaque `Origin` headers receive
+HTTP 403. Non-browser clients without an `Origin` header remain supported;
+this check prevents cross-site browser control, not access by LAN clients.
+
+The installer protects the world directory from inherited ProgramData write
+permissions for the built-in Users group. Users retain read access;
+LocalService receives Modify access. Ownership and grants for other principals
+are preserved. Use a dedicated data directory, not a shared folder that needs
+ordinary Users to create files.
+
 The installer starts the service and waits for both:
 
 ```text
@@ -70,8 +81,15 @@ World data is never under Program Files. The installer preserves the configured
 `DataRoot`, `ActiveWorld`, `WorldSeed`, operational speed, checkpoint settings,
 browser update interval, and user-owned configuration such as logging when
 upgrading. Installer arguments explicitly supplied on the command line take
-precedence. The normal installer mode is loopback; pass `-EnableLan` on an
-upgrade when LAN access is wanted.
+precedence. A fresh installation defaults to loopback. Upgrades preserve the
+existing LAN mode when `-EnableLan` is omitted; use `-EnableLan:$false` to
+explicitly return to loopback.
+
+The registered service executable must belong to the selected
+`InstallDirectory`. A mismatched or unreadable registration rejects installation
+and removal before service changes. Service updates use the structured Windows
+service API so executable quoting survives both PowerShell 5.1 and 7. Failed
+upgrade rollback preserves the original complete service command line.
 
 If the data directory already contains a world, the installer reports it as
 preserved and lets the server validate/open it normally. It never deletes,

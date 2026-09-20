@@ -158,6 +158,32 @@ function Resolve-InstalledDataDirectory {
     return $DefaultPath
 }
 
+function Assert-ServiceInstallation {
+    param(
+        [Parameter()] [object] $Details,
+        [Parameter(Mandatory)] [string] $InstallPath
+    )
+
+    if ($null -eq $Details -or [string]::IsNullOrWhiteSpace([string] $Details.PathName)) {
+        throw 'Cannot verify the existing Little Ages service executable; no deployment changes were made.'
+    }
+    $commandLine = ([string] $Details.PathName).Trim()
+    $executable = $null
+    if ($commandLine -match '^"([^"]+)"(?:\s+.*)?$') {
+        $executable = $Matches[1]
+    }
+    elseif ($commandLine -match '^([^"]+?\.exe)(?:\s+.*)?$') {
+        # Accept legacy unquoted paths, but never infer ownership from the
+        # service name alone. New registrations always quote the executable.
+        $executable = $Matches[1]
+    }
+    $expected = Join-Path -Path $InstallPath -ChildPath 'LittleAges.Server.exe'
+    if ($null -eq $executable -or -not [IO.Path]::IsPathRooted($executable) -or
+        -not [string]::Equals([IO.Path]::GetFullPath($executable), [IO.Path]::GetFullPath($expected), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The Little Ages service belongs to a different installation: $commandLine. Select its InstallDirectory; no deployment changes were made."
+    }
+}
+
 function Wait-ServiceState {
     param(
         [Parameter(Mandatory)] [System.ServiceProcess.ServiceControllerStatus] $Desired,
@@ -224,6 +250,8 @@ if ($DeleteWorldData -and -not $ConfirmWorldDeletion) {
 
 $service = Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue
 if ($null -ne $service) {
+    $serviceDetails = Get-CimInstance -ClassName Win32_Service -Filter "Name='Little Ages'" -ErrorAction Stop
+    Assert-ServiceInstallation -Details $serviceDetails -InstallPath $installPath
     Stop-ServiceBounded
     Remove-ServiceRegistration
     Write-Host "Removed Windows Service: $($script:ServiceName)"

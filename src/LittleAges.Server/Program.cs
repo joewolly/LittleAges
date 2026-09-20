@@ -30,6 +30,25 @@ builder.Services.AddHostedService<WorldChangeBroadcasterService>();
 
 var app = builder.Build();
 app.UseResponseCompression();
+app.Use(async (context, next) =>
+{
+    // CORS alone does not stop cross-site form POSTs. Keep operational controls
+    // available to the same-origin observer and non-browser API clients.
+    if (HttpMethods.IsPost(context.Request.Method) && context.Request.Path.StartsWithSegments("/api/v1/control") &&
+        context.Request.Headers.TryGetValue("Origin", out var origins))
+    {
+        if (origins.Count != 1 || !Uri.TryCreate(origins[0], UriKind.Absolute, out var origin) ||
+            !Uri.TryCreate($"{context.Request.Scheme}://{context.Request.Host}", UriKind.Absolute, out var target) ||
+            !string.Equals(origin.Scheme, target.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(origin.Authority, target.Authority, StringComparison.OrdinalIgnoreCase) ||
+            origin.UserInfo.Length != 0 || origin.AbsolutePath != "/" || origin.Query.Length != 0 || origin.Fragment.Length != 0)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+    }
+    await next(context);
+});
 app.UseDefaultFiles();
 var staticContentTypes = new FileExtensionContentTypeProvider();
 staticContentTypes.Mappings[".glb"] = "model/gltf-binary";

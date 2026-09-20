@@ -10,7 +10,8 @@ import { GroundContacts } from './GroundContacts'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
 import { worldGeometry } from './assetGeometry'
 import { createResourceLod } from './resourceLod'
-import { createGroundTexture } from './terrainArt'
+import { createGroundTexture, upgradeGroundTexture } from './terrainArt'
+import { disposeRendererResources, trackAssetResources, trackLightingUniform } from './rendererResources'
 import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
 import artManifest from './art-manifest.json'
 import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
@@ -42,18 +43,19 @@ class SceneBoundary extends Component<{ children: ReactNode; onError: () => void
 
 function Terrain({ map, worldSeed }: { map: Map; worldSeed: string | null }) {
   const texture = useMemo(() => createGroundTexture(map, worldSeed), [map, worldSeed])
+  const invalidate = useThree(state => state.invalidate)
   useEffect(() => {
     if (typeof Worker === 'undefined') return () => texture.dispose()
     const worker = new Worker(new URL('./terrain.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (event: MessageEvent<Uint8Array<ArrayBuffer>>) => {
-      texture.image = { data: event.data, width: map.width * 4, height: map.height * 4 }
-      texture.needsUpdate = true
+      upgradeGroundTexture(texture, map, event.data)
+      invalidate()
       worker.terminate()
     }
     worker.onerror = () => worker.terminate() // Keep the quick texture if worker loading fails.
     worker.postMessage([{ width: map.width, height: map.height, terrain: map.terrain }, worldSeed])
     return () => { worker.terminate(); texture.dispose() }
-  }, [map, worldSeed, texture])
+  }, [map, worldSeed, texture, invalidate])
   const geometry = useMemo(() => {
     const positions = new Float32Array((map.width + 1) * (map.height + 1) * 3)
     const uvs = new Float32Array((map.width + 1) * (map.height + 1) * 2)
@@ -191,6 +193,7 @@ function ResourceTypeInstances({ type, map, resources, quantities, worldSeed, de
   const viewCenter = useRef(new THREE.Vector3())
   const center = useMemo(() => { const r = resources[0]; return new THREE.Vector3(r.location.x - (map.width - 1) / 2, 0, r.location.y - (map.height - 1) / 2) }, [map.width, map.height, resources])
   const asset = useGLTF(`/assets/diorama/${type.toLowerCase()}.glb`)
+  useSharedAssetResources(asset.scene)
   const prepared = useMemo(() => {
     asset.scene.updateMatrixWorld(true)
     let source: THREE.Mesh | undefined
@@ -236,6 +239,7 @@ function StructureModel({ map, structure, detailTier }: { map: Map; structure: S
   const point = worldToScene(map, structure.location.x, structure.location.y, 0.05)
   const incomplete = structure.status === 'UnderConstruction'
   const asset = useGLTF(`/assets/diorama/${structure.type.toLowerCase()}.glb`)
+  useSharedAssetResources(asset.scene)
   return <group position={[point.x, point.y, point.z]} scale={0.9}>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]} receiveShadow><circleGeometry args={[1.05, 18]} /><meshBasicMaterial color="#34251b" transparent opacity={detailTier === 'full' ? 0.2 : 0.12} depthWrite={false} /></mesh>
     <Clone object={asset.scene} deep="materialsOnly" castShadow receiveShadow />
@@ -256,6 +260,7 @@ function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, 
   const home = restingHome(citizen, structures)
   const displayPlan = useMemo(() => doorwayPlan(citizen, structures), [citizen, structures])
   const asset = useGLTF('/assets/diorama/villager.glb')
+  useSharedAssetResources(asset.scene)
   const { actions, mixer } = useAnimations(asset.animations, group)
   const point = worldToScene(map, citizen.location.x, citizen.location.y, 0.05)
   const palette = villagerPalette[citizenPaletteIndex(worldSeed, citizen.citizenId)]
@@ -456,6 +461,7 @@ function SceneStats({ onStats }: { onStats: (stats: PerfStats) => void }) {
 
 function ContextLossGuard({ onLoss }: { onLoss: () => void }) {
   const { gl } = useThree()
+  useEffect(() => () => disposeRendererResources(gl), [gl])
   useEffect(() => {
     const lost = (event: Event) => { event.preventDefault(); onLoss() }
     gl.domElement.addEventListener('webglcontextlost', lost)
@@ -464,6 +470,17 @@ function ContextLossGuard({ onLoss }: { onLoss: () => void }) {
     return () => gl.domElement.removeEventListener('webglcontextlost', lost)
   }, [gl, onLoss])
   return null
+}
+
+function BaseMaterial() {
+  const { gl } = useThree()
+  return <meshStandardMaterial color="#5b4634" roughness={1}
+    onBeforeCompile={shader => trackLightingUniform(gl, shader.uniforms.dfgLUT)} />
+}
+
+function useSharedAssetResources(scene: THREE.Object3D) {
+  const { gl } = useThree()
+  useLayoutEffect(() => trackAssetResources(gl, scene), [gl, scene])
 }
 
 function DioramaScene({ map, citizens, structures, worldMinute, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
@@ -483,7 +500,7 @@ function DioramaScene({ map, citizens, structures, worldMinute, settlement, worl
     <SettlementSun enabled={detailTier === 'full'} />
     <hemisphereLight args={['#bce1ff', '#809644', 1.1]} />
     <group>
-      <mesh position={[0, -0.46, 0]} receiveShadow><boxGeometry args={[map.width + 2, 0.9, map.height + 2]} /><meshStandardMaterial color="#5b4634" roughness={1} /></mesh>
+      <mesh position={[0, -0.46, 0]} receiveShadow><boxGeometry args={[map.width + 2, 0.9, map.height + 2]} /><BaseMaterial /></mesh>
       <Terrain map={map} worldSeed={worldSeed} />
       <Water map={map} />
       <GroundContacts map={map} structures={structures} settlement={settlement} />

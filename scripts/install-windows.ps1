@@ -282,6 +282,32 @@ function Get-ServiceDetails {
     }
 }
 
+function Assert-ServiceInstallation {
+    param(
+        [Parameter()] [object] $Details,
+        [Parameter(Mandatory)] [string] $InstallPath
+    )
+
+    if ($null -eq $Details -or [string]::IsNullOrWhiteSpace([string] $Details.PathName)) {
+        throw 'Cannot verify the existing Little Ages service executable; no deployment changes were made.'
+    }
+    $commandLine = ([string] $Details.PathName).Trim()
+    $executable = $null
+    if ($commandLine -match '^"([^"]+)"(?:\s+.*)?$') {
+        $executable = $Matches[1]
+    }
+    elseif ($commandLine -match '^([^"]+?\.exe)(?:\s+.*)?$') {
+        # Accept legacy unquoted paths, but never infer ownership from the
+        # service name alone. New registrations always quote the executable.
+        $executable = $Matches[1]
+    }
+    $expected = Join-Path -Path $InstallPath -ChildPath 'LittleAges.Server.exe'
+    if ($null -eq $executable -or -not [IO.Path]::IsPathRooted($executable) -or
+        -not [string]::Equals([IO.Path]::GetFullPath($executable), [IO.Path]::GetFullPath($expected), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "The Little Ages service belongs to a different installation: $commandLine. Select its InstallDirectory; no deployment changes were made."
+    }
+}
+
 function Wait-ServiceState {
     param(
         [Parameter(Mandatory)] [System.ServiceProcess.ServiceControllerStatus] $Desired,
@@ -396,21 +422,30 @@ function Write-DeploymentState {
 }
 
 function Set-ServiceRegistration {
+    [CmdletBinding(DefaultParameterSetName = 'Executable')]
     param(
-        [Parameter(Mandatory)] [string] $ExecutablePath,
+        [Parameter(Mandatory, ParameterSetName = 'Executable')] [string] $ExecutablePath,
+        [Parameter(Mandatory, ParameterSetName = 'CommandLine')] [string] $BinaryPathName,
         [Parameter()] [string] $StartMode = 'auto',
         [Parameter()] [string] $Account = 'NT AUTHORITY\LocalService',
         [Parameter()] [switch] $SetAccount
     )
 
-    $sc = Join-Path -Path $env:SystemRoot -ChildPath 'System32\sc.exe'
-    if (-not (Test-Path -LiteralPath $sc -PathType Leaf)) { throw "Service control executable was not found: $sc" }
-    $quotedExecutable = '"{0}"' -f $ExecutablePath
-    $arguments = @('config', $script:ServiceName, 'binPath=', $quotedExecutable, 'start=', $StartMode)
-    if ($SetAccount) {
-        $arguments += @('obj=', $Account)
+    # Pass the command line as structured data. Windows PowerShell's native
+    # argument conversion strips embedded quotes before sc.exe receives them.
+    $service = Get-CimInstance -ClassName Win32_Service -Filter "Name='Little Ages'" -ErrorAction Stop
+    if ($null -eq $service) { throw 'The Little Ages service registration was not found.' }
+    $arguments = @{
+        PathName = $(if ($PSCmdlet.ParameterSetName -eq 'CommandLine') { $BinaryPathName } else { '"{0}"' -f $ExecutablePath })
+        StartMode = $(switch ($StartMode) { 'auto' { 'Automatic' } 'demand' { 'Manual' } 'disabled' { 'Disabled' } default { throw "Unsupported start mode: $StartMode" } })
     }
-    Invoke-NativeChecked -FilePath $sc -Arguments $arguments -Operation "Updating Windows Service '$($script:ServiceName)'"
+    if ($SetAccount) {
+        $arguments['StartName'] = $Account
+    }
+    $result = Invoke-CimMethod -InputObject $service -MethodName Change -Arguments $arguments -ErrorAction Stop
+    if ($result.ReturnValue -ne 0) {
+        throw "Updating Windows Service '$($script:ServiceName)' failed with code $($result.ReturnValue)."
+    }
 }
 
 function Remove-ServiceRegistration {
@@ -520,11 +555,17 @@ function Restore-ManagedFirewallState {
 function Set-DataDirectoryAcl {
     param([Parameter(Mandatory)] [string] $Path)
 
+    # ProgramData inherits a Users create-file grant. The existing database can
+    # be read-only to Users while its directory still allows planted DB/WAL
+    # files. Preserve other principals and ownership, but make Users read-only.
     $icacls = Join-Path -Path $env:SystemRoot -ChildPath 'System32\icacls.exe'
     if (-not (Test-Path -LiteralPath $icacls -PathType Leaf)) { throw "ACL utility was not found: $icacls" }
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/inheritance:d') -Operation "Protecting data directory permissions at '$Path'"
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/remove:g', '*S-1-5-32-545') -Operation "Removing broad Users grants at '$Path'"
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/grant:r', '*S-1-5-32-545:(OI)(CI)RX') -Operation "Restricting Users to read access at '$Path'"
     # /grant:r replaces this installer's explicit entry instead of accumulating
     # duplicate LocalService ACEs on every upgrade.
-    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/grant:r', 'NT AUTHORITY\LOCAL SERVICE:(OI)(CI)M', '/T', '/C') -Operation "Granting LocalService access to '$Path'"
+    Invoke-NativeChecked -FilePath $icacls -Arguments @($Path, '/grant:r', '*S-1-5-19:(OI)(CI)M', '/T', '/C') -Operation "Granting LocalService access to '$Path'"
 }
 
 function Start-AndVerifyService {
@@ -602,6 +643,9 @@ $configPath = Join-Path -Path $installPath -ChildPath 'appsettings.json'
 $existingConfiguration = Read-ExistingConfiguration -Path $configPath
 $existingService = Get-Service -Name $script:ServiceName -ErrorAction SilentlyContinue
 $existingServiceDetails = if ($null -ne $existingService) { Get-ServiceDetails } else { $null }
+if ($null -ne $existingService) {
+    Assert-ServiceInstallation -Details $existingServiceDetails -InstallPath $installPath
+}
 $existingServiceWasRunning = $null -ne $existingService -and $existingService.Status -eq [System.ServiceProcess.ServiceControllerStatus]::Running
 $oldBinaryPath = if ($null -ne $existingServiceDetails) { [string] $existingServiceDetails.PathName } else { $null }
 $oldStartMode = if ($null -ne $existingServiceDetails) { [string] $existingServiceDetails.StartMode } else { 'Auto' }
@@ -783,7 +827,7 @@ catch {
                 '^Manual$' { 'demand'; break }
                 default { 'auto' }
             }
-            Set-ServiceRegistration -ExecutablePath $oldBinaryPath.Trim('"') -StartMode $restoreStart -Account $oldAccount -SetAccount
+            Set-ServiceRegistration -BinaryPathName $oldBinaryPath -StartMode $restoreStart -Account $oldAccount -SetAccount
         }
         if ($null -ne $existingService -and $existingServiceWasRunning) {
             Start-Service -Name $script:ServiceName -ErrorAction Stop

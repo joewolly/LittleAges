@@ -11,6 +11,37 @@ public sealed class M6HistoryPersistenceTests
 {
     private static readonly HistoricalEventType[] InitializationTypes = [HistoricalEventType.WorldCreated, HistoricalEventType.SettlementFounded, HistoricalEventType.SeasonStarted];
 
+    [Theory]
+    [InlineData(SimulationEngine.M6SimulationRulesVersion)]
+    [InlineData(SimulationEngine.CurrentSimulationRulesVersion)]
+    public async Task SameMinutePartnerDeathsCheckpointAndReloadWithoutChangingHistory(string rules)
+    {
+        await WithDatabaseAsync(async path =>
+        {
+            var engine = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: rules);
+            var partners = Citizens(engine).Values.Where(citizen => citizen.AgeYears(engine.CurrentMinute) >= 18).OrderBy(citizen => citizen.Id.Value).Take(2).ToArray();
+            var relationships = Assert.IsType<Dictionary<(long CitizenAId, long CitizenBId), RelationshipState>>(typeof(SimulationEngine).GetField("_relationships", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
+            var pair = RelationshipState.Normalize(partners[0].Id, partners[1].Id);
+            var relationship = new RelationshipState(pair.A, pair.B, 6000, 6000, 5000, 0, 0, 1);
+            relationships.Add((pair.A.Value, pair.B.Value), relationship);
+            InvokePrivate(engine, "TryFormPartnership", partners[0], partners[1], relationship);
+            InvokePrivate(engine, "RecordPartnershipHistory", partners[0], partners[1]);
+            InvokePrivate(engine, "KillNatural", partners[0]);
+            InvokePrivate(engine, "KillNatural", partners[1]);
+            var memory = Assert.Single(engine.Memories, item => item.MemoryType == MemoryType.PartnerDied);
+            var fingerprint = engine.HistoryFingerprint;
+            await using (var database = await WorldDatabase.OpenAsync(path))
+                await database.CreateCheckpointStore().CheckpointAsync(engine.CreatePersistenceSnapshot());
+            await using var reopened = await WorldDatabase.OpenAsync(path);
+            var restored = SimulationEngine.FromPersistenceSnapshot(await reopened.CreateCheckpointStore().LoadAsync());
+            Assert.Equal(fingerprint, restored.HistoryFingerprint);
+            Assert.Contains(memory, restored.Memories);
+            engine.AdvanceUntil(new WorldMinute(1440));
+            restored.AdvanceUntil(new WorldMinute(1440));
+            Assert.Equal(engine.HistoryFingerprint, restored.HistoryFingerprint);
+        });
+    }
+
     [Fact]
     public async Task M8CheckpointWithMoreThanTwentyCitizensReopensWithoutM2SentinelRejection()
     {
