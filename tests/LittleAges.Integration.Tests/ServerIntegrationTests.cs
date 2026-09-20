@@ -21,6 +21,30 @@ namespace LittleAges.Integration.Tests;
 public sealed class ServerIntegrationTests
 {
     [Fact]
+    public async Task GrowthEndpointPublishesNewWorldHouseholdsWithoutChangingTheWorld()
+    {
+        var root = CreateDataRoot();
+        try
+        {
+            using var factory = new ServerFactory(root, simulationMinutesPerSecond: 0, worldSeed: 42,
+                suppressLogs: true, newWorldRules: SimulationEngine.GrowthSimulationRulesVersion);
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            using var first = await client.GetAsync("/api/v1/growth");
+            using var second = await client.GetAsync("/api/v1/growth");
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+            var json = await first.Content.ReadAsStringAsync();
+            Assert.Equal(json, await second.Content.ReadAsStringAsync());
+            using var result = JsonDocument.Parse(json);
+            Assert.Equal(20, result.RootElement.GetProperty("living").GetInt32());
+            var households = result.RootElement.GetProperty("households").EnumerateArray().ToArray();
+            Assert.Equal(20, households.Length);
+            Assert.All(households, h => Assert.Equal(JsonValueKind.String, h.GetProperty("householdId").ValueKind));
+            Assert.All(households, h => Assert.Contains("No partnered pair", h.GetProperty("blockers").EnumerateArray().Select(b => b.GetString())));
+        }
+        finally { CleanupDataRoot(root); }
+    }
+    [Fact]
     public void ObservationProjectionCopiesMutableDomainReadModels()
     {
         var sourceSkills = new CitizenSkills(1, 2, 3, 4, 5, 6);
@@ -922,12 +946,13 @@ public sealed class ServerIntegrationTests
         }
     }
 
-    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false) : WebApplicationFactory<Program>
+    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false, string newWorldRules = SimulationEngine.CurrentSimulationRulesVersion) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("DataRoot", dataRoot);
             builder.UseSetting("ActiveWorld", "integration-world");
+            builder.UseSetting("NewWorldRules", newWorldRules);
             builder.UseSetting("WorldSeed", worldSeed.ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
             builder.UseSetting("SimulationMinutesPerSecond", simulationMinutesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture));

@@ -240,6 +240,8 @@ footer { display: none; }
 .observer-drawer-body[data-tab="overview"] > .households,
 .observer-drawer-body[data-tab="buildings"] > .structures,
 .observer-drawer-body[data-tab="citizens"] > .citizens,
+.observer-drawer-body[data-tab="citizens"] > .growth-surface,
+.observer-drawer-body[data-tab="citizens"] > .households,
 .observer-drawer-body[data-tab="citizens"] > .relationship-inspector,
 .observer-drawer-body[data-tab="citizens"] > .biography-surface,
 .observer-drawer-body[data-tab="history"] > .history-surface,

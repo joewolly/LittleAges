@@ -131,7 +131,10 @@ internal static class HeadlessInvariantValidator
     private static bool ValidatePartners(SimulationPersistenceSnapshot snapshot)
     {
         var byId = snapshot.Citizens.ToDictionary(item => item.Id.Value);
-        return snapshot.Citizens.All(item => item.PartnerId is null || byId.TryGetValue(item.PartnerId.Value.Value, out var partner) && partner.PartnerId == item.Id);
+        var growth = SimulationEngine.GrowthSystemsEnabled(snapshot.SimulationRulesVersion);
+        return snapshot.Citizens.All(item => item.PartnerId is null ||
+            byId.TryGetValue(item.PartnerId.Value.Value, out var partner) &&
+            (growth && !item.IsAlive || partner.PartnerId == item.Id && (!growth || partner.IsAlive)));
     }
 
     private static bool ValidateScheduled(SimulationPersistenceSnapshot snapshot)

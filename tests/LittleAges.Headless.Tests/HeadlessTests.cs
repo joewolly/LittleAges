@@ -10,6 +10,25 @@ namespace LittleAges.Headless.Tests;
 
 public sealed class HeadlessTests
 {
+    [Fact]
+    public void GrowthAcceptanceAllowsRecordedBereavementButRejectsBrokenLivingPartnership()
+    {
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.GrowthSimulationRulesVersion);
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var people = ((Dictionary<long, Citizen>)typeof(SimulationEngine).GetField("_citizens", flags)!.GetValue(engine)!).Values.OrderBy(c => c.Id.Value).Take(2).ToArray();
+        void Invoke(string name, params object[] args) => typeof(SimulationEngine).GetMethod(name, flags)!.Invoke(engine, args);
+        Invoke("SetRelationship", people[0].Id, people[1].Id, 9000, 9000, 9000, 0);
+        Invoke("TryFormPartnership", people[0], people[1], Assert.Single(engine.Relationships));
+        Invoke("RecordPartnershipHistory", people[0], people[1]);
+        var valid = engine.CreatePersistenceSnapshot();
+        Assert.True(Assert.Single(HeadlessInvariantValidator.Validate(engine, valid, 0), i => i.Name == "partnership-symmetry").Passed);
+        valid.Citizens.Single(c => c.Id == people[1].Id).PartnerId = null;
+        Assert.False(Assert.Single(HeadlessInvariantValidator.Validate(engine, valid, 0), i => i.Name == "partnership-symmetry").Passed);
+        Invoke("KillNatural", people[0]);
+        var bereaved = engine.CreatePersistenceSnapshot();
+        Assert.All(HeadlessInvariantValidator.Validate(engine, bereaved, 0), i => Assert.True(i.Passed, i.Details));
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(10)]

@@ -376,7 +376,7 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentOutOfRangeException.ThrowIfNegative(revision);
@@ -389,6 +389,11 @@ public sealed record ServerObservationSnapshot
         Relationships = Array.AsReadOnly((relationships ?? Array.Empty<RelationshipState>()).OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray());
         Households = Array.AsReadOnly((households ?? Array.Empty<Household>()).OrderBy(x => x.Id.Value).Select(x => new Household(x.Id, x.CreatedMinute) { DissolvedMinute = x.DissolvedMinute, DwellingStructureId = x.DwellingStructureId }).ToArray());
         History = history is null ? null : new ServerHistorySnapshot(history, Citizens, Structures);
+        Growth = growth is null ? null : growth with
+        {
+            DeathCauses = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(new Dictionary<string, int>(growth.DeathCauses, StringComparer.Ordinal)),
+            Households = Array.AsReadOnly(growth.Households.Select(h => h with { Blockers = Array.AsReadOnly(h.Blockers.ToArray()) }).ToArray())
+        };
     }
 
     public ServerStatusSnapshot Status { get; }
@@ -400,6 +405,7 @@ public sealed record ServerObservationSnapshot
     public IReadOnlyList<RelationshipState> Relationships { get; }
     public IReadOnlyList<Household> Households { get; }
     public ServerHistorySnapshot? History { get; }
+    public GrowthObservation? Growth { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -649,7 +655,7 @@ public sealed partial class SimulationHost : BackgroundService
             return;
         }
 
-        _engine = new SimulationEngine(_options.WorldSeed, simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
+        _engine = new SimulationEngine(_options.WorldSeed, simulationRulesVersion: _options.NewWorldRules, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
         await WriteCheckpointWithRetriesAsync("initial", cancellationToken);
         _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
         LogWorldCreated(_options.ActiveWorld, _options.DatabasePath);
@@ -980,7 +986,7 @@ public sealed partial class SimulationHost : BackgroundService
             Paused: Volatile.Read(ref _paused) != 0,
             OperationalSpeed: Volatile.Read(ref _operationalSpeed));
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision);
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation());
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)

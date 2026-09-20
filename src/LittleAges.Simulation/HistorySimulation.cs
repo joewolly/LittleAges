@@ -278,7 +278,7 @@ public sealed partial class SimulationEngine
             EmitHistory(HistoricalEventType.SeasonStarted, HistoricalImportance.Routine, null, HistoricalEventPayloads.SeasonStarted(date.Season, date.Year));
         }
         _statisticsSamples.Add(new StatisticsSample(CurrentMinute.Value, _historyState.PeriodStartMinute, living.Length, _historyState.BirthsSinceSample, _historyState.DeathsSinceSample, Settlement.FoodStored, _historyState.FoodProducedSinceSample, _historyState.FoodConsumedSinceSample, Settlement.WoodStored, Settlement.StoneStored, ShelterCapacity, checked((int)averageHealth), checked((int)averageHunger)));
-        if (SimulationRulesVersion == CurrentSimulationRulesVersion) ReevaluateFoodShortageAtStatisticsSample();
+        if (UsesSampledShortageRecovery(SimulationRulesVersion)) ReevaluateFoodShortageAtStatisticsSample();
         _historyState.PeriodStartMinute = CurrentMinute.Value;
         _historyState.BirthsSinceSample = 0;
         _historyState.DeathsSinceSample = 0;
