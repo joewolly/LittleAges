@@ -73,6 +73,14 @@ var snapshotClock = Stopwatch.StartNew();
 var snapshot = engine.CreatePersistenceSnapshot();
 snapshotClock.Stop();
 var afterPath = Path.Combine(root, "after.db");
+// Preserve the same SQLite allocation history for a meaningful growth measure.
+// Comparing an updated database with a newly-created compact file can shrink
+// merely because free pages are laid out differently.
+await using (var before = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = beforePath, Mode = SqliteOpenMode.ReadOnly }.ToString()))
+await using (var after = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = afterPath }.ToString()))
+{
+    await before.OpenAsync(); await after.OpenAsync(); before.BackupDatabase(after);
+}
 var checkpointClock = Stopwatch.StartNew();
 await using (var db = await WorldDatabase.OpenAsync(afterPath)) await db.CreateCheckpointStore().CheckpointAsync(snapshot);
 checkpointClock.Stop();

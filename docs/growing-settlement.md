@@ -260,17 +260,189 @@ acceptance results are recorded separately below.
 
 ## Final v0.2 acceptance
 
-M11 balancing constants are frozen on 2026-09-20 before the final long-horizon
-acceptance runs. Four completed candidate worlds have year-100 populations 52
-(seed 7), 42 (42), 68 (123), and 54 (1001), all with five generations and all
-mandatory invariants passing. The fifth candidate is still finishing; even a zero
-result would leave four survivors and median 52. Final acceptance reruns all five
-seeds from this freeze and compares seed 42 against a real SQLite reopen at 37.
+M11 balancing constants were frozen in commit `3e0360e` on 2026-09-20 before
+final long-horizon acceptance. Later commits only refine the 2D observer legend
+and the measurement script. No canonical domain, simulation, or persistence code
+changed after the freeze. The candidate matrix completed with populations
+52, 42, 68, 54, and 96, median 54, and maximum ancestry depths 6, 5, 5, 5, and 6.
+Final acceptance reran all five seeds and compared seed 42 against a real SQLite
+reopen at year 37. All gates pass; the complete results are below.
 
-Stage validation passes Release build with zero warnings; backend Domain 26,
-Simulation 220, Persistence 154, Integration 61 (59 full-suite plus two added
-observer/default regressions), and Headless 12. The new-default headless tests
-and final packaged application are rechecked during final acceptance.
+Release build passes with zero warnings. Backend checks pass: Domain 26,
+Simulation 220, Persistence 154, Integration 61, and Headless 12 (**473 total**).
+The complete Integration suite and all Headless tests were repeated after the
+new default and observer changes. Frontend lint, typecheck, all 152 tests, and
+production build pass. The stock meter includes private goods and escrow; new
+structure counts include farms, granaries, and markets. The 2D fallback has
+separate activity colors and a visible legend for farming, harvest hauling, and
+market trips. The legend was moved clear of the selected-citizen card after
+inspection at 390 x 844.
 
-The final seed table, exact reopen fingerprints, package QA, and measured
-ordinary/larger-village performance are recorded after those runs finish.
+### Matched ten-year diagnosis
+
+Both runs use the same fixed seeds, generated maps, twenty founders, ten-year
+horizon, and monthly observation cadence. Different rules and their declared
+versioned constants are the only gameplay differences. Full monthly records,
+including age distributions and overlapping reproductive blockers, are retained
+in `artifacts/v02/baseline/` and `artifacts/v02/final-diagnosis/`.
+
+| Seed | M8 living | M11 living | M8 exposure / deprivation deaths | M11 deaths | M11 births | M11 partnered adults | M11 children / young children | M11 housed / capacity |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 7 | 12 | 33 | 12 / 2 | 0 | 13 | 18 | 7 / 6 | 33 / 36 |
+| 42 | 10 | 30 | 7 / 6 | 0 | 10 | 20 | 5 / 5 | 30 / 36 |
+| 123 | 14 | 33 | 7 / 3 | 0 | 13 | 20 | 7 / 6 | 33 / 36 |
+| 1001 | 11 | 32 | 3 / 7 | 0 | 12 | 20 | 5 / 7 | 32 / 36 |
+| 20260918 | 9 | 35 | 3 / 10 | 0 | 15 | 18 | 10 / 5 | 35 / 40 |
+
+All twenty M11 founders survive through year 10. At the final monthly sample,
+no M11 household is blocked by food or poor health/hunger; age, household size,
+actual home capacity, and birth spacing still restrict opportunities. One seed-42
+household is currently ready. The other seeds have zero ready households at that
+particular sample, demonstrating that growth is not continuously forced. Housing
+blocker counts can overlap household-size and age blockers; unused settlement
+capacity does not imply room in a particular household's dwelling. The optional
+M8 century extension was stopped in favor of these completed matched comparisons;
+its partial logs are retained and are not acceptance evidence.
+
+### Local package and compatibility
+
+The final self-contained ZIP is
+`artifacts/v02/final-package-verified/LittleAges-v0.2.0-win-x64.zip`.
+Size: 54,166,183 bytes. SHA-256:
+`4364d4cff31e8db1be409bb699395fd26704f069ba53314d3bfbecf6060dc23a`.
+It includes all seven existing diorama GLBs (1,105,956 bytes total); farms,
+granaries, and markets are procedural scene geometry. Packaging used the existing
+disposable win-x64 lock-graph recovery and revalidated those graphs in locked mode.
+The checked-in dependency locks were preserved; npm reported zero vulnerabilities.
+Vite's existing large 3D chunk warning remains.
+
+Disposable M9 and M10 databases open under the final backend with Healthy
+persistence. Hashes of every pre-existing table remain unchanged, foreign-key
+checks are empty, and neither copy gains an economy row. M9 has no agriculture
+row; M10 keeps its one existing agriculture row. See
+`artifacts/v02/final-legacy-m9/result.json` and `final-legacy-m10/result.json`.
+M8 compatibility is also exercised by the pinned historical suites. Experimental
+M11 preview databases from before the canonical cargo-owner field are development
+artifacts, not released save formats. No installed world was opened or modified.
+
+Final packaged desktop/mobile checks cover live updates, reconnect after an
+injected WebSocket close and offline interval, pause/resume/speed, reduced motion,
+2D fallback, and no horizontal overflow. Application errors are empty; the
+pre-existing favicon 404 and deliberately injected offline errors are recorded
+separately. Screenshots and QA JSON are in the task visualization directory under
+`v02-final-*`. A larger naturally grown settlement is checked separately.
+
+### Measurement method
+
+`scripts/Measure-GrowingSettlement.ps1` creates an isolated probe and database
+copies. It warms up one simulated day, measures ten days, captures an exact
+checkpoint, performs a real reopen, and compares social, history, agriculture,
+and economy fingerprints. SQLite's backup API copies sources without editing
+them. Output directories must be new. The preparation run grows a seed-20260918
+world naturally to year 80; measured ordinary and larger runs then use separate
+processes. No synthetic citizens or resources are added.
+
+The local host is Windows 11 build 26200, .NET 10.0.0 runtime / SDK 10.0.100,
+AMD Ryzen 5 5600X (6 cores / 12 logical processors), approximately 31.9 GiB RAM,
+and an RTX 3060 Ti. Browser measurements use installed headless Chrome at
+1440 x 1000, normal motion, operational speed 10, and the actual packaged app.
+Measured renderer information, adaptive detail tier, frame intervals, long tasks,
+and JavaScript heap are recorded with the results. They are local observations,
+not claims about other hardware or unmeasured mobile frame-rate targets.
+
+### Final century results
+
+Every seed is reported, including the smaller seed-42 settlement. All mandatory
+invariants pass; all final agriculture/economy state and social/history fingerprints
+also match the corresponding frozen-candidate replay. Founders are ancestry depth
+zero, so depths 5 and 6 represent six and seven generations including founders.
+
+| Seed | Living at 100 | Births | Deaths | Ancestry depth | Completed trades | Inheritances | Invariants |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 7 | 52 | 75 | 43 | 6 | 256 | 3 | Pass |
+| 42 | 42 | 61 | 39 | 5 | 191 | 7 | Pass |
+| 123 | 68 | 87 | 39 | 5 | 243 | 4 | Pass |
+| 1001 | 54 | 74 | 40 | 5 | 209 | 6 | Pass |
+| 20260918 | 96 | 123 | 47 | 6 | 282 | 6 | Pass |
+
+**5/5 survive; median population 54; all demonstrate at least four generations.**
+Seed 1001 records one cancelled trade, in addition to the 209 completed trades.
+The targeted scarcity fixture still exhausts finite supplies and becomes extinct;
+these favorable standard-seed outcomes do not create a survival guarantee.
+
+Seed 42 reaches minute 51,840,000 after 100 years. Run A is uninterrupted. Run B
+writes SQLite at year 37 (minute 19,180,800), closes the connection, opens the real
+database, restores the engine, and continues. Their complete canonical snapshot
+fingerprints are identical, with zero mismatched components:
+
+`2077c414ddb7d41cefc621e24031049acb153c4b6f40bb01d46123e8566e6d87`
+
+This covers canonical metadata, counters, pending events, people, resources,
+structures, relationships, households, history, statistics, memories, crops,
+work, ownership, offers, reservations, cargo, escrow, and economic events. The
+focused planting, harvest hauling, escrow, settlement, inheritance, corruption,
+and atomic rollback tests provide additional seam coverage.
+
+### Measured performance
+
+The two ten-day probe measurements were separate processes; background desktop
+activity and the last acceptance worker were not isolated. The browser profile
+and some measurement work overlapped. These are reproducible local measurements,
+not a controlled cross-hardware benchmark. The early-village workload contains
+more construction and discovery, so events/second is not a pure population
+scaling ratio. Initial checkpoint timings include database/provider startup.
+
+| Measurement | Ordinary, 20 residents | Larger, 80 residents |
+|---|---:|---:|
+| Ten-day events | 9,489 | 48,537 |
+| Advance elapsed | 2.803 s | 0.869 s |
+| Events/second | 3,385 | 55,858 |
+| Snapshot creation | 192.9 ms | 434.6 ms |
+| Final checkpoint | 1836.0 ms | 3645.0 ms |
+| Peak working set | 298.2 MiB | 302.4 MiB |
+| Database after / ten-day growth | 1,359,872 / +20,480 bytes | 2,990,080 / +4,096 bytes |
+| Browser mean frame interval | 31.25 ms | 38.76 ms |
+| Browser mean cadence | 32.0 FPS | 25.8 FPS |
+| Browser p95 frame interval | 31.6 ms | 62.7 ms |
+| Browser JS heap | 81.4 MiB | 96.9 MiB |
+
+Chrome 153.0.8010.48 used ANGLE / RTX 3060 Ti / Direct3D11. Both scenes selected
+the renderer's reduced detail tier. Each frame profile contains 599 samples after
+120 warmup frames. The ordinary profile recorded one long task totaling 330 ms;
+the larger profile recorded two totaling 134 ms. The diagnostic renderer snapshots
+show 234 versus 887 draw calls and approximately 316,000 versus 3.78 million
+triangles. Dense storage buildings can obscure citizens in the default larger-
+village camera view; camera controls, citizen records, and 2D fallback remain
+available. These results do **not** establish a 60 FPS target or a mobile FPS claim.
+
+The naturally grown preparation database increased from 1,323,008 bytes at
+founding to 2,879,488 at year 80. The ten-day table preserves the source database's
+SQLite allocation history on both sides. Earlier exploratory measurements compared
+against fresh compact files and could show apparent shrinkage; those are retained
+but are not used for the final growth figures. Both final probes reopen exactly.
+
+[Machine-readable acceptance and measurements](acceptance/v0.2-growing-settlement.json)
+retain all seed results, fingerprints, package provenance, and measured values.
+Full reports remain under `artifacts/v02/final-acceptance/`; final probe output is
+under `artifacts/v02/performance-ordinary/` and `performance-larger/`.
+
+### Reproduce locally
+
+```powershell
+dotnet run --project src/LittleAges.Headless -c Release -- acceptance --rules m11-rng1-barter1 --seed 42 --years 100 --checkpoint-year 37 --database artifacts/recheck/world.db --output artifacts/recheck/report.json
+./scripts/Measure-GrowingSettlement.ps1 -OutputDirectory artifacts/measure-ordinary
+./scripts/Measure-GrowingSettlement.ps1 -OutputDirectory artifacts/prepare-larger -Seed 20260918 -PrepareYears 80
+./scripts/Measure-GrowingSettlement.ps1 -OutputDirectory artifacts/measure-larger -SourceDatabase artifacts/prepare-larger/world.db
+```
+
+Use the pinned SDK 10.0.100; pass `-Dotnet` to the measurement script if it is not
+on PATH. Acceptance database paths and measurement output directories must be new.
+No publication, installation, or reset of the running civilization was performed.
+
+### Packaged observer captures
+
+![Household economy in the packaged observer](assets/growing-settlement/households.png)
+
+![Farming and winter reserves on mobile](assets/growing-settlement/farming-mobile.png)
+
+![2D farming and market activity legend on mobile](assets/growing-settlement/fallback-mobile.png)
