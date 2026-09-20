@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
 import type { Citizen, Map, Settlement, Structure } from '../api'
 import { LegacyMap } from './LegacyMap'
+import { FarmModel, GranaryModel } from './FarmModel'
 import { GroundContacts } from './GroundContacts'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
 import { worldGeometry } from './assetGeometry'
@@ -354,7 +355,7 @@ function CitizenModel({ citizen, map, structures, presentationClock, worldSeed, 
     <group ref={body}>
       <primitive object={painted} />
       {citizen.carriedResource !== null && <mesh position={[0, 0.6, 0.24]}><boxGeometry args={[0.32, 0.24, 0.22]} /><meshStandardMaterial color={citizen.carriedResource === 'Food' ? '#a9554a' : citizen.carriedResource === 'Wood' ? '#765137' : '#817971'} /></mesh>}
-      {(citizen.currentAction === 'Build' || citizen.currentAction === 'HaulConstruction') && <mesh position={[0.3, 0.58, 0]} rotation={[0, 0, -0.65]}><boxGeometry args={[0.38, 0.05, 0.06]} /><meshStandardMaterial color="#6e5038" /></mesh>}
+      {(citizen.currentAction === 'Build' || citizen.currentAction === 'HaulConstruction' || citizen.currentAction === 'WorkFarm' || citizen.currentAction === 'HaulHarvest') && <mesh position={[0.3, 0.58, 0]} rotation={[0, 0, -0.65]}><boxGeometry args={[0.38, 0.05, 0.06]} /><meshStandardMaterial color="#6e5038" /></mesh>}
     </group>
   </group>
 }
@@ -507,7 +508,7 @@ function DioramaScene({ map, citizens, structures, worldMinute, settlement, worl
       <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
       <Suspense fallback={null}>
         <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
-        {structures.map(structure => <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
+        {structures.map(structure => structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} />)}
         {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} map={map} structures={structures} presentationClock={presentationClock} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
         {diagnosticsEnabled && <SceneStats onStats={onStats} />}
       </Suspense>

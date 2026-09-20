@@ -26,8 +26,8 @@ internal static class HeadlessSnapshotComparer
     {
         var leftComponents = Components(left);
         var rightComponents = Components(right);
-        var mismatches = leftComponents.Keys
-            .Where(key => !string.Equals(JsonSerializer.Serialize(leftComponents[key], JsonOptions), JsonSerializer.Serialize(rightComponents[key], JsonOptions), StringComparison.Ordinal))
+        var mismatches = leftComponents.Keys.Union(rightComponents.Keys, StringComparer.Ordinal)
+            .Where(key => !string.Equals(JsonSerializer.Serialize(leftComponents.GetValueOrDefault(key), JsonOptions), JsonSerializer.Serialize(rightComponents.GetValueOrDefault(key), JsonOptions), StringComparison.Ordinal))
             .OrderBy(static key => key, StringComparer.Ordinal)
             .ToArray();
         var leftJson = JsonSerializer.Serialize(leftComponents, JsonOptions);
@@ -37,8 +37,10 @@ internal static class HeadlessSnapshotComparer
         return new HeadlessSnapshotComparison(mismatches.Length == 0 && string.Equals(leftFingerprint, rightFingerprint, StringComparison.Ordinal), mismatches, leftFingerprint, rightFingerprint);
     }
 
-    private static Dictionary<string, object?> Components(SimulationPersistenceSnapshot snapshot) => new(StringComparer.Ordinal)
+    private static Dictionary<string, object?> Components(SimulationPersistenceSnapshot snapshot)
     {
+        var components = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
         ["metadata"] = new { Seed = snapshot.Seed.Value, snapshot.WorldMinute, snapshot.WorldSchemaVersion, snapshot.SimulationRulesVersion, snapshot.ApplicationVersion, snapshot.WorldConfiguration, snapshot.CitizenGenerationVersion, snapshot.SurvivalVersion, snapshot.SettlementVersion, snapshot.SocialVersion, snapshot.HistoryVersion },
         ["counters"] = snapshot.Counters,
         ["world"] = snapshot.World,
@@ -56,7 +58,10 @@ internal static class HeadlessSnapshotComparer
         ["historicalEventStructures"] = snapshot.HistoricalEventStructures.OrderBy(item => item.HistoricalEventId.Value).ThenBy(item => item.StructureId.Value).ThenBy(item => item.Role, StringComparer.Ordinal).ToArray(),
         ["statisticsSamples"] = snapshot.StatisticsSamples.OrderBy(item => item.WorldMinute).ToArray(),
         ["memories"] = snapshot.Memories.OrderBy(item => item.CitizenId.Value).ThenBy(item => item.HistoricalEventId.Value).ThenBy(item => item.MemoryType).ToArray()
-    };
+        };
+        if (snapshot.Agriculture is not null) components.Add("agriculture", snapshot.Agriculture);
+        return components;
+    }
 
     private static string Fingerprint(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 }

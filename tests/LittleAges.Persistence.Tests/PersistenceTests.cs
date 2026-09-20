@@ -541,7 +541,7 @@ public sealed class PersistenceTests
             await using (var database = await WorldDatabase.OpenAsync(path, new WorldDatabaseOpenOptions(upgradeUtc)))
             {
                 var migrations = await database.Context.Database.GetAppliedMigrationsAsync();
-                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens", "20260912030000_M3Survival", "20260912040000_M4Settlement", "20260912050000_M5Social", "20260912060000_M6History"], migrations.ToArray());
+                Assert.Equal(["20260912000000_InitialM0", "20260912010000_M1World", "20260912020000_M2Citizens", "20260912030000_M3Survival", "20260912040000_M4Settlement", "20260912050000_M5Social", "20260912060000_M6History", "20260920000000_M10Agriculture"], migrations.ToArray());
                 var snapshot = await database.CreateCheckpointStore().LoadAsync();
                 Assert.Equal(ulong.MaxValue, snapshot.Seed.Value);
                 Assert.Equal(1234, snapshot.WorldMinute.Value);

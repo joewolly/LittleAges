@@ -566,6 +566,16 @@ public sealed class WorldCheckpointStore
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
 
             await WriteSnapshotRowsAsync(snapshot, world, createdUtc, checkpointUtc, cancellationToken);
+            var agricultureRow = await _context.AgricultureStates.SingleOrDefaultAsync(cancellationToken);
+            if (snapshot.Agriculture is { } agriculture)
+            {
+                agriculture.Validate(world, snapshot.Structures, snapshot.Citizens, snapshot.Settlement!.DemandUpdatedMinute, snapshot.WorldMinute.Value);
+                if (agricultureRow is null) _context.AgricultureStates.Add(new AgricultureStateRow { CanonicalJson = agriculture.ToCanonicalJson() });
+                else agricultureRow.CanonicalJson = agriculture.ToCanonicalJson();
+            }
+            else if (agricultureRow is not null) throw new InvalidDataException("An agricultural checkpoint cannot be replaced by legacy state.");
+            await _context.SaveChangesAsync(cancellationToken);
+
 
             if (failurePoint == CheckpointFailurePoint.AfterRowsWritten) throw new InvalidOperationException("Controlled checkpoint failure requested by the test hook.");
             await transaction.CommitAsync(cancellationToken);
@@ -760,7 +770,11 @@ public sealed class WorldCheckpointStore
             if (metadata.SettlementVersion == 0 && (structureRows.Count != 0 || contributionRows.Count != 0)) throw new InvalidDataException("Pre-M4 checkpoint contains M4 structure rows.");
             if (metadata.SocialVersion == 0 && (relationshipRows.Count != 0 || householdRows.Count != 0)) throw new InvalidDataException("Pre-M5 checkpoint contains social rows.");
             var historyState = historyStateRows.Count == 1 ? FromHistoryStateRow(historyStateRows[0], minute) : null;
-            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion, metadata.SettlementVersion, persistedStructures, persistedContributions, metadata.SocialVersion, relationshipRows.Select(FromRelationshipRow).ToArray(), householdRows.Select(FromHouseholdRow).ToArray(), metadata.HistoryVersion, historyState, historicalEvents, historicalCitizenLinks, historicalStructureLinks, statistics, memories);
+            var agricultureRow = await _context.AgricultureStates.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+            AgricultureState? agriculture;
+            try { agriculture = agricultureRow is null ? null : AgricultureState.Parse(agricultureRow.CanonicalJson); }
+            catch (JsonException exception) { throw new InvalidDataException("Malformed agriculture state.", exception); }
+            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion, metadata.SettlementVersion, persistedStructures, persistedContributions, metadata.SocialVersion, relationshipRows.Select(FromRelationshipRow).ToArray(), householdRows.Select(FromHouseholdRow).ToArray(), metadata.HistoryVersion, historyState, historicalEvents, historicalCitizenLinks, historicalStructureLinks, statistics, memories, agriculture);
             SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
         }
         catch (ArgumentException exception) { throw new InvalidDataException("The persisted checkpoint is not a valid persistence snapshot.", exception); }
@@ -782,7 +796,8 @@ public sealed class WorldCheckpointStore
         var householdCount = await _context.Households.AsNoTracking().CountAsync(cancellationToken);
         if (metadataCount == 0 && (scheduledEventCount > 0 || tileCount > 0 || resourceCount > 0 || resourceStateCount > 0 || settlementCount > 0 || citizenCount > 0 || structureCount > 0 || contributionCount > 0 || relationshipCount > 0 || householdCount > 0)) throw new InvalidDataException("Checkpoint rows exist without a world_meta checkpoint.");
         if (metadataCount == 0 &&
-            (await _context.HistoryStates.AnyAsync(cancellationToken) ||
+            (await _context.AgricultureStates.AnyAsync(cancellationToken) ||
+             await _context.HistoryStates.AnyAsync(cancellationToken) ||
              await _context.HistoricalEvents.AnyAsync(cancellationToken) ||
              await _context.HistoricalEventCitizens.AnyAsync(cancellationToken) ||
              await _context.HistoricalEventStructures.AnyAsync(cancellationToken) ||

@@ -75,6 +75,21 @@ app.MapHealthChecks("/api/v1/health", new HealthCheckOptions());
 app.MapHub<WorldHub>("/hubs/world");
 app.MapGet("/api/v1/status", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Status));
 app.MapGet("/api/v1/growth", (SimulationHost simulationHost) => Results.Ok(simulationHost.Observation.Growth));
+app.MapGet("/api/v1/agriculture", (SimulationHost host, int? offset, int? limit) =>
+{
+    var start = offset ?? 0; var count = limit ?? 50;
+    if (start < 0 || count is < 1 or > 200) return Results.BadRequest("offset must be nonnegative and limit between 1 and 200.");
+    var agriculture = host.Observation.Agriculture;
+    return agriculture is null ? Results.Ok(new { enabled = false }) : Results.Ok(new
+    {
+        enabled = true, agriculture.Version, agriculture.Food, agriculture.DedicatedFoodCapacity,
+        agriculture.WinterReserveTarget, agriculture.ProjectedCoverageDays,
+        farms = agriculture.Farms.Skip(start).Take(count), totalFarms = agriculture.Farms.Count,
+        harvests = agriculture.Harvests.Reverse().Skip(start).Take(count), totalHarvests = agriculture.Harvests.Count,
+        offset = start, limit = count
+    });
+});
+
 app.MapPost("/api/v1/control/pause", async (SimulationHost simulationHost, CancellationToken cancellationToken) =>
 {
     try { return Results.Ok(await simulationHost.RequestPauseAsync(cancellationToken)); }

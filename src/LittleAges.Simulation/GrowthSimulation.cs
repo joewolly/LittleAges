@@ -10,7 +10,7 @@ public sealed record GrowthObservation(int Living, int Births, int Deaths, int U
 
 public sealed partial class SimulationEngine
 {
-    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion == GrowthSimulationRulesVersion;
+    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion;
     public static bool UsesSampledShortageRecovery(string rulesVersion) => rulesVersion == M8SimulationRulesVersion || GrowthSystemsEnabled(rulesVersion);
 
     private void EnsureIndependentHouseholds()
@@ -71,6 +71,11 @@ public sealed partial class SimulationEngine
             GatherCandidate(CitizenAction.GatherWood, ResourceType.Wood, Settlement.WoodStored < woodMissing ? 9500 : Settlement.WoodStored < 80 ? 2500 : 0, 4);
             GatherCandidate(CitizenAction.GatherStone, ResourceType.Stone, Settlement.StoneStored < stoneMissing ? 9500 : Settlement.StoneStored < 40 ? 2500 : 0, 5);
         }
+        if (AgricultureSystemsEnabled(SimulationRulesVersion))
+        {
+            if (SelectFarmTarget(citizen, CitizenAction.WorkFarm) is { } field) Add(CitizenAction.WorkFarm, 6500, 201, travel[field.Location]);
+            if (SelectFarmTarget(citizen, CitizenAction.HaulHarvest) is { } harvest) Add(CitizenAction.HaulHarvest, 8500, 202, travel[harvest.Location]);
+        }
         // Once supplies and needs are satisfied, rest locally instead of aimless long trips.
         Add(CitizenAction.Idle, 500, 8);
         return result;
@@ -85,7 +90,7 @@ public sealed partial class SimulationEngine
                 .Sum(c => c.CarriedResourceQuantity > 0 ? (long)c.CarriedResourceQuantity :
                     c.CurrentAction is CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone
                         ? GrowthGatherYield(c, c.CurrentAction) : 0);
-            if (Settlement.StorageUsed + incoming + GrowthGatherYield(citizen, action) > StorageCapacity) return;
+            if (incoming + GrowthGatherYield(citizen, action) > AvailableStorage(type)) return;
             if (type == ResourceType.Food && Settlement.FoodStored == 0 && needs.Hunger >= 6000) score += needs.Hunger * 2;
             Add(action, score + citizen.Traits.Industriousness / 20, purpose, cost);
         }

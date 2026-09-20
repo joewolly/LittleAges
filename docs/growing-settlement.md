@@ -112,8 +112,55 @@ Browser plugin was unavailable; Playwright drove installed Chrome.
 
 ## Stage 2: farming and seasonal reserves
 
-Stage 1 gate passed; implementation next. Accepted M9 gameplay constants and
-behavior are frozen for M9 worlds.
+Implemented as `m10-rng1-agriculture1`; M9 remains frozen. One grain crop produces
+Food. Suitable land is buildable, reachable, free of resource nodes, and has
+fertility >= 3000 and water access >= 2000. Planting requires 1200 work and tending
+2400, in shifts of 100. Autumn harvest shifts collect at most 40 Food and carry it
+back to the communal depot. Winter closes the harvest; uncollected food is lost.
+Potential yield is `3000 + (fertility + water) * 9000 / 20000`; actual yield scales
+by planting completion and a tending multiplier from 25% to 100%, using integer
+arithmetic. No weather, spontaneous food, or population additions are used.
+
+A farm costs 60 Wood, 10 Stone, and 900 construction work. A granary costs 100 Wood,
+60 Stone, and 1500 work and adds 10000 dedicated Food capacity. Storage is pooled
+at the communal depot; granaries do not hold separate per-building inventories.
+Non-food goods cannot occupy dedicated granary capacity. Construction targets
+90 winter days at 9 Food per citizen per day and crop productive capacity of
+1080 Food per citizen per year, leaving gathering useful throughout the year.
+Food coverage is a projection, not a guarantee of adequate labor or harvests.
+
+The ten-year seed-42 acceptance run has 32 living citizens, 12 births, and no
+deaths. A real SQLite close/reopen at year 1 is canonically identical to the
+uninterrupted result, including crops, work, harvest records, and pending hauling.
+See `artifacts/v02/agriculture-acceptance/`. Focused reopen tests stop during actual
+planting and harvest transport. A labor-loss fixture removes tending work before
+autumn and demonstrates a smaller harvest followed by autonomous recovery the
+next year; it adds no resources or citizens. Daily snapshot validation over a
+year covers the full cycle. Harvest accounting requires yield = harvested + lost.
+
+Release build passes with zero warnings. Backend checks pass: Domain 26,
+Simulation 211, Persistence 148, Integration 58, Headless 12. The migration test's
+expected schema list was updated and rechecked alongside both new reopen tests.
+Frontend lint, typecheck, production build, and all 150 tests pass; one App test
+timed out under concurrent backend load and its entire 23-test file passed on
+recheck. A disposable copy of the M9 year-37 database opens under the M10 package
+without changing any pre-existing table contents, adding agriculture state, or
+violating foreign keys (`artifacts/v02/legacy-copy/result.json`). Its saved M9
+rules remain authoritative even when the fresh-world option requests M10.
+
+The local Windows package is
+`artifacts/v02/stage2-package/LittleAges-v0.2.0-agriculture-preview-win-x64.zip`,
+54116890 bytes, SHA-256
+`c1d971add7dd8e5e51342634d231c8a208d416537f14f51605ee419f4700b5e7`.
+Packaged desktop/mobile farming panels, production/consumption chart, harvest
+records, controls, live updates, reconnect, reduced motion, and 2D fallback pass
+with no horizontal overflow or application errors. Expected injected-offline
+errors and the pre-existing favicon 404 are recorded separately. Screenshots and
+browser results are in the task visualization directory under `agriculture-*`.
+
+A new-rules-only fix releases citizens from WaitingForStorage after depositing
+their last carried unit. The original behavior could strand an empty-handed
+worker until death. M8 and M9 behavior remains unchanged.
 
 ## Stage 3: occupations, ownership, and physical barter
 

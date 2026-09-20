@@ -219,11 +219,12 @@ public sealed record ServerStructureSnapshot
     public ServerStructureSnapshot(
         Structure structure,
         IEnumerable<string>? currentOccupantIds = null,
-        IEnumerable<ServerStructureContributionSnapshot>? contributions = null)
+        IEnumerable<ServerStructureContributionSnapshot>? contributions = null, CropStage? cropStage = null)
     {
         ArgumentNullException.ThrowIfNull(structure);
         StructureId = structure.Id.Value.ToString(CultureInfo.InvariantCulture);
         Type = structure.Type;
+        CropStage = cropStage?.ToString();
         Status = structure.Status;
         Location = structure.Location;
         StartedMinute = structure.ConstructionStartedMinute;
@@ -248,6 +249,8 @@ public sealed record ServerStructureSnapshot
 
     public string StructureId { get; }
     public StructureType Type { get; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CropStage { get; }
     public StructureStatus Status { get; }
     public TileCoordinate Location { get; }
     public long StartedMinute { get; }
@@ -376,7 +379,7 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentOutOfRangeException.ThrowIfNegative(revision);
@@ -389,6 +392,11 @@ public sealed record ServerObservationSnapshot
         Relationships = Array.AsReadOnly((relationships ?? Array.Empty<RelationshipState>()).OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray());
         Households = Array.AsReadOnly((households ?? Array.Empty<Household>()).OrderBy(x => x.Id.Value).Select(x => new Household(x.Id, x.CreatedMinute) { DissolvedMinute = x.DissolvedMinute, DwellingStructureId = x.DwellingStructureId }).ToArray());
         History = history is null ? null : new ServerHistorySnapshot(history, Citizens, Structures);
+        Agriculture = agriculture is null ? null : agriculture with
+        {
+            Farms = Array.AsReadOnly(agriculture.Farms.ToArray()),
+            Harvests = Array.AsReadOnly(agriculture.Harvests.ToArray())
+        };
         Growth = growth is null ? null : growth with
         {
             DeathCauses = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(new Dictionary<string, int>(growth.DeathCauses, StringComparer.Ordinal)),
@@ -406,6 +414,7 @@ public sealed record ServerObservationSnapshot
     public IReadOnlyList<Household> Households { get; }
     public ServerHistorySnapshot? History { get; }
     public GrowthObservation? Growth { get; }
+    public AgricultureObservation? Agriculture { get; }
 }
 
 public sealed record WorldStartingSiteSnapshot(int X, int Y);
@@ -963,7 +972,8 @@ public sealed partial class SimulationHost : BackgroundService
         var engine = _engine;
         var readSnapshot = engine?.CreateReadSnapshot();
         var citizenSnapshots = readSnapshot?.Citizens.Select(static citizen => new ServerCitizenSnapshot(citizen)).ToArray() ?? Array.Empty<ServerCitizenSnapshot>();
-        var structureSnapshots = readSnapshot is null ? Array.Empty<ServerStructureSnapshot>() : CreateStructureSnapshots(readSnapshot, citizenSnapshots);
+        var agriculture = engine?.CaptureAgriculture();
+        var structureSnapshots = readSnapshot is null ? Array.Empty<ServerStructureSnapshot>() : CreateStructureSnapshots(readSnapshot, citizenSnapshots, agriculture);
         var map = readSnapshot?.World is null ? null : Observation.Map ?? new ServerMapSnapshot(readSnapshot.World);
         var livingPopulation = citizenSnapshots.Count(static citizen => citizen.IsAlive);
         var deadPopulation = citizenSnapshots.Length - livingPopulation;
@@ -986,7 +996,7 @@ public sealed partial class SimulationHost : BackgroundService
             Paused: Volatile.Read(ref _paused) != 0,
             OperationalSpeed: Volatile.Read(ref _operationalSpeed));
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation());
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, engine?.Settlement.FoodStored ?? 0, engine?.GranaryCapacity ?? 0, livingPopulation));
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)
@@ -999,7 +1009,7 @@ public sealed partial class SimulationHost : BackgroundService
         }
     }
 
-    private static ServerStructureSnapshot[] CreateStructureSnapshots(SimulationStatusSnapshot readSnapshot, ServerCitizenSnapshot[] citizens)
+    private static ServerStructureSnapshot[] CreateStructureSnapshots(SimulationStatusSnapshot readSnapshot, ServerCitizenSnapshot[] citizens, AgricultureState? agriculture)
     {
         var contributions = readSnapshot.StructureContributions
             .GroupBy(static contribution => contribution.StructureId.Value)
@@ -1021,7 +1031,7 @@ public sealed partial class SimulationHost : BackgroundService
             .Select(structure => new ServerStructureSnapshot(
                 structure,
                 occupants.TryGetValue(structure.Id.Value, out var currentOccupants) ? currentOccupants : Array.Empty<string>(),
-                contributions.TryGetValue(structure.Id.Value, out var structureContributions) ? structureContributions : Array.Empty<ServerStructureContributionSnapshot>()))
+                contributions.TryGetValue(structure.Id.Value, out var structureContributions) ? structureContributions : Array.Empty<ServerStructureContributionSnapshot>(), agriculture?.Farms.SingleOrDefault(f => f.StructureId == structure.Id.Value)?.Stage))
             .ToArray();
     }
 
@@ -1047,7 +1057,7 @@ public sealed partial class SimulationHost : BackgroundService
         var completedStockpiles = structures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Stockpile);
         var completedWorkshops = structures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Workshop);
         var shelteredPopulation = citizens.Count(static citizen => citizen.IsAlive && citizen.HomeStructureId is not null);
-        var storageCapacity = checked(settlement.BaseStorageCapacity + completedStockpiles * CitizenSimulationRules.StockpileStorageBonus);
+        var storageCapacity = checked(settlement.BaseStorageCapacity + completedStockpiles * CitizenSimulationRules.StockpileStorageBonus + structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
         return new ServerSettlementSnapshot(
             settlement.FoodStored,
             settlement.WoodStored,

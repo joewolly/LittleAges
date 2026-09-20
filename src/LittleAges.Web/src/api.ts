@@ -121,12 +121,13 @@ export type Household = {
   childrenIds: string[]
 }
 
-export type StructureType = 'Shelter' | 'Stockpile' | 'Workshop'
+export type StructureType = 'Shelter' | 'Stockpile' | 'Workshop' | 'Farm' | 'Granary'
 export type StructureStatus = 'UnderConstruction' | 'Complete'
 export type StructureContribution = { citizenId: string; constructionWork: number; woodDelivered: number; stoneDelivered: number }
 export type Structure = {
   structureId: string
   type: StructureType
+  cropStage?: string | null
   status: StructureStatus
   location: { x: number; y: number }
   startedMinute: number
@@ -549,11 +550,11 @@ export async function fetchStatistics(query: StatisticsQuery = {}): Promise<Stat
   return parseStatistics(await get(`/api/v1/statistics?${suffix}`))
 }
 
-const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize'] as const
+const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood', 'GatherWood', 'GatherStone', 'Dead', 'HaulConstruction', 'Build', 'Socialize', 'WorkFarm', 'HaulHarvest'] as const
 const ACTION_PHASES = ['None', 'TravelToTarget', 'Perform', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction', 'WaitingForStorage'] as const
 const RESOURCE_TYPES = ['Food', 'Wood', 'Stone'] as const
 const OCCUPATIONS = ['Generalist', 'Forager', 'Lumberjack', 'Stoneworker', 'Builder', 'Hauler'] as const
-const STRUCTURE_TYPES = ['Shelter', 'Stockpile', 'Workshop'] as const
+const STRUCTURE_TYPES = ['Shelter', 'Stockpile', 'Workshop', 'Farm', 'Granary'] as const
 const STRUCTURE_STATUSES = ['UnderConstruction', 'Complete'] as const
 const RELATIONSHIP_LABELS = ['Partner', 'Family', 'Rival', 'Close Friend', 'Friend', 'Acquaintance', 'Stranger'] as const
 
@@ -776,6 +777,7 @@ export function parseStructure(value: unknown): Structure {
   if (!isRecord(value)) throw new Error('The server returned an invalid structure.')
   if (typeof value.type !== 'string' || !STRUCTURE_TYPES.includes(value.type as StructureType)) throw new Error('The server returned an invalid structure type.')
   if (typeof value.status !== 'string' || !STRUCTURE_STATUSES.includes(value.status as StructureStatus)) throw new Error('The server returned an invalid structure status.')
+  if (value.cropStage !== undefined && value.cropStage !== null && (typeof value.cropStage !== 'string' || !['Fallow', 'Planted', 'Growing', 'Harvest', 'Dormant'].includes(value.cropStage))) throw new Error('The server returned an invalid crop stage.')
   const requiredWood = parseRequiredNonNegativeInteger(value.requiredWood, 'The server returned invalid structure materials.')
   const deliveredWood = parseRequiredNonNegativeInteger(value.deliveredWood, 'The server returned invalid structure materials.')
   const requiredStone = parseRequiredNonNegativeInteger(value.requiredStone, 'The server returned invalid structure materials.')
@@ -792,7 +794,7 @@ export function parseStructure(value: unknown): Structure {
   if (deliveredWood > requiredWood || deliveredStone > requiredStone || completedWork > requiredWork || value.condition !== 0 && value.condition !== 10000 || (value.status === 'UnderConstruction' && completedMinute !== null) || (value.status === 'Complete' && (completedMinute === null || completedWork !== requiredWork))) throw new Error('The server returned incoherent structure progress.')
   if (new Set(parsedContributions.map(entry => entry.citizenId)).size !== parsedContributions.length || new Set(occupants).size !== occupants.length) throw new Error('The server returned duplicate structure references.')
   return {
-    structureId: parsePositiveDecimalId(value.structureId, 'The server returned an invalid structure ID.'), type: value.type as StructureType, status: value.status as StructureStatus,
+    structureId: parsePositiveDecimalId(value.structureId, 'The server returned an invalid structure ID.'), type: value.type as StructureType, cropStage: value.cropStage as string | null | undefined, status: value.status as StructureStatus,
     location: parseCoordinate(value.location, 'The server returned an invalid structure location.'), startedMinute: parseRequiredNonNegativeInteger(value.startedMinute, 'The server returned an invalid structure start minute.'), completedMinute,
     requiredWood, deliveredWood, requiredStone, deliveredStone, requiredWork, completedWork, condition: parseRequiredNonNegativeInteger(value.condition, 'The server returned an invalid structure condition.'),
     capacity: parseNullablePositiveInteger(value.capacity, 'The server returned an invalid structure capacity.'), storageBonus: parseNullablePositiveInteger(value.storageBonus, 'The server returned an invalid structure storage bonus.'), constructionMultiplierBasisPoints: parseNullablePositiveInteger(value.constructionMultiplierBasisPoints, 'The server returned an invalid construction multiplier.'), currentOccupantIds: occupants, contributions: parsedContributions,

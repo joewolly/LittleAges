@@ -21,6 +21,29 @@ namespace LittleAges.Integration.Tests;
 public sealed class ServerIntegrationTests
 {
     [Fact]
+    public async Task AgricultureEndpointUsesBoundedReadOnlyPagesAndSelectedRules()
+    {
+        var root = CreateDataRoot();
+        try
+        {
+            using var factory = new ServerFactory(root, simulationMinutesPerSecond: 0, worldSeed: 42,
+                suppressLogs: true, newWorldRules: SimulationEngine.AgricultureSimulationRulesVersion);
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            var first = await client.GetStringAsync("/api/v1/agriculture?limit=1");
+            Assert.Equal(first, await client.GetStringAsync("/api/v1/agriculture?limit=1"));
+            using var document = JsonDocument.Parse(first);
+            Assert.True(document.RootElement.GetProperty("enabled").GetBoolean());
+            Assert.Equal(16200, document.RootElement.GetProperty("winterReserveTarget").GetInt32());
+            using var invalid = await client.GetAsync("/api/v1/agriculture?limit=201");
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            using var negative = await client.GetAsync("/api/v1/agriculture?offset=-1");
+            Assert.Equal(HttpStatusCode.BadRequest, negative.StatusCode);
+        }
+        finally { CleanupDataRoot(root); }
+    }
+
+    [Fact]
     public async Task GrowthEndpointPublishesNewWorldHouseholdsWithoutChangingTheWorld()
     {
         var root = CreateDataRoot();

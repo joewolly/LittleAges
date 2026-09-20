@@ -191,6 +191,8 @@ public sealed record HeadlessReport
     public int Households { get; init; }
     public int Relationships { get; init; }
     public int Structures { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AgricultureState? Agriculture { get; init; }
     public int FoodStored { get; init; }
     public int WoodStored { get; init; }
     public int StoneStored { get; init; }
@@ -358,6 +360,7 @@ public static class HeadlessRunner
             Households = engine.Households.Count,
             Relationships = engine.Relationships.Count,
             Structures = engine.Structures.Count,
+            Agriculture = engine.CaptureAgriculture(),
             FoodStored = engine.Settlement.FoodStored,
             WoodStored = engine.Settlement.WoodStored,
             StoneStored = engine.Settlement.StoneStored,
@@ -540,7 +543,8 @@ public static class HeadlessReportSerialization
                 report.Acceptance.Mismatches
             }
         };
-        return JsonSerializer.Serialize(projection, JsonOptions);
+        return report.Agriculture is null ? JsonSerializer.Serialize(projection, JsonOptions)
+            : JsonSerializer.Serialize(new { Summary = projection, report.Agriculture }, JsonOptions);
     }
 
     public static void WriteArtifacts(HeadlessReport report, HeadlessOptions options)
