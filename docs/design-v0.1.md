@@ -1549,24 +1549,19 @@ Initial controls:
 
 ```text
 Paused
-1×
-10×
-100×
-1,000×
-MAX
+Normal (1×)
+Fast (3×)
+Very Fast (6×)
 ```
 
 Recommended semantic baseline:
 
 ```text
-1× ≈ 10 simulated minutes per real second
+1× = 1.44 simulated minutes per real second = one world day per 1,000 real seconds
 ```
 
-The exact visual rate may be tuned.
-
-`MAX` is different.
-
-MAX mode prioritizes simulation throughput over animation and may advance directly between scheduled events.
+The observer labels the resulting day lengths directly: 16:40 at Normal,
+5:33 at Fast, and 2:47 at Very Fast.
 
 At high speeds:
 

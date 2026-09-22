@@ -109,6 +109,8 @@ if ($installerText -match '\$ServiceName\b' -or $uninstallerText -match '\$Servi
 }
 Assert-Contains -Text $installerText -Expected "`$script:ServiceName = 'Little Ages'" -Message 'Installer fixes the owned service name'
 Assert-Contains -Text $uninstallerText -Expected "`$script:ServiceName = 'Little Ages'" -Message 'Uninstaller fixes the owned service name'
+Assert-Contains -Text $installerText -Expected '[double] $SimulationMinutesPerSecond = 1.44' -Message 'Fresh installs use the 16:40 normal day pace'
+Assert-Contains -Text $installerText -Expected "`$PSBoundParameters.ContainsKey('SimulationMinutesPerSecond')" -Message 'Upgrades preserve or explicitly override the configured pace'
 
 # Load the uninstaller's own standalone ownership helpers under test-only names
 # so this fixture exercises both release scripts without invoking their main

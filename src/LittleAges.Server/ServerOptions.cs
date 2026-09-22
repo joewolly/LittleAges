@@ -14,7 +14,8 @@ public sealed record ServerOptions
     public const int DefaultCheckpointRetryDelaySeconds = 2;
     public const int DefaultBrowserUpdateIntervalMilliseconds = 500;
     public const int DefaultObserverStreamIntervalMilliseconds = 100;
-    public const double DefaultSimulationMinutesPerSecond = 10;
+    public const int DefaultRealSecondsPerSimulationDay = 1_000;
+    public const double DefaultSimulationMinutesPerSecond = (double)WorldCalendar.MinutesPerDay / DefaultRealSecondsPerSimulationDay;
     public const double MaximumSimulationMinutesPerSecond = 1_000;
 
     public required string DataRoot { get; init; }

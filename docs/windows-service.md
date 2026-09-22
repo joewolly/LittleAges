@@ -245,8 +245,9 @@ BrowserUpdateIntervalMilliseconds
 ObserverStreamIntervalMilliseconds
 ```
 
-Current defaults are `10` simulation minutes per second, checkpoints every
-`360` simulated minutes subject to `30` real seconds, three retries with a
+Current defaults are `1.44` simulation minutes per second (one 24-hour world day
+every 16 minutes 40 seconds), checkpoints every `360` simulated minutes subject
+to `30` real seconds, three retries with a
 two-second delay, observer invalidation every `500` milliseconds, and connected
 live frames every `100` milliseconds. These are operational values, not
 simulation-rule controls.

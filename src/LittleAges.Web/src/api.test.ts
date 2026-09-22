@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildHistoryQuery, buildStatisticsQuery, changeSimulationSpeed, fetchBiography, fetchHistory, fetchStatistics, parseBiography, parseCitizens, parseHealth, parseHistory, parseHistoricalEvent, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseStatistics, parseStatus, parseStructures, pauseSimulation, resumeSimulation } from './api'
+import { buildHistoryQuery, buildStatisticsQuery, changeSimulationSpeed, DEFAULT_OPERATIONAL_SPEED, fetchBiography, fetchHistory, fetchStatistics, OPERATIONAL_SPEED_OPTIONS, parseBiography, parseCitizens, parseHealth, parseHistory, parseHistoricalEvent, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseStatistics, parseStatus, parseStructures, pauseSimulation, resumeSimulation } from './api'
 
 const citizen = {
   citizenId: '9223372036854775807',
@@ -91,15 +91,19 @@ describe('API response parsing', () => {
   it('accepts plain text health responses', () => expect(parseHealth('Healthy')).toEqual({ ok: true, label: 'Healthy' }))
   it('keeps status safe when fields are missing or malformed', () => expect(parseStatus({ worldMinute: 'later', state: 4 })).toEqual({ state: 'Unknown', worldMinute: null, pendingEventCount: null, worldSeed: null, error: null, paused: false, operationalSpeed: null }))
   it('parses immutable operational controls from status', () => expect(parseStatus({ state: 'Running', paused: true, operationalSpeed: 5 })).toMatchObject({ paused: true, operationalSpeed: 5 }))
+  it('defines normal pace as one 1440-minute day per 1000 real seconds', () => {
+    expect(DEFAULT_OPERATIONAL_SPEED).toBe(1.44)
+    expect(OPERATIONAL_SPEED_OPTIONS.map(option => option.value)).toEqual([1.44, 4.32, 8.64])
+  })
   it('submits bounded operational control requests with strict methods and bodies', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ state: 'Running', paused: false, operationalSpeed: 5 })))
     await pauseSimulation()
     await resumeSimulation()
-    await changeSimulationSpeed(5)
+    await changeSimulationSpeed(DEFAULT_OPERATIONAL_SPEED)
     expect(fetchMock.mock.calls[0]).toEqual(['/api/v1/control/pause', { method: 'POST' }])
     expect(fetchMock.mock.calls[1]).toEqual(['/api/v1/control/resume', { method: 'POST' }])
     expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/control/speed')
-    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"speed":5}' })
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"speed":1.44}' })
     await expect(changeSimulationSpeed(0)).rejects.toThrow()
     await expect(changeSimulationSpeed(1001)).rejects.toThrow()
   })

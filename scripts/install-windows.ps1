@@ -21,7 +21,7 @@ param(
 
     [Parameter()]
     [ValidateRange(0, 1000)]
-    [double] $SimulationMinutesPerSecond = 10
+    [double] $SimulationMinutesPerSecond = 1.44
 )
 
 $ErrorActionPreference = 'Stop'

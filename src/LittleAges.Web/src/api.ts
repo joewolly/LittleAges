@@ -305,7 +305,12 @@ async function post(path: string, body?: unknown): Promise<unknown> {
 export async function fetchHealth(): Promise<Health> { return parseHealth(await get('/api/v1/health')) }
 export async function fetchStatus(): Promise<Status> { return parseStatus(await get('/api/v1/status')) }
 
-export const SAFE_OPERATIONAL_SPEEDS = [1, 5, 10, 50] as const
+export const DEFAULT_OPERATIONAL_SPEED = 1.44
+export const OPERATIONAL_SPEED_OPTIONS = [
+  { value: DEFAULT_OPERATIONAL_SPEED, label: 'Normal · 1× · 16:40/day' },
+  { value: DEFAULT_OPERATIONAL_SPEED * 3, label: 'Fast · 3× · 5:33/day' },
+  { value: DEFAULT_OPERATIONAL_SPEED * 6, label: 'Very fast · 6× · 2:47/day' },
+] as const
 export const MAX_OPERATIONAL_SPEED = 1000
 
 export async function pauseSimulation(): Promise<Status> { return parseStatus(await post('/api/v1/control/pause')) }

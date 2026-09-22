@@ -27,7 +27,8 @@ public sealed class M7PersistentHostTests
             Assert.Equal(new WorldSeed(0), defaults.WorldSeed);
             Assert.Equal(ServerOptions.DefaultListenUrls, defaults.ListenUrls);
             Assert.Equal("127.0.0.1", Assert.Single(defaults.GetListenUris()).Host);
-            Assert.Equal(10d, defaults.SimulationMinutesPerSecond);
+            Assert.Equal(1.44d, defaults.SimulationMinutesPerSecond);
+            Assert.Equal((double)WorldCalendar.MinutesPerDay / ServerOptions.DefaultRealSecondsPerSimulationDay, defaults.SimulationMinutesPerSecond);
             Assert.Equal(ServerOptions.DefaultCheckpointSimulationMinutes, defaults.CheckpointSimulationMinutes);
             Assert.Equal(ServerOptions.DefaultCheckpointMinimumRealSeconds, defaults.CheckpointMinimumRealSeconds);
             Assert.Equal(ServerOptions.DefaultCheckpointRetryCount, defaults.CheckpointRetryCount);
