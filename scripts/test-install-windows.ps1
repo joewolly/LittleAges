@@ -312,6 +312,8 @@ Assert-Contains -Text $uninstallerText -Expected 'Resolve-InstalledDataDirectory
 # Capture and restore state with mocked cmdlets. The real Windows firewall is
 # never queried or modified by this test.
 $script:ManagedFirewallName = 'LittleAges-Private-LAN'
+$script:ManagedFirewallDisplayPrefix = 'Little Ages (Private TCP '
+$script:ManagedFirewallGroup = 'Little Ages'
 $script:FakeFirewallRules = @()
 $script:FakePortFilter = $null
 $script:FakeAddressFilter = $null
@@ -321,7 +323,10 @@ $script:CreatedRules = New-Object System.Collections.Generic.List[object]
 function Get-ManagedFirewallRules { return @($script:FakeFirewallRules) }
 function Get-NetFirewallPortFilter { return $script:FakePortFilter }
 function Get-NetFirewallAddressFilter { return $script:FakeAddressFilter }
-function Remove-ManagedFirewallRules { $script:RemoveCallCount++ }
+function Remove-ManagedFirewallRules {
+    $script:RemoveCallCount++
+    $script:FakeFirewallRules = @()
+}
 function New-NetFirewallRule {
     [CmdletBinding()]
     param(
@@ -336,15 +341,48 @@ function New-NetFirewallRule {
         [object] $RemoteAddress,
         [object] $Enabled
     )
-    $script:CreatedRules.Add([pscustomobject]@{
+    $newRule = [pscustomobject]@{
             Name = $Name; DisplayName = $DisplayName; Group = $Group; Direction = $Direction
             Action = $Action; Protocol = $Protocol; LocalPort = $LocalPort; Profile = $Profile
             RemoteAddress = $RemoteAddress; Enabled = $Enabled
-        })
+        }
+    $script:CreatedRules.Add($newRule)
+    $script:FakeFirewallRules += $newRule
 }
 
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Set-ManagedFirewallRule')))
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-ManagedFirewallState')))
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Restore-ManagedFirewallState')))
+
+# Reinstall removes every stale or duplicate installer-owned rule, then leaves
+# exactly one enabled Private-profile rule that accepts routed trusted networks.
+$script:FakeFirewallRules = @(
+    [pscustomobject]@{ Name = 'LittleAges-Private-LAN'; DisplayName = 'old rule 1' }
+    [pscustomobject]@{ Name = 'LittleAges-Private-LAN'; DisplayName = 'old rule 2' }
+)
+$script:RemoveCallCount = 0
+$script:CreatedRules.Clear()
+Set-ManagedFirewallRule -Enable $true -PortNumber 5274
+Assert-Equal -Expected 1 -Actual $script:RemoveCallCount -Message 'LAN rule creation removes prior managed rules'
+Assert-Equal -Expected 1 -Actual $script:CreatedRules.Count -Message 'LAN rule creation creates exactly one rule'
+Assert-Equal -Expected 1 -Actual @($script:FakeFirewallRules).Count -Message 'LAN rule creation leaves exactly one managed rule'
+$createdRule = $script:CreatedRules[0]
+Assert-Equal -Expected 'LittleAges-Private-LAN' -Actual $createdRule.Name -Message 'LAN rule keeps managed name'
+Assert-Equal -Expected 'Inbound' -Actual $createdRule.Direction -Message 'LAN rule allows inbound traffic'
+Assert-Equal -Expected 'Allow' -Actual $createdRule.Action -Message 'LAN rule action is allow'
+Assert-Equal -Expected 'TCP' -Actual $createdRule.Protocol -Message 'LAN rule protocol is TCP'
+Assert-Equal -Expected '5274' -Actual $createdRule.LocalPort -Message 'LAN rule uses the observer port'
+Assert-Equal -Expected 'Private' -Actual $createdRule.Profile -Message 'LAN rule uses the Private profile'
+Assert-Equal -Expected 'Any' -Actual $createdRule.RemoteAddress -Message 'LAN rule accepts routed remote addresses'
+Assert-Equal -Expected 'True' -Actual $createdRule.Enabled -Message 'LAN rule is enabled'
+$script:RemoveCallCount = 0
+$script:CreatedRules.Clear()
+Set-ManagedFirewallRule -Enable $true -PortNumber 5274
+Assert-Equal -Expected 1 -Actual $script:RemoveCallCount -Message 'Repeated LAN install removes its previous managed rule'
+Assert-Equal -Expected 1 -Actual $script:CreatedRules.Count -Message 'Repeated LAN install creates one replacement rule'
+Assert-Equal -Expected 1 -Actual @($script:FakeFirewallRules).Count -Message 'Repeated LAN install still leaves exactly one managed rule'
+Assert-Equal -Expected 'Any' -Actual $script:FakeFirewallRules[0].RemoteAddress -Message 'Repeated LAN install retains routed remote scope'
+$script:FakeFirewallRules = @()
 
 $absentState = Get-ManagedFirewallState
 Assert-Equal -Expected $false -Actual $absentState.Exists -Message 'Absent firewall state is captured as absent'

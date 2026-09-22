@@ -35,16 +35,22 @@ http://127.0.0.1:5274
 ```
 
 With `-EnableLan`, it listens on `http://0.0.0.0:5274` and the installer owns
-one inbound Windows Firewall rule for TCP 5274 on the `Private` profile, scoped
-to `LocalSubnet`. The installer prints a private IPv4 address for convenience;
-that address is display-only and is not the security boundary. LAN mode is for
-a trusted local network only. Little Ages v0.1 has no built-in authentication
-or TLS and must not be exposed to the public Internet.
+one enabled inbound Windows Firewall rule for TCP 5274 on the `Private` profile
+with `RemoteAddress Any`. This permits clients on routed trusted VLANs to reach
+the observer without hardcoded source subnets. The installer prints a private
+IPv4 address for convenience; that address is display-only and is not the
+security boundary. Restrict which networks can route to the host with network
+firewall or router ACLs, and enable LAN mode only when every reachable network
+is trusted. The observer also exposes pause, resume, and speed controls, so
+they are reachable from those networks too. Little Ages has no built-in
+authentication or TLS; do not configure Internet port forwarding or expose it
+to the public Internet.
 
 Browser requests to pause, resume, or change speed must use the observer's own
 origin (scheme, host, and port). Foreign or opaque `Origin` headers receive
 HTTP 403. Non-browser clients without an `Origin` header remain supported;
-this check prevents cross-site browser control, not access by LAN clients.
+this check prevents cross-site browser control, not access by clients on
+trusted routed networks.
 
 The installer protects the world directory from inherited ProgramData write
 permissions for the built-in Users group. Users retain read access;
@@ -224,8 +230,10 @@ icacls.exe $dataDir /grant:r 'NT AUTHORITY\LOCAL SERVICE:(OI)(CI)M' /T /C
 
 Use `Start-Service`, `Stop-Service`, `Get-Service`, and the health/status URLs
 above for bounded operational checks. Do not grant the LocalService account
-write access to the application directory and do not broaden a firewall rule
-to `Any` or the Public profile.
+write access to the application directory. The installer-managed rule uses
+`RemoteAddress Any` on the `Private` profile to support trusted routed VLANs;
+network ACLs must limit reachability to trusted networks. Do not use the Public
+profile or configure Internet port forwarding.
 
 ### Configuration reference
 
@@ -257,6 +265,7 @@ simulation-rule controls.
 The server emits structured JSON console logs for startup, world open/resume,
 checkpoints, host state, and cleanup. If startup fails, inspect the JSON
 configuration, absolute `DataRoot`, LocalService ACL, selected world, and port
-ownership. Do not delete WAL files, regenerate a database, or broaden the
-firewall as a diagnostic shortcut. Preserve the current world files and follow
+ownership. Do not delete WAL files, regenerate a database, add a Public-profile
+rule, or configure Internet port forwarding as a diagnostic shortcut. Preserve
+the current world files and follow
 [`backup-and-recovery.md`](backup-and-recovery.md) for approved backup/restore.

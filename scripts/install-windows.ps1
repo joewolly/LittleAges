@@ -523,7 +523,7 @@ function Set-ManagedFirewallRule {
     $displayName = '{0}{1})' -f $script:ManagedFirewallDisplayPrefix, $PortNumber
     New-NetFirewallRule -Name $script:ManagedFirewallName -DisplayName $displayName -Group $script:ManagedFirewallGroup `
         -Direction Inbound -Action Allow -Protocol TCP -LocalPort $PortNumber `
-        -Profile Private -RemoteAddress 'LocalSubnet' -ErrorAction Stop | Out-Null
+        -Enabled True -Profile Private -RemoteAddress 'Any' -ErrorAction Stop | Out-Null
 }
 
 function Restore-ManagedFirewallState {
