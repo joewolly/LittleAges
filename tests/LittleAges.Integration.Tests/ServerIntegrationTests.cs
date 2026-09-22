@@ -21,10 +21,11 @@ namespace LittleAges.Integration.Tests;
 public sealed class ServerIntegrationTests
 {
     [Fact]
-    public void FreshWorldConfigurationDefaultsToBarterWithoutChangingLegacyRules()
+    public void FreshWorldConfigurationDefaultsToSpacedSettlementWithoutChangingLegacyRules()
     {
         var options = ServerOptions.FromConfiguration(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        Assert.Equal(SimulationEngine.BarterSimulationRulesVersion, options.NewWorldRules);
+        Assert.Equal(SimulationEngine.SpacedSimulationRulesVersion, options.NewWorldRules);
+        Assert.Equal("m11-rng1-barter1", SimulationEngine.BarterSimulationRulesVersion);
         Assert.Equal("m8-rng1-balance1", SimulationEngine.M8SimulationRulesVersion);
         Assert.Equal("m9-rng1-growth1", SimulationEngine.GrowthSimulationRulesVersion);
         Assert.Equal("m10-rng1-agriculture1", SimulationEngine.AgricultureSimulationRulesVersion);

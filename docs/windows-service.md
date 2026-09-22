@@ -92,9 +92,9 @@ existing LAN mode when `-EnableLan` is omitted; use `-EnableLan:$false` to
 explicitly return to loopback.
 
 Growing Settlement and Living Settlement saves retain their own rules during
-upgrade. The combined host supports `m11-rng1-barter1` and `v02-rng1-living1`;
+upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`, and `v02-rng1-living1`;
 installing it does not convert one civilization into the other. New worlds keep
-the configured `NewWorldRules`, with M11 as the application default.
+the configured `NewWorldRules`, with M12 as the application default.
 
 Both branches originally persisted citizen action 13 with different meanings.
 The checkpoint reader interprets it using the saved rules, while checkpoint
@@ -127,8 +127,8 @@ Useful supported installer parameters are:
 ```
 
 The installer does not expose simulation rules as an option. Fresh worlds use
-the current `m8-rng1-balance1` rules boundary; M6 remains a compatibility
-boundary for existing persisted worlds.
+the current `m12-rng1-spaced1` rules boundary; earlier rules remain compatibility
+boundaries for existing persisted worlds.
 
 ## Uninstall
 

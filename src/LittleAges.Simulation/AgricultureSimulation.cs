@@ -9,7 +9,7 @@ public sealed partial class SimulationEngine
     private readonly SortedDictionary<long, FarmCrop> _farms = [];
     private readonly List<HarvestRecord> _harvests = [];
     private long _agricultureSeasonIndex;
-    public static bool AgricultureSystemsEnabled(string rules) => rules is AgricultureSimulationRulesVersion or BarterSimulationRulesVersion;
+    public static bool AgricultureSystemsEnabled(string rules) => rules is AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion;
     public int GranaryCapacity => _structures.Values.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
     public int WinterFoodTarget => checked(LivingPopulation * 810);
     public AgricultureState? CaptureAgriculture() => AgricultureSystemsEnabled(SimulationRulesVersion)
@@ -73,10 +73,14 @@ public sealed partial class SimulationEngine
     {
         var occupied = _structures.Values.Select(s => s.Location).ToHashSet();
         var costs = GetTravelCostsCached(World.StartingSite);
-        return World.Tiles.Where(t => AgricultureRules.Suitable(t) && t.Coordinate != World.StartingSite &&
+        var candidates = World.Tiles.Where(t => AgricultureRules.Suitable(t) && t.Coordinate != World.StartingSite &&
                 !occupied.Contains(t.Coordinate) && World.GetResources(t.Coordinate).Count == 0 && costs.ContainsKey(t.Coordinate))
             .OrderBy(t => costs[t.Coordinate]).ThenByDescending(AgricultureRules.PotentialYield)
-            .ThenBy(t => t.Coordinate.Y).ThenBy(t => t.Coordinate.X).Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
+            .ThenBy(t => t.Coordinate.Y).ThenBy(t => t.Coordinate.X);
+        if (SimulationRulesVersion != SpacedSimulationRulesVersion) return candidates.Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
+        var excluded = SpacedConstructionExclusions();
+        return candidates.Where(t => !excluded.Contains(t.Coordinate)).Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault()
+            ?? candidates.Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
     }
 
     private Structure? SelectFarmTarget(Citizen citizen, CitizenAction action)

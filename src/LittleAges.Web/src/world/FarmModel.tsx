@@ -1,21 +1,39 @@
+import { useLayoutEffect, useRef } from 'react'
+import * as THREE from 'three'
 import type { Map, Structure } from '../api'
 import { worldToScene } from './visuals'
 
 export function FarmModel({ map, structure }: { map: Map; structure: Structure }) {
+  const furrows = useRef<THREE.InstancedMesh>(null)
+  const crops = useRef<THREE.InstancedMesh>(null)
+  const posts = useRef<THREE.InstancedMesh>(null)
   const point = worldToScene(map, structure.location.x, structure.location.y, .04)
   const stage = structure.status === 'Complete' ? structure.cropStage : 'Fallow'
   const growing = stage === 'Planted' || stage === 'Growing' || stage === 'Harvest'
   const height = stage === 'Planted' ? .12 : stage === 'Growing' ? .35 : .55
   const color = stage === 'Harvest' ? '#edc454' : '#7cb344'
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D()
+    const place = (mesh: THREE.InstancedMesh | null, positions: Array<[number, number, number]>) => {
+      if (!mesh) return
+      positions.forEach(([x, y, z], index) => {
+        dummy.position.set(x, y, z)
+        dummy.updateMatrix()
+        mesh.setMatrixAt(index, dummy.matrix)
+      })
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.computeBoundingSphere()
+    }
+    const rows = [-.64, -.32, 0, .32, .64]
+    place(furrows.current, rows.map(x => [x, .09, 0]))
+    place(crops.current, rows.flatMap(x => [-.6, -.3, 0, .3, .6].map(z => [x, .09 + height / 2, z] as [number, number, number])))
+    place(posts.current, [-.9, .9].flatMap(x => [-.9, .9].map(z => [x, .24, z] as [number, number, number])))
+  }, [height])
   return <group position={[point.x, point.y, point.z]}>
     <mesh receiveShadow><boxGeometry args={[1.8, .12, 1.8]} /><meshStandardMaterial color={stage === 'Dormant' ? '#a18a60' : '#735032'} /></mesh>
-    {[-.64, -.32, 0, .32, .64].map(x => <group key={x} position={[x, .09, 0]}>
-      <mesh receiveShadow><boxGeometry args={[.14, .07, 1.5]} /><meshStandardMaterial color="#493823" /></mesh>
-      {growing && [-.6, -.3, 0, .3, .6].map(z => <mesh key={z} position={[0, height / 2, z]} castShadow>
-        <boxGeometry args={[.13, height, .15]} /><meshStandardMaterial color={color} roughness={1} />
-      </mesh>)}
-    </group>)}
-    {[-.9, .9].flatMap(x => [-.9, .9].map(z => <mesh key={`${x}:${z}`} position={[x, .24, z]} castShadow><boxGeometry args={[.1, .55, .1]} /><meshStandardMaterial color="#ba9053" /></mesh>))}
+    <instancedMesh ref={furrows} args={[undefined, undefined, 5]} receiveShadow><boxGeometry args={[.14, .07, 1.5]} /><meshStandardMaterial color="#493823" /></instancedMesh>
+    <instancedMesh ref={crops} args={[undefined, undefined, 25]} visible={growing} castShadow><boxGeometry args={[.13, height, .15]} /><meshStandardMaterial color={color} roughness={1} /></instancedMesh>
+    <instancedMesh ref={posts} args={[undefined, undefined, 4]} castShadow><boxGeometry args={[.1, .55, .1]} /><meshStandardMaterial color="#ba9053" /></instancedMesh>
   </group>
 }
 

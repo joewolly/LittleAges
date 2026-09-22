@@ -66,9 +66,11 @@ ledger instead of a scrolling document page.
 - browser observation of the map, settlement, households, citizens, relationships, history, and controls;
 - headless `run`, `benchmark`, and `acceptance` commands for 1-, 10-, 100-, and 500-year horizons.
 
-New worlds select `m11-rng1-barter1`. Existing saves keep their selected rules;
-there is no automatic gameplay upgrade. The three local v0.2 delivery stages and
-acceptance evidence are recorded in [Growing Settlement](docs/growing-settlement.md).
+New worlds select `m12-rng1-spaced1`, which leaves a walkable tile gap around
+new construction when a suitable site is available. Existing saves keep their
+selected rules and building locations; there is no automatic gameplay upgrade.
+The three local v0.2 delivery stages and acceptance evidence are recorded in
+[Growing Settlement](docs/growing-settlement.md).
 Publication and installation are separate from this local implementation.
 
 The detailed rules, IDs, ordering, fingerprints, migration semantics, and

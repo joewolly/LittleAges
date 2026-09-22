@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Citizen, Map as WorldMap } from '../api'
-import { citizenPaletteIndex, containMap, detailVariant, elevationAt, movementPlanIdentity, positionAlongMovementPlan, reconcileVisualMinute, scenePointAlongMovementPlan, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, containMap, detailVariant, elevationAt, movementPlanIdentity, positionAlongMovementPlan, presentationSegmentProgress, reconcileVisualMinute, scenePointAlongMovementPlan, shouldInterpolateCitizen, stableVisualHash, worldToScene } from './visuals'
 
 const map: WorldMap = { width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 5000, 10000, 2500], resources: [], startingSite: { x: 0, y: 0 } }
 const citizen = { citizenId: '7', location: { x: 0, y: 0 }, actionSequence: 3 } as Citizen
@@ -40,6 +40,14 @@ describe('diorama visual projection', () => {
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 }, actionSequence: 4 }, 10, false)).toBe(false)
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 } }, 50, false)).toBe(false)
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 } }, 10, true)).toBe(false)
+  })
+
+  it('shows brisk steps at Normal pace without changing arrival or faster presets', () => {
+    expect(presentationSegmentProgress(100, 114, 108, 1.44)).toBe(0)
+    expect(presentationSegmentProgress(100, 114, 112.2, 1.44)).toBeCloseTo(.5)
+    expect(presentationSegmentProgress(100, 114, 114, 1.44)).toBe(1)
+    expect(presentationSegmentProgress(100, 114, 107, 4.32)).toBe(.5)
+    expect(presentationSegmentProgress(100, 114, 107, null)).toBe(.5)
   })
 
   it('keeps the visual clock continuous when authority refreshes the same route', () => {

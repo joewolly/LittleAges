@@ -1,9 +1,10 @@
 # Little Ages M0-M8 Architecture
 
 The sections below retain the implementation record through M8 candidate acceptance.
-For the current M9 growth, M10 agriculture, and M11 household barter extensions,
+For the M9 growth, M10 agriculture, and M11 household barter extensions,
 see [Growing Settlement](growing-settlement.md). Fresh worlds now select
-`m11-rng1-barter1`; all statements below about older defaults describe their
+`m12-rng1-spaced1`, which retains M11 behavior except for spaced construction
+sites; all statements below about older defaults describe their
 historical milestone. Existing saves retain their rules. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
 
 The opt-in successor is documented in [Living Settlement v0.2](living-settlement-v0.2.md).

@@ -21,7 +21,7 @@ public sealed partial class SimulationEngine
     private long _foodConsumed, _emergencyFoodConsumed, _publicWorkPaid;
     private long _nextTradeId = 1, _nextCacheId = 1, _nextEconomicEventId = 1;
     private bool _economyInitialized;
-    public static bool EconomySystemsEnabled(string rules) => rules == BarterSimulationRulesVersion;
+    public static bool EconomySystemsEnabled(string rules) => rules is BarterSimulationRulesVersion or SpacedSimulationRulesVersion;
     private bool EconomyEnabled => EconomySystemsEnabled(SimulationRulesVersion);
     private IEnumerable<BarterTrade> OpenTrades => _pendingTrades.Select(id => _barterTrades[id]);
 

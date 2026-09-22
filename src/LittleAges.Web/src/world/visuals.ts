@@ -75,7 +75,18 @@ export function positionAlongMovementPlan(plan: CitizenMovementPlan, visualMinut
   return { x: last.x, y: last.y }
 }
 
-export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovementPlan, visualMinute: number, lift = 0): ScenePoint {
+/** At Normal pace a tile can take several real seconds. Walk briskly near its
+ * authoritative arrival, then remain on the current tile between steps. */
+export function presentationSegmentProgress(start: number, arrival: number, minute: number, speed: number | null): number {
+  const duration = arrival - start
+  if (duration <= 0) return 1
+  const window = speed !== null && speed > 0 && speed <= 2 ? Math.min(duration, speed * 2.5) : duration
+  if (minute >= arrival) return 1
+  if (minute <= arrival - window) return 0
+  return Math.max(0, Math.min(1, (minute - (arrival - window)) / window))
+}
+
+export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovementPlan, visualMinute: number, lift = 0, speed: number | null = null): ScenePoint {
   const first = plan.waypoints[0]
   if (visualMinute <= (plan.segmentStartedMinute ?? first.arriveMinute)) return worldToScene(map, first.x, first.y, lift)
   for (let index = 1; index < plan.waypoints.length; index += 1) {
@@ -83,8 +94,7 @@ export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovement
     if (visualMinute > next.arriveMinute) continue
     const previous = plan.waypoints[index - 1]
     const start = index === 1 ? plan.segmentStartedMinute ?? previous.arriveMinute : previous.arriveMinute
-    const duration = next.arriveMinute - start
-    const progress = duration <= 0 ? 1 : Math.max(0, Math.min(1, (visualMinute - start) / duration))
+    const progress = presentationSegmentProgress(start, next.arriveMinute, visualMinute, speed)
     const from = worldToScene(map, previous.x, previous.y, lift)
     const to = worldToScene(map, next.x, next.y, lift)
     return { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress, z: from.z + (to.z - from.z) * progress }

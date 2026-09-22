@@ -14,6 +14,7 @@ import { GroundContacts } from './GroundContacts'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
 import { worldGeometry } from './assetGeometry'
 import { createResourceLod } from './resourceLod'
+import { createStockpileLod } from './stockpileLod'
 import { createGroundTexture, upgradeGroundTexture } from './terrainArt'
 import { disposeRendererResources, trackAssetResources, trackLightingUniform } from './rendererResources'
 import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
@@ -27,6 +28,25 @@ type PerfStats = { fps: number; calls: number; triangles: number; p95: number; r
 const diagnosticsEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).has('diagnostics')
 
 const villagerPalette = ['#b95f4b', '#536f88', '#d09a48', '#6d8150', '#876390', '#3f7c78', '#9a704d', '#b77774']
+
+function citizenMarkerTexture(color: string): THREE.DataTexture {
+  const pixels = new Uint8Array(32 * 32 * 4)
+  const palette = [1, 3, 5].map(index => Number.parseInt(color.slice(index, index + 2), 16))
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+    const distance = Math.hypot(x - 15.5, y - 15.5)
+    const offset = (y * 32 + x) * 4
+    const rgb = distance < 10.5 ? palette : distance < 12 ? [50, 38, 26] : [255, 242, 203]
+    pixels[offset] = rgb[0]; pixels[offset + 1] = rgb[1]; pixels[offset + 2] = rgb[2]
+    pixels[offset + 3] = Math.round(Math.max(0, Math.min(1, 15 - distance)) * 255)
+  }
+  const texture = new THREE.DataTexture(pixels, 32, 32)
+  texture.magFilter = THREE.LinearFilter
+  texture.minFilter = THREE.LinearFilter
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+  return texture
+}
+const selectedMarker = citizenMarkerTexture('#f4c75e')
 
 function supportsWebGL(): boolean {
   if (typeof document === 'undefined') return false
@@ -259,6 +279,71 @@ function StructureModel({ map, structure, detailTier, fitTile = false }: { map: 
   </group>
 }
 
+function StockpileChunk({ map, structures, fullGeometry, fullMaterial, coarseGeometry, scale, detailed }: { map: Map; structures: Structure[]; fullGeometry: THREE.BufferGeometry; fullMaterial: THREE.Material | THREE.Material[]; coarseGeometry: THREE.BufferGeometry; scale: number; detailed: boolean }) {
+  const full = useRef<THREE.InstancedMesh>(null)
+  const coarse = useRef<THREE.InstancedMesh>(null)
+  const visibleYards = useMemo(() => {
+    const byArea = new globalThis.Map<string, Structure>()
+    for (const structure of structures) {
+      const key = `${Math.floor(structure.location.x / 3)}:${Math.floor(structure.location.y / 3)}`
+      if (!byArea.has(key)) byArea.set(key, structure)
+    }
+    return [...byArea.values()]
+  }, [structures])
+  useFrame(({ camera }) => {
+    const showFull = detailed || camera instanceof THREE.OrthographicCamera && camera.zoom >= 65
+    if (full.current) full.current.visible = showFull
+    if (coarse.current) coarse.current.visible = !showFull
+  })
+  useLayoutEffect(() => {
+    const dummy = new THREE.Object3D()
+    for (const [mesh, items] of [[full.current, structures], [coarse.current, visibleYards]] as const) {
+      items.forEach((structure, index) => {
+        const point = worldToScene(map, structure.location.x, structure.location.y, 0.05)
+        dummy.position.set(point.x, point.y, point.z)
+        dummy.scale.setScalar(scale)
+        dummy.updateMatrix()
+        mesh?.setMatrixAt(index, dummy.matrix)
+      })
+    }
+    for (const mesh of [full.current, coarse.current]) {
+      if (!mesh) continue
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.computeBoundingSphere()
+    }
+  }, [map, scale, structures, visibleYards])
+  return <>
+    <instancedMesh ref={full} args={[fullGeometry, fullMaterial, structures.length]} visible={detailed} castShadow receiveShadow />
+    <instancedMesh ref={coarse} args={[coarseGeometry, undefined, visibleYards.length]} visible={!detailed} castShadow receiveShadow><meshStandardMaterial vertexColors roughness={1} /></instancedMesh>
+  </>
+}
+
+function StockpileInstances({ map, structures, detailTier, fitTile }: { map: Map; structures: Structure[]; detailTier: DetailTier; fitTile: boolean }) {
+  const asset = useGLTF('/assets/diorama/stockpile.glb')
+  useSharedAssetResources(asset.scene)
+  const prepared = useMemo(() => {
+    asset.scene.updateMatrixWorld(true)
+    let source: THREE.Mesh | undefined
+    asset.scene.traverse(object => { if (object instanceof THREE.Mesh) source = object })
+    if (!source) throw new Error('Missing stockpile mesh')
+    const size = new THREE.Box3().setFromObject(asset.scene).getSize(new THREE.Vector3())
+    return { geometry: worldGeometry(source), material: source.material, scale: fitTile ? Math.min(0.9, 0.94 / Math.max(size.x, size.z, .01)) : .9 }
+  }, [asset.scene, fitTile])
+  const coarse = useMemo(() => createStockpileLod(), [])
+  useEffect(() => () => { prepared.geometry.dispose(); coarse.dispose() }, [prepared, coarse])
+  const chunks = useMemo(() => {
+    const groups = new globalThis.Map<string, Structure[]>()
+    for (const structure of structures) {
+      const key = `${Math.floor(structure.location.x / 12)}:${Math.floor(structure.location.y / 12)}`
+      const group = groups.get(key) ?? []
+      group.push(structure)
+      groups.set(key, group)
+    }
+    return [...groups]
+  }, [structures])
+  return <>{chunks.map(([key, group]) => <StockpileChunk key={key} map={map} structures={group} fullGeometry={prepared.geometry} fullMaterial={prepared.material} coarseGeometry={coarse} scale={prepared.scale} detailed={detailTier === 'full'} />)}</>
+}
+
 function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, presentationClock, worldSeed, operationalSpeed, paused, reducedMotion, selected, onSelect }: { livingOrder?: LivingOrder; fitTile?: boolean; structures: Structure[]; presentationClock: PresentationClock; citizen: Citizen; map: Map; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; selected: boolean; onSelect: () => void }) {
   const group = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
@@ -272,6 +357,7 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
   const asset = useGLTF('/assets/diorama/villager.glb')
   useSharedAssetResources(asset.scene)
   const { actions, mixer } = useAnimations(asset.animations, group)
+  const mixerRef = useRef(mixer)
   const point = worldToScene(map, citizen.location.x, citizen.location.y, 0.05)
   const palette = villagerPalette[citizenPaletteIndex(worldSeed, citizen.citizenId)]
   const painted = useMemo(() => {
@@ -303,7 +389,7 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
     if (!current) return
     target.current.set(point.x, point.y, point.z)
     if (!initialized.current || reducedMotion) {
-      const planned = displayPlan && !reducedMotion ? scenePointAlongMovementPlan(map, displayPlan, presentationClock.at(performance.now()), 0.05) : { x: point.x, y: point.y, z: point.z }
+      const planned = displayPlan && !reducedMotion ? scenePointAlongMovementPlan(map, displayPlan, presentationClock.at(performance.now()), 0.05, operationalSpeed) : { x: point.x, y: point.y, z: point.z }
       current.position.set(planned.x, planned.y, planned.z)
       previousFrame.current.copy(current.position)
       current.visible = home === null
@@ -318,7 +404,7 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
       current.visible = true
       indoorHome.current = null
     }
-  }, [displayPlan, home, map, presentationClock, point.x, point.y, point.z, reducedMotion])
+  }, [displayPlan, home, map, operationalSpeed, presentationClock, point.x, point.y, point.z, reducedMotion])
   useEffect(() => {
     for (const action of Object.values(actions)) action?.stop()
     if (reducedMotion || (operationalSpeed ?? 0) > 10) return
@@ -328,7 +414,7 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
     return () => { for (const action of active) action?.fadeOut(0.12) }
   }, [actions, animationClip, operationalSpeed, reducedMotion])
   useEffect(() => { for (const action of Object.values(actions)) if (action) action.paused = paused }, [actions, paused, animationClip, operationalSpeed])
-  useEffect(() => { setAnimationPlayback(mixer, paused, reducedMotion, operationalSpeed) }, [mixer, paused, reducedMotion, operationalSpeed])
+  useEffect(() => { mixerRef.current = mixer; setAnimationPlayback(mixer, paused, reducedMotion, operationalSpeed) }, [mixer, paused, reducedMotion, operationalSpeed])
   useFrame(({ clock }, delta) => {
     const current = group.current
     if (!current) return
@@ -337,7 +423,7 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
     const visualMinute = presentationClock.at(performance.now())
     const routeMotion = plan !== null && operationalSpeed !== null && operationalSpeed > 0 && operationalSpeed <= 10
     if (routeMotion) {
-      const planned = scenePointAlongMovementPlan(map, plan, visualMinute, 0.05)
+      const planned = scenePointAlongMovementPlan(map, plan, visualMinute, 0.05, operationalSpeed)
       target.current.set(planned.x, planned.y, planned.z)
     }
     if (home) {
@@ -353,12 +439,17 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
     current.position.lerp(target.current, 1 - Math.exp(-step * (routeMotion ? 18 : 12)))
     const dx = current.position.x - previousFrame.current.x
     const dz = current.position.z - previousFrame.current.z
-    if (dx * dx + dz * dz > 0.000001) current.rotation.y = Math.atan2(dx, dz)
+    const changed = dx * dx + dz * dz > 0.000001
+    const moving = routeMotion && changed
+    if (changed) current.rotation.y = Math.atan2(dx, dz)
     previousFrame.current.copy(current.position)
-    const moving = routeMotion && visualMinute < (plan?.waypoints.at(-1)?.arriveMinute ?? 0)
+    if (animationClip === 'Walk' || animationClip === 'Carry') mixerRef.current.timeScale = moving ? 1 : 0
     if (body.current) body.current.position.y = animationClip === 'Rest' ? -0.12 : moving ? Math.abs(Math.sin(clock.elapsedTime * 8 + Number(citizen.citizenId) % 7)) * 0.06 : Math.sin(clock.elapsedTime * 1.7 + Number(citizen.citizenId) % 11) * 0.015
   })
   return <group ref={group} scale={stageScale * (fitTile ? 0.55 : 1)} onClick={event => { event.stopPropagation(); onSelect() }}>
+    {selected && <sprite position={[0, 1.7, 0]} scale={[0.52, 0.52, 1]} renderOrder={20}>
+      <spriteMaterial map={selectedMarker} transparent depthTest={false} depthWrite={false} toneMapped={false} />
+    </sprite>}
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.015, 0]}><circleGeometry args={[0.3, 16]} /><meshBasicMaterial color="#2c2018" transparent opacity={0.2} depthWrite={false} /></mesh>
     {selected && <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}><ringGeometry args={[0.36, 0.48, 24]} /><meshBasicMaterial color="#f3d287" side={THREE.DoubleSide} /></mesh>}
     <group ref={body}>
@@ -372,21 +463,23 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
 function cameraFocus(map: Map, structures: Structure[]): THREE.Vector3 {
   // Gathering citizens can roam across the map. Keep the default composition
   // anchored on the settlement and let selection/follow mode chase individuals.
-  const coordinates = structures.length > 0 ? structures.map(structure => structure.location) : [map.startingSite]
+  const prominent = structures.filter(structure => structure.type !== 'Stockpile')
+  const focusStructures = prominent.length > 0 ? prominent : structures
+  const coordinates = focusStructures.length > 0 ? focusStructures.map(structure => structure.location) : [map.startingSite]
   const x = coordinates.reduce((total, coordinate) => total + coordinate.x, 0) / coordinates.length
   const y = coordinates.reduce((total, coordinate) => total + coordinate.y, 0) / coordinates.length
   const point = worldToScene(map, x, y)
   return new THREE.Vector3(point.x, point.y, point.z)
 }
 
-function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: (() => { x: number; y: number; z: number }) | null; controlsEnabled: boolean }) {
+function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled, structureCount }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: (() => { x: number; y: number; z: number }) | null; controlsEnabled: boolean; structureCount: number }) {
   const camera = useRef<THREE.OrthographicCamera>(null)
   const controls = useRef<MapControlsImpl>(null)
   const appliedHome = useRef('')
   const followTarget = useRef(new THREE.Vector3())
   const followDelta = useRef(new THREE.Vector3())
   const { size } = useThree()
-  const homeZoom = Math.max(30, Math.min(76, size.width / 18))
+  const homeZoom = Math.max(24, Math.min(76, size.width / (structureCount >= 50 ? 33 : 18)))
   const focusX = focus.x
   const focusY = focus.y
   const focusZ = focus.z
@@ -398,7 +491,7 @@ function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled
     // Initialize only once it controls that camera, not the temporary Canvas camera.
     if (!activeCamera || !activeControls || activeControls.object !== activeCamera || appliedHome.current === homeIdentity) return
     const angle = rotation * Math.PI / 2 + Math.PI / 4
-    activeCamera.position.set(focusX + Math.cos(angle) * 28, focusY + 26, focusZ + Math.sin(angle) * 28)
+    activeCamera.position.set(focusX + Math.cos(angle) * 28, focusY + 48, focusZ + Math.sin(angle) * 28)
     activeCamera.zoom = homeZoom
     activeCamera.updateProjectionMatrix()
     activeControls.target.set(focusX, focusY, focusZ)
@@ -498,11 +591,13 @@ function DioramaScene({ map, living, citizens, structures, worldMinute, settleme
   const observedMinute = worldMinute ?? Math.max(0, ...citizens.map(c => c.movementPlan?.observedMinute ?? 0))
   useLayoutEffect(() => { presentationClock.observe(observedMinute, operationalSpeed, paused, performance.now()) }, [presentationClock, observedMinute, operationalSpeed, paused])
   const focus = useMemo(() => cameraFocus(map, structures), [map, structures])
+  const stockpiles = useMemo(() => structures.filter(structure => structure.type === 'Stockpile' && structure.status === 'Complete'), [structures])
+  const otherStructures = useMemo(() => structures.filter(structure => structure.type !== 'Stockpile' || structure.status !== 'Complete'), [structures])
   const livingOrders = useMemo(() => new Map(living?.orders.filter(order => order.citizenId !== null).map(order => [order.citizenId, order])), [living])
   const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && citizen.isAlive)
   const followedPlan = followed ? doorwayPlan(followed, structures) : null
   const follow = followed ? () => followedPlan && !reducedMotion && (operationalSpeed ?? 0) <= 10
-    ? scenePointAlongMovementPlan(map, followedPlan, presentationClock.at(performance.now()))
+    ? scenePointAlongMovementPlan(map, followedPlan, presentationClock.at(performance.now()), 0, operationalSpeed)
     : worldToScene(map, followed.location.x, followed.location.y) : null
   return <>
     <color attach="background" args={[living?.weather === 'ColdSpell' ? '#bdcbd1' : living?.weather === 'Rain' ? '#aeb7b0' : '#c9b792']} />
@@ -519,12 +614,13 @@ function DioramaScene({ map, living, citizens, structures, worldMinute, settleme
       <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
       <Suspense fallback={null}>
         <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
-        {structures.map(structure => structure.type === 'Marketplace' ? <MarketplaceModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} fitTile={!!living} />)}
+        <StockpileInstances map={map} structures={stockpiles} detailTier={detailTier} fitTile={!!living} />
+        {otherStructures.map(structure => structure.type === 'Marketplace' ? <MarketplaceModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Farm' ? <FarmModel key={structure.structureId} map={map} structure={structure} /> : structure.type === 'Granary' ? <GranaryModel key={structure.structureId} map={map} structure={structure} /> : <StructureModel key={structure.structureId} map={map} structure={structure} detailTier={detailTier} fitTile={!!living} />)}
         {citizens.filter(citizen => citizen.isAlive).map(citizen => <CitizenModel key={citizen.citizenId} citizen={citizen} livingOrder={livingOrders.get(citizen.citizenId)} fitTile={!!living} map={map} structures={structures} presentationClock={presentationClock} worldSeed={worldSeed} operationalSpeed={operationalSpeed} paused={paused} reducedMotion={reducedMotion} selected={citizen.citizenId === selectedCitizenId} onSelect={() => onSelectCitizen(citizen.citizenId)} />)}
         {diagnosticsEnabled && <SceneStats onStats={onStats} />}
       </Suspense>
     </group>
-    <CameraRig focus={focus} rotation={rotation} resetToken={resetToken} nudge={nudge} follow={follow} controlsEnabled={controlsEnabled} />
+    <CameraRig focus={focus} rotation={rotation} resetToken={resetToken} nudge={nudge} follow={follow} controlsEnabled={controlsEnabled} structureCount={structures.length} />
     <AdaptiveDpr />
     <PerformanceMonitor flipflops={2} onDecline={() => onDetailTier('reduced')} onIncline={() => onDetailTier('full')} />
   </>
@@ -555,7 +651,9 @@ export function WorldViewport(props: WorldViewportProps) {
   const [resetToken, setResetToken] = useState(0)
   const [followCitizenId, setFollowCitizenId] = useState<string | null>(null)
   const [detailTier, setDetailTier] = useState<DetailTier>('full')
-  const effectiveDetailTier = import.meta.env.DEV ? props.previewDetailTier ?? detailTier : detailTier
+  const compact = typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches
+  const effectiveDetailTier = props.structures.length >= 50 || compact && props.structures.length >= 20
+    ? 'reduced' : import.meta.env.DEV ? props.previewDetailTier ?? detailTier : detailTier
   const [stats, setStats] = useState<PerfStats>({ fps: 0, calls: 0, triangles: 0, p95: 0, readyMs: 0 })
   const [nudge, setNudge] = useState<CameraNudge>({ x: 0, z: 0, zoom: 0, sequence: 0 })
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
