@@ -762,7 +762,7 @@ public sealed class WorldCheckpointStore
         if (metadata.CitizenGenerationVersion == 0 && citizensRows.Count != 0) throw new InvalidDataException("A pre-M2 checkpoint must not contain citizen rows.");
         if (metadata.CitizenGenerationVersion is not (0 or SimulationEngine.CitizenGenerationVersion)) throw new NotSupportedException($"Citizen generation version '{metadata.CitizenGenerationVersion}' is not supported.");
         Citizen[] citizens;
-        try { citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute, metadata.SurvivalVersion, metadata.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion)).ToArray(); }
+        try { citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute, metadata.SurvivalVersion, SimulationEngine.LivingSystemsEnabled(metadata.SimulationRulesVersion))).ToArray(); }
         catch (InvalidDataException) { throw; }
         catch (ArgumentException exception) { throw new InvalidDataException("A persisted citizen row is not valid.", exception); }
         SimulationPersistenceSnapshot snapshot;

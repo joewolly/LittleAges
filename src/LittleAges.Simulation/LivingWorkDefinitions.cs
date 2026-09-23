@@ -5,6 +5,18 @@ namespace LittleAges.Simulation;
 /// <summary>Rules-versioned recipes. Checkpoints cannot redefine the cost of production.</summary>
 public static class LivingWorkDefinitions
 {
+    public static int OutputQuantity(LivingWorkKind kind, string rulesVersion) => kind switch
+    {
+        LivingWorkKind.Harvest => 65,
+        LivingWorkKind.Cook => 30,
+        LivingWorkKind.Preserve => 20,
+        LivingWorkKind.CutFuel => rulesVersion == SimulationEngine.Living2SimulationRulesVersion ? 30 : 10,
+        LivingWorkKind.MakeTool or LivingWorkKind.Weave => 1,
+        LivingWorkKind.PrepareMedicine => 5,
+        LivingWorkKind.Hunt => 45,
+        _ => 0
+    };
+
     public static int Work(LivingWorkKind kind) => kind switch
     {
         LivingWorkKind.EstablishField => 360,
@@ -32,7 +44,7 @@ public static class LivingWorkDefinitions
         ? order.Ingredients.All(x => x is { Resource: "Medicine", Quantity: 1 } or { Resource: "Food", Quantity: 2 })
         : order.Ingredients.SequenceEqual(Ingredients(order.Kind));
 
-    public static bool ValidCargo(LivingWorkOrder order)
+    public static bool ValidCargo(LivingWorkOrder order, string rulesVersion = SimulationEngine.LivingSimulationRulesVersion)
     {
         if (!order.Produced) return order.Cargo.Count == 0;
         return order.Kind switch
@@ -41,7 +53,9 @@ public static class LivingWorkDefinitions
             LivingWorkKind.Hunt => order.Cargo.Count == 0 || order.Cargo.SequenceEqual([new LivingStock(LivingGood.Meal, 40), new LivingStock(LivingGood.Hide, 5)]),
             LivingWorkKind.Cook => Single(LivingGood.Meal, 30),
             LivingWorkKind.Preserve => Single(LivingGood.PreservedFood, 20),
-            LivingWorkKind.CutFuel => Single(LivingGood.Fuel, 10),
+            // Existing provisional living2 checkpoints may contain the prior ten-unit yield.
+            LivingWorkKind.CutFuel => Single(LivingGood.Fuel, OutputQuantity(order.Kind, rulesVersion)) ||
+                rulesVersion == SimulationEngine.Living2SimulationRulesVersion && Single(LivingGood.Fuel, 10),
             LivingWorkKind.MakeTool => Single(LivingGood.Tool, 1),
             LivingWorkKind.Weave => Single(LivingGood.Clothing, 1),
             LivingWorkKind.PrepareMedicine => Single(LivingGood.Medicine, 5),

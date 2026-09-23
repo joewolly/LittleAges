@@ -5,18 +5,26 @@ One communal settlement sustains daily life, learns techniques, and responds to
 environmental pressures. People choose their work. The observer can inspect,
 follow, pause, and change speed. The canonical simulation never calls an LLM.
 
-## Selecting the new world
+## Selecting rules for a new world
 
-The explicit rules identifier is `v02-rng1-living1`. Existing worlds retain
-their saved rules and histories. There is no upgrade from v0.1 to these rules.
-The default server configuration still creates an M8 world; opt in when creating
-a **disposable new world**:
+Living Settlement has two versioned rules identifiers. `v02-rng1-living1`
+retains its original recipes. `v02-rng1-living2` is an opt-in new-world variant
+that changes the Cut fuel output from 10 to 30 fuel for the same 10 wood. This
+raises fuel production capacity to address the fuel-blocked work diagnosed in
+the living1 seed-42 run; it does not change the living1 rules or convert an
+existing save. The default for new worlds remains `m12-rng1-spaced1`.
+
+Existing worlds retain their saved rules and histories. Select living2 only
+when creating a **disposable new world**:
 
 ```powershell
 dotnet run --project src/LittleAges.Server --configuration Release -- `
   --DataRoot ./artifacts/living-demo --ActiveWorld living-demo --WorldSeed 42 `
-  --NewWorldRules v02-rng1-living1 --ListenUrls http://127.0.0.1:5284
+  --NewWorldRules v02-rng1-living2 --ListenUrls http://127.0.0.1:5284
 ```
+
+Use `--NewWorldRules v02-rng1-living1` to create a world with the original
+Living Settlement recipe. Neither selection changes an already saved world.
 
 The existing Windows installation is a separate deployment decision. Do not
 point this development command at its data directory. The development frontend
@@ -60,7 +68,7 @@ Harvests produce grain and fiber. Hearth capacity expands with population.
 | --- | --- | --- |
 | Cook | 20 grain, 1 fuel | 30 meals into communal food |
 | Preserve | 20 grain, 2 fuel | 20 preserved food |
-| Cut fuel | 10 wood | 10 fuel |
+| Cut fuel | 10 wood | 10 fuel (`living1`); 30 fuel (`living2`) |
 | Make tools | 4 wood, 2 stone, workshop | 1 tool |
 | Weave | 8 fiber, loom | 1 garment |
 | Prepare medicine | 5 food, 2 fiber, care house | 5 treatment supplies |
@@ -77,7 +85,8 @@ Preservation targets 1,000 food units per person: a 90-day winter consumes
 about 778 units at the fixed hunger rate, leaving a margin for spoilage and
 a poor spring. Harvesting, sowing, tending, and preservation respond to this
 reserve deficit throughout the growing season. Meals use the portion needed
-to satisfy hunger. These rules apply only to new living-settlement worlds.
+to satisfy hunger. These preservation targets apply only to new
+living-settlement worlds.
 
 ## Personal lives and knowledge
 
@@ -163,7 +172,8 @@ care, knowledge transfer and loss, personal preferences, cold exposure, invalid
 recipes/cargo/capacity/claims, observer immutability, and saved-rules precedence.
 Legacy compatibility fixtures and fingerprint goldens remain unchanged.
 
-The fixed long-run suite is seeds **42, 7, and 12345**. Seed 42 runs through
+The fixed long-run suite is seeds **42, 7, and 12345** for each selected
+Living Settlement rules version. Seed 42 runs through
 100 years with an independent replay and a real SQLite checkpoint/reload at
 year 50; seeds 7 and 12345 run ten years. The two century worlds run independently
 in parallel, with different advance chunk sizes and one writer per world.
@@ -177,8 +187,8 @@ is reported rather than silently replacing a seed.
 
 ```powershell
 dotnet run --project src/LittleAges.Headless -c Release -- acceptance `
-  --seed 42 --years 100 --checkpoint-year 50 --rules v02-rng1-living1 `
-  --output artifacts/living-settlement/acceptance
+  --seed 42 --years 100 --checkpoint-year 50 --rules v02-rng1-living2 `
+  --output artifacts/living-settlement/living2-acceptance
 ```
 
 `scripts/test-living-acceptance.ps1` runs the complete fixed suite, preserves
@@ -186,9 +196,11 @@ reports and annual progress, rejects failed invariants, and requires both
 SQLite continuation equality and a second descendant generation for seed 42.
 Pass `-DotNetPath` when the pinned SDK is not the default `dotnet`.
 
-Use the measured [acceptance report](living-settlement-acceptance.md) for results
-and remaining limitations; this design document is not a claim that every
-acceptance gate has passed.
+The script accepts either `v02-rng1-living1` or `v02-rng1-living2` through its
+`-Rules` parameter. See the [living1 results](living-settlement-acceptance.md)
+and the separate [living2 local acceptance report](living-settlement-living2-acceptance.md)
+for rule-specific measurements and limitations. These reports do not establish
+hosted CI, deployment, or a guarantee for every seed.
 
 ## Later ages
 

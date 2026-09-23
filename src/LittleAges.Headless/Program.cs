@@ -25,7 +25,11 @@ public sealed record HeadlessOptions(
     string? Output,
     long ChunkMinutes,
     int? CheckpointYear = null,
-    string? DatabasePath = null)
+    string? DatabasePath = null,
+    LivingDiagnosticCadence? LivingDiagnosticCadence = null,
+    int? DiagnosticStartYear = null,
+    int? DiagnosticEndYear = null,
+    string? DiagnosticCheckpointPath = null)
 {
     public const long DefaultChunkMinutes = WorldCalendar.MinutesPerYear;
     public static HeadlessOptions Default(HeadlessCommand command) =>
@@ -66,6 +70,11 @@ public static class HeadlessCommandLine
         var chunkMinutes = options.ChunkMinutes;
         int? checkpointYear = options.CheckpointYear;
         string? databasePath = options.DatabasePath;
+        var diagnosticCadence = options.LivingDiagnosticCadence;
+        int? diagnosticStartYear = options.DiagnosticStartYear;
+        int? diagnosticEndYear = options.DiagnosticEndYear;
+        string? diagnosticCheckpointPath = options.DiagnosticCheckpointPath;
+        var yearsSpecified = false;
 
         while (index < args.Count)
         {
@@ -74,7 +83,7 @@ public static class HeadlessCommandLine
                 return HeadlessParseResult.Failure(string.Empty);
 
             var (name, inlineValue) = SplitOption(argument);
-            if (name is not ("--seed" or "--years" or "--rules" or "--output" or "--chunk-minutes" or "--chunk-size" or "--checkpoint-year" or "--database"))
+            if (name is not ("--seed" or "--years" or "--rules" or "--output" or "--chunk-minutes" or "--chunk-size" or "--checkpoint-year" or "--database" or "--living-diagnostic" or "--diagnostic-start-year" or "--diagnostic-end-year" or "--diagnostic-checkpoint"))
                 return HeadlessParseResult.Failure($"Unknown option '{name}'.");
 
             var valueResult = ReadValue(name, inlineValue, args, ref index);
@@ -89,6 +98,7 @@ public static class HeadlessCommandLine
                 case "--years":
                     if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out years) || years is not (1 or 10 or 100 or 500))
                         return HeadlessParseResult.Failure("--years must be one of: 1, 10, 100, 500.");
+                    yearsSpecified = true;
                     break;
                 case "--rules":
                     if (!SimulationEngine.IsHistoryRulesVersion(value))
@@ -108,6 +118,25 @@ public static class HeadlessCommandLine
                     if (string.IsNullOrWhiteSpace(value)) return HeadlessParseResult.Failure("--database requires a non-empty path.");
                     databasePath = value;
                     break;
+                case "--living-diagnostic":
+                    if (string.Equals(value, "monthly", StringComparison.OrdinalIgnoreCase)) diagnosticCadence = LivingDiagnosticCadence.Monthly;
+                    else if (string.Equals(value, "seasonal", StringComparison.OrdinalIgnoreCase)) diagnosticCadence = LivingDiagnosticCadence.Seasonal;
+                    else return HeadlessParseResult.Failure("--living-diagnostic must be monthly or seasonal.");
+                    break;
+                case "--diagnostic-start-year":
+                    if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedDiagnosticStartYear) || parsedDiagnosticStartYear < 0)
+                        return HeadlessParseResult.Failure("--diagnostic-start-year must be a non-negative decimal integer.");
+                    diagnosticStartYear = parsedDiagnosticStartYear;
+                    break;
+                case "--diagnostic-end-year":
+                    if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsedDiagnosticEndYear) || parsedDiagnosticEndYear <= 0 || parsedDiagnosticEndYear > 500)
+                        return HeadlessParseResult.Failure("--diagnostic-end-year must be between 1 and 500.");
+                    diagnosticEndYear = parsedDiagnosticEndYear;
+                    break;
+                case "--diagnostic-checkpoint":
+                    if (string.IsNullOrWhiteSpace(value)) return HeadlessParseResult.Failure("--diagnostic-checkpoint requires a non-empty database path.");
+                    diagnosticCheckpointPath = value;
+                    break;
                 default:
                     if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out chunkMinutes) || chunkMinutes <= 0)
                         return HeadlessParseResult.Failure("--chunk-minutes must be a positive decimal integer.");
@@ -123,7 +152,19 @@ public static class HeadlessCommandLine
             return HeadlessParseResult.Failure("acceptance requires --checkpoint-year.");
         if (checkpointYear is not null && checkpointYear >= years)
             return HeadlessParseResult.Failure("--checkpoint-year must be less than --years.");
-        return HeadlessParseResult.Success(new HeadlessOptions(command, seed, years, rules, output, chunkMinutes, checkpointYear, databasePath));
+        var hasDiagnosticBounds = diagnosticStartYear is not null || diagnosticEndYear is not null;
+        if (diagnosticCadence is null && (hasDiagnosticBounds || diagnosticCheckpointPath is not null))
+            return HeadlessParseResult.Failure("Living diagnostic options require --living-diagnostic.");
+        if (diagnosticCadence is not null)
+        {
+            if (command != HeadlessCommand.Run) return HeadlessParseResult.Failure("--living-diagnostic is only valid for run.");
+            if (!SimulationEngine.LivingSystemsEnabled(rules)) return HeadlessParseResult.Failure("--living-diagnostic requires a living simulation rules version.");
+            if (yearsSpecified) return HeadlessParseResult.Failure("--years cannot be combined with --living-diagnostic; use --diagnostic-end-year.");
+            if (diagnosticEndYear is null) return HeadlessParseResult.Failure("--living-diagnostic requires --diagnostic-end-year.");
+            diagnosticStartYear ??= 0;
+            if (diagnosticStartYear >= diagnosticEndYear) return HeadlessParseResult.Failure("--diagnostic-start-year must be less than --diagnostic-end-year.");
+        }
+        return HeadlessParseResult.Success(new HeadlessOptions(command, seed, years, rules, output, chunkMinutes, checkpointYear, databasePath, diagnosticCadence, diagnosticStartYear, diagnosticEndYear, diagnosticCheckpointPath));
     }
 
     private static (string Name, string? InlineValue) SplitOption(string argument)
@@ -252,7 +293,7 @@ public static class HeadlessRunner
         var databasePath = ResolveDatabasePath(options);
         // Separate worlds retain one writer each. Running the reference alongside
         // the reload case makes century acceptance practical without sharing state.
-        var living = options.Rules == SimulationEngine.LivingSimulationRulesVersion;
+        var living = SimulationEngine.LivingSystemsEnabled(options.Rules);
         var runATask = living ? Task.Run(() => RunEngine(options.Seed, options.Rules, targetMinute, options.ChunkMinutes, "uninterrupted"), cancellationToken) : null;
         var runA = living ? null : RunEngine(options.Seed, options.Rules, targetMinute, options.ChunkMinutes);
         var reloadChunkMinutes = living ? Math.Max(1, options.ChunkMinutes / 7 + 1) : options.ChunkMinutes;
@@ -329,10 +370,11 @@ public static class HeadlessRunner
         {
             var nextMinute = checked(engine.CurrentMinute.Value + Math.Min(targetMinute - engine.CurrentMinute.Value, chunkMinutes));
             var previousYear = engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear;
-            if (engine.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion)
+            var livingEnabled = SimulationEngine.LivingSystemsEnabled(engine.SimulationRulesVersion);
+            if (livingEnabled)
                 nextMinute = Math.Min(nextMinute, (engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear + 1) * WorldCalendar.MinutesPerYear);
             engine.AdvanceUntil(new WorldMinute(nextMinute));
-            if (engine.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion && nextMinute % WorldCalendar.MinutesPerYear == 0)
+            if (livingEnabled && nextMinute % WorldCalendar.MinutesPerYear == 0)
             {
                 var snapshot = engine.CreatePersistenceSnapshot();
                 var living = LivingWorldCodec.Deserialize(snapshot.LivingStateJson!);
@@ -347,7 +389,7 @@ public static class HeadlessRunner
                     oldestPendingDays = living.Orders.Count == 0 ? 0 : (nextMinute - living.Orders.Min(x => x.CreatedMinute)) / WorldCalendar.MinutesPerDay
                 }));
             }
-            if (engine.SimulationRulesVersion != SimulationEngine.LivingSimulationRulesVersion && engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear != previousYear) Console.Error.WriteLine($"seed={engine.Seed.Value} rules={engine.SimulationRulesVersion} year={engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear} living={engine.LivingPopulation}");
+            if (!livingEnabled && engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear != previousYear) Console.Error.WriteLine($"seed={engine.Seed.Value} rules={engine.SimulationRulesVersion} year={engine.CurrentMinute.Value / WorldCalendar.MinutesPerYear} living={engine.LivingPopulation}");
         }
     }
 
@@ -709,6 +751,15 @@ public static class Program
         try
         {
             var options = parse.Options!;
+            if (options.LivingDiagnosticCadence is not null)
+            {
+                var diagnosis = await LivingSettlementDiagnosticRunner.RunAsync(options);
+                var json = LivingSettlementDiagnosticRunner.Serialize(diagnosis);
+                if (options.Output is { } output)
+                    await LivingSettlementDiagnosticRunner.WriteArtifactAsync(diagnosis, output);
+                Console.WriteLine(json);
+                return 0;
+            }
             if (options.Command == HeadlessCommand.Diagnose)
             {
                 var diagnosis = PopulationDiagnosis.Run(options);
@@ -750,6 +801,10 @@ Options:
   --chunk-size <n>     Alias for --chunk-minutes
   --checkpoint-year <n> Acceptance checkpoint year (for example, 37 with --years 100)
   --database <path>     Acceptance SQLite path (default: safe temporary path)
+  --living-diagnostic <monthly|seasonal>  Emit a separate living settlement diagnostic
+  --diagnostic-start-year <n>             First sampled year (default: 0)
+  --diagnostic-end-year <n>               Final exclusive year boundary, 1 through 500
+  --diagnostic-checkpoint <path>          Resume from an existing checkpoint via a private copy
   --help                Show this help
 
 Timing fields are operational; engine canonical fingerprints are state-derived, while the deterministic report fingerprint hashes the stable non-timing report projection.

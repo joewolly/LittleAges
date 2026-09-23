@@ -4,10 +4,12 @@ import { parseLivingWorld } from './living'
 const world = { version: 1, rulesVersion: 'v02-rng1-living1', worldMinute: 1440, age: 'Foraging', capabilities: ['work'], weather: 'Fair', temperature: 15, rainfall: 25, completedOrders: 0, foodHarvested: 0, foodPrepared: 0, careGiven: 0, goodsSpoiled: 0, totalFacts: 0, stock: [], people: [], orders: [], fields: [], facilities: [], animals: [], facts: [] }
 
 describe('living world observations', () => {
-  it('supports legacy observations and rejects unknown versions', () => {
+  it('accepts both Living rules versions and rejects unknown versions', () => {
     expect(parseLivingWorld(null)).toBeNull()
     expect(parseLivingWorld(world)?.weather).toBe('Fair')
+    expect(parseLivingWorld({ ...world, rulesVersion: 'v02-rng1-living2' })?.rulesVersion).toBe('v02-rng1-living2')
     expect(() => parseLivingWorld({ ...world, version: 2 })).toThrow()
+    expect(() => parseLivingWorld({ ...world, rulesVersion: 'v02-rng1-living3' })).toThrow()
   })
   it('keeps large citizen identities as decimal strings', () => {
     const result = parseLivingWorld({ ...world, people: [{ citizenId: '9007199254740993', goal: 'FamilySecurity', mood: 6000, stress: 0, injury: 0, illness: 0, toolCondition: 0, clothingCondition: 0, knowledge: [], deathObserved: false, experiences: [] }] })

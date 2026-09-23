@@ -24,7 +24,7 @@ const good = (value: unknown) => { const item = record(value); return { good: te
 export function parseLivingWorld(value: unknown): LivingWorld | null {
   if (value === null || value === undefined) return null
   const w = record(value)
-  if (w.version !== 1 || w.rulesVersion !== 'v02-rng1-living1') throw new Error('Unsupported living-world version.')
+  if (w.version !== 1 || (w.rulesVersion !== 'v02-rng1-living1' && w.rulesVersion !== 'v02-rng1-living2')) throw new Error('Unsupported living-world version.')
   return {
     version: 1, rulesVersion: w.rulesVersion, worldMinute: number(w.worldMinute), age: text(w.age), capabilities: list(w.capabilities, text), weather: text(w.weather), temperature: number(w.temperature, -40, 60), rainfall: number(w.rainfall, 0, 100),
     completedOrders: number(w.completedOrders), foodHarvested: number(w.foodHarvested), foodPrepared: number(w.foodPrepared), careGiven: number(w.careGiven), goodsSpoiled: number(w.goodsSpoiled), totalFacts: number(w.totalFacts), stock: list(w.stock, good),

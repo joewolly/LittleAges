@@ -11,7 +11,7 @@ public sealed record GrowthObservation(int Living, int Births, int Deaths, int U
 public sealed partial class SimulationEngine
 {
     public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion;
-    public static bool UsesSampledShortageRecovery(string rulesVersion) => rulesVersion is M8SimulationRulesVersion or LivingSimulationRulesVersion || GrowthSystemsEnabled(rulesVersion);
+    public static bool UsesSampledShortageRecovery(string rulesVersion) => rulesVersion is M8SimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion || GrowthSystemsEnabled(rulesVersion);
 
     private void EnsureIndependentHouseholds()
     {

@@ -10,7 +10,7 @@ public static class LivingValidation
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var pulse = snapshot.ScheduledEvents.Where(x => x.Name == SimulationEngine.LivingPulseEvent).ToArray();
-        if (snapshot.SimulationRulesVersion != SimulationEngine.LivingSimulationRulesVersion)
+        if (!SimulationEngine.LivingSystemsEnabled(snapshot.SimulationRulesVersion))
         {
             Require(snapshot.LivingStateJson is null && pulse.Length == 0 && snapshot.Citizens.All(x => x.CurrentAction != CitizenAction.LivingWork), "Legacy rules cannot contain living-world state.");
             return;
@@ -57,7 +57,7 @@ public static class LivingValidation
             Require(order.CreatedMinute >= 0 && order.CreatedMinute <= minute && order.ClaimedMinute >= 0 && order.ClaimedMinute <= minute && order.Priority is >= 0 and <= 10000 && order.RequiredWork is > 0 and <= 10000 && order.WorkDone >= 0 && order.WorkDone <= order.RequiredWork, "Work timing or progress is invalid.");
             Require(order.Technique is null || Enum.IsDefined(order.Technique.Value), "Work technique is invalid.");
             Require(order.Ingredients is not null && order.Cargo is not null && order.Ingredients.All(x => x.Quantity > 0 && (x.Resource is "Food" or "Wood" or "Stone" || Enum.TryParse<LivingGood>(x.Resource, out var good) && Enum.IsDefined(good))) && order.Ingredients.Select(x => x.Resource).Distinct().Count() == order.Ingredients.Count, "Work ingredients are invalid.");
-            Require(order.RequiredWork == LivingWorkDefinitions.Work(order.Kind) && LivingWorkDefinitions.ValidIngredients(order) && LivingWorkDefinitions.ValidCargo(order), "Work recipe or outputs do not match the rules.");
+            Require(order.RequiredWork == LivingWorkDefinitions.Work(order.Kind) && LivingWorkDefinitions.ValidIngredients(order) && LivingWorkDefinitions.ValidCargo(order, snapshot.SimulationRulesVersion), "Work recipe or outputs do not match the rules.");
             Require(order.Reserved || !order.SuppliesDelivered && order.WorkDone == 0 && !order.Produced, "Unreserved work cannot have progress or delivered supplies.");
             Require(!order.Produced || order.Phase == LivingWorkPhase.Deliver, "Produced work must be delivered.");
             Require(!order.CargoInTransit || order.Produced && order.CitizenId is not null && order.Cargo.Count > 0, "Cargo in transit requires a worker and produced goods.");

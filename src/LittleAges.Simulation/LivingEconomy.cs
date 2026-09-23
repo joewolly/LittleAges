@@ -91,12 +91,7 @@ public sealed partial class SimulationEngine
             .OrderBy(x => costs[x.Coordinate] * 10L - (field ? x.Fertility / 10 : 0)).ThenBy(x => x.Coordinate)
             .Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
     }
-    private static int OutputQuantity(LivingWorkKind kind) => kind switch
-    {
-        LivingWorkKind.Harvest => 65, LivingWorkKind.Cook => 30, LivingWorkKind.Preserve => 20,
-        LivingWorkKind.CutFuel => 10, LivingWorkKind.MakeTool or LivingWorkKind.Weave => 1,
-        LivingWorkKind.PrepareMedicine => 5, LivingWorkKind.Hunt => 45, _ => 0
-    };
+    private int OutputQuantity(LivingWorkKind kind) => LivingWorkDefinitions.OutputQuantity(kind, SimulationRulesVersion);
     private bool HasOutputSpace(LivingWorkOrder order) => order.Produced || OutputQuantity(order.Kind) <= LivingFreeStorage + order.Ingredients.Sum(x => x.Quantity);
     private void ProduceLiving(Citizen citizen, LivingWorkOrder order)
     {
@@ -133,7 +128,7 @@ public sealed partial class SimulationEngine
                 break;
             case LivingWorkKind.Cook: order.Cargo.Add(new(LivingGood.Meal, 30)); state.FoodPrepared += 30; break;
             case LivingWorkKind.Preserve: order.Cargo.Add(new(LivingGood.PreservedFood, 20)); break;
-            case LivingWorkKind.CutFuel: order.Cargo.Add(new(LivingGood.Fuel, 10)); break;
+            case LivingWorkKind.CutFuel: order.Cargo.Add(new(LivingGood.Fuel, OutputQuantity(order.Kind))); break;
             case LivingWorkKind.MakeTool: order.Cargo.Add(new(LivingGood.Tool, 1)); break;
             case LivingWorkKind.Weave: order.Cargo.Add(new(LivingGood.Clothing, 1)); break;
             case LivingWorkKind.PrepareMedicine: order.Cargo.Add(new(LivingGood.Medicine, 5)); break;

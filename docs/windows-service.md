@@ -92,9 +92,12 @@ existing LAN mode when `-EnableLan` is omitted; use `-EnableLan:$false` to
 explicitly return to loopback.
 
 Growing Settlement and Living Settlement saves retain their own rules during
-upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`, and `v02-rng1-living1`;
-installing it does not convert one civilization into the other. New worlds keep
-the configured `NewWorldRules`, with M12 as the application default.
+upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`,
+`v02-rng1-living1`, and `v02-rng1-living2`; installing it does not convert one
+civilization or Living Settlement rules version into another. New worlds keep
+the configured `NewWorldRules`, with M12 as the application default. Living2 is
+an opt-in rule for newly created worlds; existing living1 worlds continue under
+their saved living1 rules.
 
 Both branches originally persisted citizen action 13 with different meanings.
 The checkpoint reader interprets it using the saved rules, while checkpoint

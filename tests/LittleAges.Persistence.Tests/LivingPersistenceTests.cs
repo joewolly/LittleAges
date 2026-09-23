@@ -1,3 +1,4 @@
+using System.Reflection;
 using LittleAges.Domain;
 using LittleAges.Simulation;
 using Xunit;
@@ -7,13 +8,14 @@ namespace LittleAges.Persistence.Tests;
 public sealed class LivingPersistenceTests
 {
     [Theory]
-    [InlineData(LivingWorkKind.Sow)]
-    [InlineData(LivingWorkKind.Preserve)]
-    [InlineData(LivingWorkKind.Care)]
-    [InlineData(LivingWorkKind.Teach)]
-    public async Task ActiveFarmingProductionCareAndTeachingSurviveSqliteReload(LivingWorkKind kind)
+    [InlineData(LivingWorkKind.Sow, SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(LivingWorkKind.Preserve, SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(LivingWorkKind.Care, SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(LivingWorkKind.Teach, SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(LivingWorkKind.Sow, SimulationEngine.Living2SimulationRulesVersion)]
+    public async Task ActiveFarmingProductionCareAndTeachingSurviveSqliteReload(LivingWorkKind kind, string rulesVersion)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.LivingSimulationRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: rulesVersion);
         LivingWorldState state;
         do
         {
@@ -40,6 +42,91 @@ public sealed class LivingPersistenceTests
             Assert.Equal(engine.HistoryFingerprint, resumed.HistoryFingerprint);
             Assert.Equal(engine.LivingStateJson, resumed.LivingStateJson);
             await reopened.CreateCheckpointStore().CheckpointAsync(resumed.CreatePersistenceSnapshot());
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task FreshLiving2WorldRoundTripsSqliteCheckpointAndContinuesExactly()
+    {
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.Living2SimulationRulesVersion);
+        Assert.NotNull(engine.CreatePersistenceSnapshot().LivingStateJson);
+        engine.AdvanceUntil(new WorldMinute(4777));
+        var committed = engine.CreatePersistenceSnapshot();
+        var directory = Path.Combine(Path.GetTempPath(), "littleages-living2-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "world.db");
+        try
+        {
+            await using (var database = await WorldDatabase.OpenAsync(path))
+                await database.CreateCheckpointStore().CheckpointAsync(committed);
+
+            await using (var database = await WorldDatabase.OpenAsync(path))
+            {
+                var loaded = await database.CreateCheckpointStore().LoadAsync();
+                Assert.Equal(SimulationEngine.Living2SimulationRulesVersion, loaded.SimulationRulesVersion);
+                Assert.Equal(committed.LivingStateJson, loaded.LivingStateJson);
+                var resumed = new SimulationEngine(loaded);
+                var target = new WorldMinute(30000);
+                engine.AdvanceUntil(target);
+                while (resumed.CurrentMinute < target)
+                    resumed.AdvanceUntil(new WorldMinute(Math.Min(target.Value, resumed.CurrentMinute.Value + 97)));
+                Assert.Equal(engine.LivingStateJson, resumed.LivingStateJson);
+                Assert.Equal(engine.HistoryFingerprint, resumed.HistoryFingerprint);
+            }
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(directory, recursive: true); }
+    }
+
+    [Fact]
+    public async Task ProducedLiving2FuelSurvivesSqliteReloadAndContinuesDelivery()
+    {
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.Living2SimulationRulesVersion);
+        var state = (LivingWorldState)typeof(SimulationEngine)
+            .GetField("_living", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine)!;
+        var produced = new LivingWorkOrder
+        {
+            Id = state.NextId++,
+            Kind = LivingWorkKind.CutFuel,
+            Location = engine.World.StartingSite,
+            SupplyLocation = engine.World.StartingSite,
+            RequiredWork = LivingWorkDefinitions.Work(LivingWorkKind.CutFuel),
+            WorkDone = LivingWorkDefinitions.Work(LivingWorkKind.CutFuel),
+            Ingredients = LivingWorkDefinitions.Ingredients(LivingWorkKind.CutFuel).ToList(),
+            Reserved = true,
+            SuppliesDelivered = true
+        };
+        state.Orders.Add(produced);
+        typeof(SimulationEngine).GetMethod("ProduceLiving", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(engine, [engine.Citizens[0], produced]);
+        produced.Produced = true;
+        produced.Phase = LivingWorkPhase.Deliver;
+        Assert.Equal(new LivingStock(LivingGood.Fuel, 30), Assert.Single(produced.Cargo));
+        var committed = engine.CreatePersistenceSnapshot();
+        LivingValidation.Validate(committed);
+        var directory = Path.Combine(Path.GetTempPath(), "littleages-living2-fuel-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "world.db");
+        try
+        {
+            await using (var database = await WorldDatabase.OpenAsync(path))
+                await database.CreateCheckpointStore().CheckpointAsync(committed);
+
+            await using (var database = await WorldDatabase.OpenAsync(path))
+            {
+                var loaded = await database.CreateCheckpointStore().LoadAsync();
+                var loadedOrder = LivingWorldCodec.Deserialize(loaded.LivingStateJson!).Orders
+                    .Single(x => x.Kind == LivingWorkKind.CutFuel && x.Produced);
+                Assert.Equal(new LivingStock(LivingGood.Fuel, 30), Assert.Single(loadedOrder.Cargo));
+
+                var resumed = new SimulationEngine(loaded);
+                var target = engine.CurrentMinute.Add(7L * WorldCalendar.MinutesPerDay);
+                engine.AdvanceUntil(target);
+                while (resumed.CurrentMinute < target)
+                    resumed.AdvanceUntil(new WorldMinute(Math.Min(target.Value, resumed.CurrentMinute.Value + 97)));
+                Assert.Equal(engine.LivingStateJson, resumed.LivingStateJson);
+                Assert.Equal(engine.HistoryFingerprint, resumed.HistoryFingerprint);
+            }
         }
         finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(directory, recursive: true); }
     }

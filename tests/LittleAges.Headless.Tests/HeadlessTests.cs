@@ -79,6 +79,139 @@ public sealed class HeadlessTests
         Assert.False(HeadlessCommandLine.Parse(["acceptance", "--years", "10", "--checkpoint-year", "10"]).Succeeded);
     }
 
+    [Theory]
+    [InlineData(SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(SimulationEngine.Living2SimulationRulesVersion)]
+    public void LivingRulesAreAcceptedForAcceptanceAndDiagnostics(string rules)
+    {
+        var acceptance = HeadlessCommandLine.Parse(["acceptance", "--rules", rules, "--years", "10", "--checkpoint-year", "5"]);
+        var diagnostic = HeadlessCommandLine.Parse([
+            "run", "--rules", rules, "--living-diagnostic", "monthly", "--diagnostic-end-year", "1"]);
+
+        Assert.True(acceptance.Succeeded, acceptance.Error);
+        Assert.Equal(rules, acceptance.Options!.Rules);
+        Assert.True(diagnostic.Succeeded, diagnostic.Error);
+        Assert.Equal(rules, diagnostic.Options!.Rules);
+    }
+
+    [Theory]
+    [InlineData(SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(SimulationEngine.Living2SimulationRulesVersion)]
+    public void LivingDiagnosticParserRequiresBoundedLivingRunOptions(string rules)
+    {
+        var accepted = HeadlessCommandLine.Parse([
+            "run", "--rules", rules,
+            "--living-diagnostic", "monthly", "--diagnostic-start-year", "64", "--diagnostic-end-year", "72",
+            "--diagnostic-checkpoint", "checkpoint.db"]);
+        var missingEnd = HeadlessCommandLine.Parse(["run", "--rules", rules, "--living-diagnostic", "seasonal"]);
+        var wrongRules = HeadlessCommandLine.Parse(["run", "--living-diagnostic", "monthly", "--diagnostic-end-year", "72"]);
+        var conflictingHorizon = HeadlessCommandLine.Parse(["run", "--rules", rules, "--living-diagnostic", "monthly", "--diagnostic-end-year", "72", "--years", "100"]);
+        var reversedRange = HeadlessCommandLine.Parse(["run", "--rules", rules, "--living-diagnostic", "monthly", "--diagnostic-start-year", "72", "--diagnostic-end-year", "72"]);
+
+        Assert.True(accepted.Succeeded);
+        Assert.Equal(LivingDiagnosticCadence.Monthly, accepted.Options!.LivingDiagnosticCadence);
+        Assert.Equal(64, accepted.Options.DiagnosticStartYear);
+        Assert.Equal(72, accepted.Options.DiagnosticEndYear);
+        Assert.Equal("checkpoint.db", accepted.Options.DiagnosticCheckpointPath);
+        Assert.False(missingEnd.Succeeded);
+        Assert.False(wrongRules.Succeeded);
+        Assert.False(conflictingHorizon.Succeeded);
+        Assert.False(reversedRange.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(SimulationEngine.Living2SimulationRulesVersion)]
+    public async Task LivingDiagnosticUsesPrivateCheckpointCopyAndMatchesUninterruptedState(string rules)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "LittleAges-Headless-LivingDiagnostic-Tests", Guid.NewGuid().ToString("N"));
+        var databasePath = Path.Combine(root, "checkpoint.db");
+        try
+        {
+            Directory.CreateDirectory(root);
+            var checkpointEngine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: rules);
+            await HeadlessRunner.PersistAndReloadForTestingAsync(databasePath, checkpointEngine.CreatePersistenceSnapshot());
+            var before = DatabaseFileHashes(databasePath);
+            var options = HeadlessOptions.Default(HeadlessCommand.Run) with
+            {
+                Seed = 42,
+                Rules = rules,
+                LivingDiagnosticCadence = LivingDiagnosticCadence.Monthly,
+                DiagnosticStartYear = 0,
+                DiagnosticEndYear = 1,
+                DiagnosticCheckpointPath = databasePath
+            };
+
+            var diagnostic = await LivingSettlementDiagnosticRunner.RunAsync(options);
+            var after = DatabaseFileHashes(databasePath);
+            var baseline = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: rules);
+            baseline.AdvanceUntil(new WorldMinute(WorldCalendar.MinutesPerYear));
+
+            Assert.Equal(0, diagnostic.CheckpointMinute);
+            Assert.Equal(WorldCalendar.MinutesPerYear, diagnostic.FinalMinute);
+            Assert.Equal(12, diagnostic.Samples.Count);
+            Assert.Equal("month-01", diagnostic.Samples[0].Period);
+            Assert.Equal("month-12", diagnostic.Samples[^1].Period);
+            Assert.Equal("SimulationPersistenceSnapshot + LivingWorldStateCodec", diagnostic.Source);
+            Assert.NotEmpty(diagnostic.UnavailableHistoricalMetrics);
+            Assert.Contains(nameof(LivingGood.PreservedFood), diagnostic.Samples[0].Food.LivingStockByGood.Keys);
+            Assert.All(diagnostic.Samples, sample => Assert.Equal(sample.Fields.Count(field => field.ReadyToHarvest), sample.ReadyToHarvestFields));
+            Assert.Equal(baseline.SurvivalFingerprint, diagnostic.FinalFingerprints.Survival);
+            Assert.Equal(baseline.SettlementFingerprint, diagnostic.FinalFingerprints.Settlement);
+            Assert.Equal(baseline.SocialFingerprint, diagnostic.FinalFingerprints.Social);
+            Assert.Equal(baseline.HistoryFingerprint, diagnostic.FinalFingerprints.History);
+            Assert.Equal(before.OrderBy(item => item.Key), after.OrderBy(item => item.Key));
+            using var json = JsonDocument.Parse(LivingSettlementDiagnosticRunner.Serialize(diagnostic));
+            Assert.Equal("monthly", json.RootElement.GetProperty("cadence").GetString());
+            Assert.Equal(12, json.RootElement.GetProperty("samples").GetArrayLength());
+            Assert.True(json.RootElement.GetProperty("samples")[0].GetProperty("food").TryGetProperty("commonsWoodStored", out _));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(SimulationEngine.Living2SimulationRulesVersion)]
+    public void LivingRunPassesHeadlessInvariantsForBothRules(string rules)
+    {
+        var options = HeadlessOptions.Default(HeadlessCommand.Run) with
+        {
+            Rules = rules,
+        };
+        var report = HeadlessRunner.Run(options);
+
+        Assert.Equal(rules, report.Rules);
+        Assert.True(report.MandatoryInvariantsPassed, string.Join("; ", report.Invariants.Where(item => !item.Passed).Select(item => item.Details)));
+    }
+
+    [Fact]
+    public void LivingDiagnosticCountsDeadActionTransitionsWithoutDeathMinuteExactlyOnce()
+    {
+        var previous = new Citizen(new CitizenId(1), null, "Test", "Citizen", 0, new TileCoordinate(0, 0),
+            new CitizenTraits(0, 0, 0, 0, 0, 0), new CitizenSkills(0, 0, 0, 0, 0, 0));
+        var transitioned = new Citizen(new CitizenId(1), null, "Test", "Citizen", 0, new TileCoordinate(0, 0),
+            new CitizenTraits(0, 0, 0, 0, 0, 0), new CitizenSkills(0, 0, 0, 0, 0, 0))
+        {
+            CurrentAction = CitizenAction.Dead,
+            DeathCause = "Starvation"
+        };
+
+        var intervalDeaths = LivingSettlementDiagnosticRunner.CountDeathsByCause([previous], [transitioned], 0, 1);
+        var alreadyDeadDeaths = LivingSettlementDiagnosticRunner.CountDeathsByCause([transitioned], [transitioned], 0, 1);
+
+        Assert.Equal(1, intervalDeaths["Starvation"]);
+        Assert.Empty(alreadyDeadDeaths);
+    }
+
+    private static Dictionary<string, string> DatabaseFileHashes(string databasePath) =>
+        new[] { databasePath, databasePath + "-wal", databasePath + "-shm" }
+            .Where(File.Exists)
+            .Order(StringComparer.Ordinal)
+            .ToDictionary(path => Path.GetFileName(path), path => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))), StringComparer.Ordinal);
+
     [Fact]
     public async Task SqliteCheckpointReloadMatchesUninterruptedMinuteSeam()
     {

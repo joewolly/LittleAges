@@ -15,8 +15,11 @@ people, leave them alone, and come back later to discover what happened.
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
 adds coordinated work, farming and production, personal lives, weather and
 wildlife, and knowledge passed between generations. Existing saves retain
-their original rules. See its [acceptance status](docs/living-settlement-acceptance.md)
-before selecting the new rules for development.
+their original rules. Its opt-in `v02-rng1-living2` variant raises Cut fuel
+output from 10 to 30 fuel per 10 wood for newly created worlds. The default for
+new worlds remains `m12-rng1-spaced1`. See the [living2 local acceptance
+report](docs/living-settlement-living2-acceptance.md) and the preserved
+[living1 acceptance report](docs/living-settlement-acceptance.md).
 
 Little Ages creates a deterministic world and lets its citizens live inside it.
 They gather resources, survive changing pressures, form relationships, build a
@@ -160,7 +163,7 @@ version is:
 | --- | --- |
 | Current runtime | [`architecture.md`](./docs/architecture.md) · [`simulation-model.md`](./docs/simulation-model.md) |
 | Product and design baseline | [`design-v0.1.md`](./docs/design-v0.1.md) · [`implementation-plan-v0.1.md`](./docs/implementation-plan-v0.1.md) |
-| Acceptance and compatibility evidence | [`v0.1-acceptance-report.md`](./docs/v0.1-acceptance-report.md) |
+| Acceptance and compatibility evidence | [`v0.1-acceptance-report.md`](./docs/v0.1-acceptance-report.md) · [`living-settlement-living2-acceptance.md`](./docs/living-settlement-living2-acceptance.md) · [`living-settlement-acceptance.md`](./docs/living-settlement-acceptance.md) |
 | Windows operations | [`windows-service.md`](./docs/windows-service.md) · [`windows-service.example.json`](./docs/windows-service.example.json) |
 | Recovery and hardware checks | [`backup-and-recovery.md`](./docs/backup-and-recovery.md) · [`sleep-resume-checklist.md`](./docs/sleep-resume-checklist.md) |
 | Automation | [`ci.yml`](./.github/workflows/ci.yml) · [`long-tests.yml`](./.github/workflows/long-tests.yml) · [`v01-acceptance.yml`](./.github/workflows/v01-acceptance.yml) · [`windows-package.yml`](./.github/workflows/windows-package.yml) |

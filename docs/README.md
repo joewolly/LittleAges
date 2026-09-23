@@ -8,10 +8,9 @@ historical or design context rather than a claim about the current runtime.
 ## Current implementation
 
 - [`living-settlement-v0.2.md`](./living-settlement-v0.2.md) — opt-in successor
-  rules, autonomous work and economy, personal life, environment, knowledge,
+  rules, including the `living1` and opt-in new-world `living2` identifiers,
+  autonomous work and economy, personal life, environment, knowledge,
   persistence, and observer contracts.
-- [`living-settlement-acceptance.md`](./living-settlement-acceptance.md) — measured
-  validation and current release acceptance status.
 
 - [`architecture.md`](./architecture.md) — current M0–M8 project boundaries,
   canonical ownership, persistence, server lifecycle, observer delivery, CI
@@ -34,6 +33,13 @@ historical or design context rather than a claim about the current runtime.
 
 ## Acceptance and compatibility evidence
 
+- [`living-settlement-living2-acceptance.md`](./living-settlement-living2-acceptance.md)
+  — local measured acceptance for `v02-rng1-living2`, including the 100-year
+  seed-42 run and year-50 SQLite continuation comparison. It is not hosted CI,
+  deployment, or a guarantee for every seed.
+- [`living-settlement-acceptance.md`](./living-settlement-acceptance.md) — the
+  preserved historical `v02-rng1-living1` results, including seed-42 extinction
+  by year 72. These results remain specific to living1.
 - [`pre-v0.2-stability-certification.md`](./pre-v0.2-stability-certification.md)
   — stabilization findings, fixes, deterministic and recovery evidence,
   deployment/browser checks, validation limits, and certification status.

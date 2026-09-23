@@ -13,6 +13,7 @@ public sealed class LivingObserverTests
 {
     [Theory]
     [InlineData(SimulationEngine.LivingSimulationRulesVersion)]
+    [InlineData(SimulationEngine.Living2SimulationRulesVersion)]
     [InlineData(SimulationEngine.CurrentSimulationRulesVersion)]
     public async Task FreshRulesAndReloadPreserveImmutableObserverCapability(string rules)
     {
@@ -30,7 +31,7 @@ public sealed class LivingObserverTests
                 Assert.Equal(SimulationHostState.Running, host.Status.State);
                 first = await client.GetStringAsync("/api/v1/living", timeout.Token);
                 var read = host.Observation.Living;
-                if (rules == SimulationEngine.LivingSimulationRulesVersion)
+                if (SimulationEngine.LivingSystemsEnabled(rules))
                 {
                     using var payload = JsonDocument.Parse(first);
                     Assert.Equal(rules, payload.RootElement.GetProperty("rulesVersion").GetString());
@@ -42,7 +43,8 @@ public sealed class LivingObserverTests
                 Assert.Equal(read, host.Observation.Living);
             }
             // A different fresh-world option must never switch an existing world's rules.
-            await using (var factory = new Factory(root, rules == SimulationEngine.LivingSimulationRulesVersion ? SimulationEngine.CurrentSimulationRulesVersion : SimulationEngine.LivingSimulationRulesVersion))
+            var alternateRules = SimulationEngine.LivingSystemsEnabled(rules) ? SimulationEngine.CurrentSimulationRulesVersion : SimulationEngine.Living2SimulationRulesVersion;
+            await using (var factory = new Factory(root, alternateRules))
             {
                 using var client = factory.CreateClient();
                 var host = factory.Services.GetRequiredService<SimulationHost>();

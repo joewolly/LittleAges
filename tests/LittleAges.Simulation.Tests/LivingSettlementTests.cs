@@ -1,3 +1,4 @@
+using System.Reflection;
 using LittleAges.Domain;
 using Xunit;
 using Xunit.Abstractions;
@@ -18,6 +19,55 @@ public sealed class LivingSettlementTests(ITestOutputHelper output)
         Assert.Equal(20, state.People.Count);
         Assert.Single(snapshot.ScheduledEvents, x => x.Name == SimulationEngine.LivingPulseEvent);
         Assert.Null(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot().LivingStateJson);
+    }
+
+    [Fact]
+    public void Living2IsAnOptInLivingRulesVersionAndLeavesCurrentRulesUnchanged()
+    {
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.Living2SimulationRulesVersion);
+        var snapshot = engine.CreatePersistenceSnapshot();
+        var state = LivingWorldCodec.Deserialize(snapshot.LivingStateJson!);
+
+        Assert.Equal(SimulationEngine.Living2SimulationRulesVersion, snapshot.SimulationRulesVersion);
+        Assert.Equal(20, state.People.Count);
+        Assert.Single(snapshot.ScheduledEvents, x => x.Name == SimulationEngine.LivingPulseEvent);
+        Assert.True(SimulationEngine.LivingSystemsEnabled(SimulationEngine.LivingSimulationRulesVersion));
+        Assert.True(SimulationEngine.LivingSystemsEnabled(SimulationEngine.Living2SimulationRulesVersion));
+        Assert.False(SimulationEngine.LivingSystemsEnabled("v02-rng1-living3"));
+        Assert.True(SimulationEngine.UsesSampledShortageRecovery(SimulationEngine.LivingSimulationRulesVersion));
+        Assert.True(SimulationEngine.UsesSampledShortageRecovery(SimulationEngine.Living2SimulationRulesVersion));
+        Assert.Equal(SimulationEngine.SpacedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        LivingValidation.Validate(snapshot);
+    }
+
+    [Theory]
+    [InlineData(SimulationEngine.LivingSimulationRulesVersion, 10)]
+    [InlineData(SimulationEngine.Living2SimulationRulesVersion, 30)]
+    public void CutFuelProductionUsesVersionedYieldAndValidatesCanonicalCargo(string rulesVersion, int expectedFuel)
+    {
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: rulesVersion);
+        var produced = CreateProducedCutFuel(engine);
+
+        Assert.Equal(expectedFuel, LivingWorkDefinitions.OutputQuantity(LivingWorkKind.CutFuel, rulesVersion));
+        Assert.Equal(new LivingStock(LivingGood.Fuel, expectedFuel), Assert.Single(produced.Cargo));
+        LivingValidation.Validate(engine.CreatePersistenceSnapshot());
+
+        var oldCargo = new LivingWorkOrder
+        {
+            Kind = LivingWorkKind.CutFuel,
+            Produced = true,
+            Cargo = [new(LivingGood.Fuel, 10)]
+        };
+        Assert.True(LivingWorkDefinitions.ValidCargo(oldCargo, SimulationEngine.LivingSimulationRulesVersion));
+        Assert.True(LivingWorkDefinitions.ValidCargo(oldCargo, SimulationEngine.Living2SimulationRulesVersion));
+        oldCargo.Cargo = [new(LivingGood.Fuel, 30)];
+        Assert.False(LivingWorkDefinitions.ValidCargo(oldCargo, SimulationEngine.LivingSimulationRulesVersion));
+        Assert.True(LivingWorkDefinitions.ValidCargo(oldCargo, SimulationEngine.Living2SimulationRulesVersion));
+        if (rulesVersion == SimulationEngine.Living2SimulationRulesVersion)
+        {
+            produced.Cargo = [new(LivingGood.Fuel, 10)];
+            LivingValidation.Validate(engine.CreatePersistenceSnapshot());
+        }
     }
 
     [Fact]
@@ -65,6 +115,30 @@ public sealed class LivingSettlementTests(ITestOutputHelper output)
             try { citizen.Validate(engine.World); }
             catch (ArgumentException error) { throw new InvalidOperationException($"minute={engine.CurrentMinute.Value} citizen={System.Text.Json.JsonSerializer.Serialize(citizen)}", error); }
         }
+    }
+
+    private static LivingWorkOrder CreateProducedCutFuel(SimulationEngine engine)
+    {
+        var field = typeof(SimulationEngine).GetField("_living", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var state = (LivingWorldState)field.GetValue(engine)!;
+        var order = new LivingWorkOrder
+        {
+            Id = state.NextId++,
+            Kind = LivingWorkKind.CutFuel,
+            Location = engine.World.StartingSite,
+            SupplyLocation = engine.World.StartingSite,
+            RequiredWork = LivingWorkDefinitions.Work(LivingWorkKind.CutFuel),
+            WorkDone = LivingWorkDefinitions.Work(LivingWorkKind.CutFuel),
+            Ingredients = LivingWorkDefinitions.Ingredients(LivingWorkKind.CutFuel).ToList(),
+            Reserved = true,
+            SuppliesDelivered = true
+        };
+        state.Orders.Add(order);
+        var produce = typeof(SimulationEngine).GetMethod("ProduceLiving", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        produce.Invoke(engine, [engine.Citizens[0], order]);
+        order.Produced = true;
+        order.Phase = LivingWorkPhase.Deliver;
+        return order;
     }
 
 }

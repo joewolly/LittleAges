@@ -7,7 +7,7 @@ public sealed partial class SimulationEngine
     public const string LivingPulseEvent = "living.pulse.v1";
     public const int LivingPulseMinutes = 360;
     private LivingWorldState? _living;
-    private bool LivingEnabled => SimulationRulesVersion == LivingSimulationRulesVersion;
+    private bool LivingEnabled => LivingSystemsEnabled(SimulationRulesVersion);
     public string? LivingStateJson => _living is null ? null : LivingWorldCodec.Serialize(_living);
     public System.Text.Json.JsonElement? CreateLivingObservation() => _living is null ? null : LivingWorldCodec.Observe(_living, CurrentMinute.Value, SimulationRulesVersion);
     private int LivingStoredQuantity => _living is null ? 0 : checked(_living.Stock.Sum(x => x.Quantity) + _living.Orders.Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));

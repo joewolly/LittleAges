@@ -153,7 +153,7 @@ internal static class HeadlessInvariantValidator
     {
         var citizenIds = snapshot.Citizens.Select(item => item.Id.Value).ToHashSet();
         var knownNames = new HashSet<string>(StringComparer.Ordinal) { CitizenEventNames.Decision, CitizenEventNames.MoveStep, CitizenEventNames.ActionComplete, CitizenEventNames.SurvivalCheck, CitizenEventNames.ResourceRegenerate, CitizenEventNames.SettlementEvaluateDemand, CitizenEventNames.FamilyCheck, CitizenEventNames.LifecycleCheck, CitizenEventNames.StatisticsSample };
-        if (snapshot.SimulationRulesVersion == SimulationEngine.LivingSimulationRulesVersion) knownNames.Add(SimulationEngine.LivingPulseEvent);
+        if (SimulationEngine.LivingSystemsEnabled(snapshot.SimulationRulesVersion)) knownNames.Add(SimulationEngine.LivingPulseEvent);
         foreach (var item in snapshot.ScheduledEvents)
         {
             item.Validate();

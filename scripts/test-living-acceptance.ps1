@@ -1,9 +1,34 @@
 param(
     [string]$DotNetPath = 'dotnet',
     [string]$OutputDirectory = '',
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [ValidateSet('v02-rng1-living1', 'v02-rng1-living2')]
+    [string]$Rules = 'v02-rng1-living1'
 )
 $ErrorActionPreference = 'Stop'
+
+function Assert-CenturyAcceptanceQuality {
+    param(
+        [Parameter(Mandatory)]$Report,
+        [Parameter(Mandatory)][string]$Rules
+    )
+
+    if (-not $Report.acceptance.equivalent -or $Report.maximumAncestryDepth -lt 2) {
+        throw 'Century acceptance requires identical SQLite continuation and a second descendant generation.'
+    }
+    if ($Rules -eq 'v02-rng1-living2') {
+        if ($null -eq $Report.livingCitizens -or [int]$Report.livingCitizens -le 0) {
+            throw 'Living2 century acceptance requires seed 42 to remain populated at year 100.'
+        }
+        if ($null -eq $Report.shortageStarts -or $null -eq $Report.shortageEnds) {
+            throw 'Living2 century acceptance requires shortage start and end counts in the report.'
+        }
+        if ([int]$Report.shortageStarts -gt [int]$Report.shortageEnds) {
+            throw 'Living2 century acceptance requires all food shortages to be resolved by year 100.'
+        }
+    }
+}
+
 $repository = Split-Path $PSScriptRoot -Parent
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $repository ('artifacts/living-settlement/' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 $outputRoot = [IO.Path]::GetFullPath($OutputDirectory)
@@ -24,7 +49,7 @@ $runs = foreach ($seed in @(42, 7, 12345)) {
     $command = if ($seed -eq 42) { 'acceptance' } else { 'run' }
     $years = if ($seed -eq 42) { 100 } else { 10 }
     $runnerArguments = @(('"' + $runner + '"'), $command, '--seed', "$seed", '--years', "$years",
-        '--rules', 'v02-rng1-living1', '--output', ('"' + $outputRoot + '"'))
+        '--rules', $Rules, '--output', ('"' + $outputRoot + '"'))
     if ($seed -eq 42) {
         $database = Join-Path $outputRoot 'century.db'
         if (Test-Path -LiteralPath $database) { throw "Acceptance database already exists: $database" }
@@ -56,9 +81,7 @@ $summaries = foreach ($run in $runs) {
     $reportPath = Join-Path $outputRoot "headless-$($run.Command)-seed-$($run.Seed)-years-$($run.Years).json"
     $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
     if (-not $report.mandatoryInvariantsPassed) { throw "Seed $($run.Seed) failed canonical invariants." }
-    if ($run.Seed -eq 42 -and (-not $report.acceptance.equivalent -or $report.maximumAncestryDepth -lt 2)) {
-        throw 'Century acceptance requires identical SQLite continuation and a second descendant generation.'
-    }
+    if ($run.Seed -eq 42) { Assert-CenturyAcceptanceQuality -Report $report -Rules $Rules }
     [pscustomobject]@{ Seed=$run.Seed; Years=$run.Years; Population=$report.livingCitizens; Births=$report.births; Deaths=$report.deaths; Extinct=($report.livingCitizens -eq 0); AncestryDepth=$report.maximumAncestryDepth; Fingerprint=$report.historyFingerprint; Invariants=$report.mandatoryInvariantsPassed }
 }
 $summaries | ConvertTo-Json | Set-Content (Join-Path $outputRoot 'summary.json')
