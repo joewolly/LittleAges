@@ -21,6 +21,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Product and design references
 
+- [`feature-ideas.md`](./feature-ideas.md) — editable ideas for future
+  simulation, history, world, and observer features; not a release schedule.
 - [`design-v0.1.md`](./design-v0.1.md) — the preserved v0.1 product-design
   baseline: vision, principles, intended scope, non-goals, release criteria,
   and post-v0.1 direction. It is not a live feature checklist.
