@@ -12,14 +12,16 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
+New worlds default to `m14-rng1-migration1`, which adds deterministic
+migration and a daughter settlement; existing saves keep their recorded rules
+and behavior. See the [M14 rules contract](docs/m14-migration.md).
+
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
 adds coordinated work, farming and production, personal lives, weather and
-wildlife, and knowledge passed between generations. Existing saves retain
-their original rules. Its opt-in `v02-rng1-living2` variant raises Cut fuel
-output from 10 to 30 fuel per 10 wood for newly created worlds. The default for
-new worlds remains `m12-rng1-spaced1`. See the [living2 local acceptance
-report](docs/living-settlement-living2-acceptance.md) and the preserved
-[living1 acceptance report](docs/living-settlement-acceptance.md).
+wildlife, and knowledge passed between generations. Its opt-in
+`v02-rng1-living2` variant raises Cut fuel output from 10 to 30 fuel per 10
+wood. See the [living2 local acceptance report](docs/living-settlement-living2-acceptance.md)
+and the preserved [living1 acceptance report](docs/living-settlement-acceptance.md).
 
 Little Ages creates a deterministic world and lets its citizens live inside it.
 They gather resources, survive changing pressures, form relationships, build a
@@ -69,9 +71,9 @@ ledger instead of a scrolling document page.
 - browser observation of the map, settlement, households, citizens, relationships, history, and controls;
 - headless `run`, `benchmark`, and `acceptance` commands for 1-, 10-, 100-, and 500-year horizons.
 
-New worlds select `m12-rng1-spaced1`, which leaves a walkable tile gap around
-new construction when a suitable site is available. Existing saves keep their
-selected rules and building locations; there is no automatic gameplay upgrade.
+The `m12-rng1-spaced1` rule leaves a walkable tile gap around new construction
+when a suitable site is available. Existing saves keep their selected rules
+and building locations; there is no automatic gameplay upgrade.
 The three local v0.2 delivery stages and acceptance evidence are recorded in
 [Growing Settlement](docs/growing-settlement.md).
 Publication and installation are separate from this local implementation.
@@ -146,8 +148,8 @@ run:
 ```powershell
 dotnet run --project .\src\LittleAges.Headless\LittleAges.Headless.csproj `
   --configuration Release --no-build -- acceptance `
-  --seed 42 --years 100 --rules m8-rng1-balance1 `
-  --checkpoint-year 37 --database .\artifacts\acceptance.db `
+  --seed 42 --years 100 --rules m14-rng1-migration1 `
+  --checkpoint-year 30 --database .\artifacts\acceptance.db `
   --output .\artifacts
 ```
 
@@ -170,14 +172,9 @@ version is:
 
 ## Project status
 
-`v0.1.0 — First Settlement` is the current published Windows release. The
-repository contains the implemented M0–M8 runtime and its compatibility
-contracts. The acceptance report is deliberately labeled candidate evidence:
-its exact deterministic run passed, while service installation, reboot,
-sleep/resume, and hands-on browser checks remain explicit manual notes.
-
-For the release artifact, see the
-[v0.1.0 release](https://github.com/joewolly/LittleAges/releases/tag/v0.1.0).
+`v0.2.0` is the latest published Windows release and describes M13. M14 is the
+v0.3.0 candidate in PR #15; its [draft release notes](docs/release-v0.3.0.md)
+are prepared but the release has not been published.
 
 ## License
 
