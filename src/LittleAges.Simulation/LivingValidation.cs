@@ -21,10 +21,18 @@ public static class LivingValidation
         catch (JsonException error) { throw new ArgumentException("Living-world JSON is invalid.", nameof(snapshot), error); }
         Require(LivingWorldCodec.Serialize(state) == snapshot.LivingStateJson, "Living-world JSON must be complete and canonical.");
         var minute = snapshot.WorldMinute.Value;
+        var migration = snapshot.MigrationState;
+        var workOrderSites = migration?.WorkOrderOwners.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
+        var citizenSites = migration?.CitizenResidences.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
+        var structureSites = migration?.StructureOwners.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
+        long SiteForOrder(LivingWorkOrder order) => workOrderSites.GetValueOrDefault(order.Id, 1);
+        TileCoordinate StockpileFor(long siteId) => siteId == MigrationDaughterSettlementState.SettlementId && migration?.DaughterSettlement is { } daughter
+            ? daughter.Site
+            : snapshot.World!.StartingSite;
         Require(state.Version == 1 && state.NextId > 0 && state.NextFactId > 0, "Unsupported living version or counter.");
         Require(state.People is not null && state.Orders is not null && state.Fields is not null && state.Facilities is not null && state.Animals is not null && state.Stock is not null && state.Facts is not null, "Living collections are required.");
         Require(state.People.All(x => x is not null) && state.Orders.All(x => x is not null) && state.Fields.All(x => x is not null) && state.Facilities.All(x => x is not null) && state.Animals.All(x => x is not null) && state.Stock.All(x => x is not null) && state.Facts.All(x => x is not null), "Living entities cannot be null.");
-        var unified = snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion;
+        var unified = SimulationEngine.UnifiedSimulationRulesEnabled(snapshot.SimulationRulesVersion);
         if (unified)
         {
             Require(snapshot.Agriculture is not null && snapshot.Economy is not null, "Unified worlds require M12 agriculture and household economy state.");
@@ -85,12 +93,13 @@ public static class LivingValidation
                 var worker = citizens[id];
                 if (order.Produced)
                 {
+                    var stockpile = StockpileFor(SiteForOrder(order));
                     if (unified && order.Kind == LivingWorkKind.Harvest && worker.CurrentAction == CitizenAction.HaulHarvest)
                         Require(order.CargoInTransit && worker.CarriedResourceType == ResourceType.Food && worker.CarriedResourceQuantity >= 0 &&
-                            (worker.ActionPhase == CitizenActionPhase.ReturnToStockpile && worker.ActionTarget == world.StartingSite || worker.ActionPhase == CitizenActionPhase.WaitingForStorage && worker.Location == world.StartingSite && worker.ActionTarget is null),
+                            (worker.ActionPhase == CitizenActionPhase.ReturnToStockpile && worker.ActionTarget == stockpile || worker.ActionPhase == CitizenActionPhase.WaitingForStorage && worker.Location == stockpile && worker.ActionTarget is null),
                             "M12 food and communal grain cargo must share the physical harvest carrier until food delivery.");
                     else
-                        Require(worker.ActionPhase == CitizenActionPhase.TravelToTarget && worker.ActionTarget == (order.CargoInTransit ? world.StartingSite : order.SupplyLocation), "Cargo movement does not match pickup or delivery.");
+                        Require(worker.ActionPhase == CitizenActionPhase.TravelToTarget && worker.ActionTarget == (order.CargoInTransit ? stockpile : order.SupplyLocation), "Cargo movement does not match pickup or delivery.");
                 }
                 else if (order.Phase == LivingWorkPhase.Work)
                     Require(order.SuppliesDelivered && worker.ActionPhase == CitizenActionPhase.Perform && worker.Location == order.Location, "Work must occur at its supplied site.");
@@ -110,26 +119,55 @@ public static class LivingValidation
                 Require(state.Facilities.Any(x => x.Id == order.SubjectId && x.Kind == LivingFacilityKind.Hearth && x.Location == order.Location), "Food production requires its hearth.");
         }
         Require(snapshot.Citizens.Where(x => x.CurrentAction == CitizenAction.LivingWork).All(c => state.Orders.Count(x => x.CitizenId == c.Id.Value) == 1), "A living action requires one claim.");
-        var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + snapshot.Structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus;
-        var livingUsed = state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
-        var used = (long)snapshot.Settlement.StorageUsed + livingUsed;
         if (unified)
         {
-            capacity += snapshot.Structures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
             var economy = snapshot.Economy!;
-            var m12Stored = economy.StoredGoods(snapshot.Settlement);
-            var tradeCargo = economy.Trades.Where(x => x.Status == BarterStatus.Reserved).Sum(x =>
-                (x.PickedA && !x.DeliveredA ? (long)x.QuantityA : 0) + (x.PickedB && !x.DeliveredB ? x.QuantityB : 0));
-            var m12Cargo = snapshot.Citizens.Where(x => x.IsAlive && x.CarriedResourceType is not null)
-                .Sum(x => (long)x.CarriedResourceQuantity);
-            used = m12Stored.Total + tradeCargo + m12Cargo + livingUsed;
+            if (migration is not null)
+            {
+                var householdSites = migration.HouseholdResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
+                var sites = migration.DaughterSettlement is null ? new long[] { 1 } : [1, MigrationDaughterSettlementState.SettlementId];
+                foreach (var siteId in sites)
+                {
+                    var communal = siteId == 1 ? snapshot.Settlement! : migration.DaughterSettlement!.CommunalStock.ToSettlementState();
+                    var livingStock = siteId == 1 ? state.Stock : migration.DaughterSettlement!.LivingGoods;
+                    var siteOrders = state.Orders.Where(x => SiteForOrder(x) == siteId).ToArray();
+                    var siteStructures = snapshot.Structures.Where(x => structureSites.GetValueOrDefault(x.Id.Value, 1) == siteId).ToArray();
+                    var capacity = (long)communal.BaseStorageCapacity +
+                        siteStructures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus +
+                        siteStructures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
+                    var livingUsed = livingStock.Sum(x => (long)x.Quantity) + siteOrders.Sum(x =>
+                        x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
+                    var m12Stored = economy.StoredGoodsAt(communal, migration, siteId);
+                    var m12Cargo = snapshot.Citizens.Where(x => x.IsAlive && x.CarriedResourceType is not null && citizenSites.GetValueOrDefault(x.Id.Value, 1) == siteId)
+                        .Sum(x => (long)x.CarriedResourceQuantity);
+                    Require(m12Stored.Total + m12Cargo + livingUsed <= capacity, "Living storage including site escrow and transit exceeds local capacity.");
+                }
+            }
+            else
+            {
+                var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + snapshot.Structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus;
+                capacity += snapshot.Structures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
+                var livingUsed = state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
+                var m12Stored = economy.StoredGoods(snapshot.Settlement);
+                var tradeCargo = economy.Trades.Where(x => x.Status == BarterStatus.Reserved).Sum(x =>
+                    (x.PickedA && !x.DeliveredA ? (long)x.QuantityA : 0) + (x.PickedB && !x.DeliveredB ? x.QuantityB : 0));
+                var m12Cargo = snapshot.Citizens.Where(x => x.IsAlive && x.CarriedResourceType is not null)
+                    .Sum(x => (long)x.CarriedResourceQuantity);
+                Require(m12Stored.Total + tradeCargo + m12Cargo + livingUsed <= capacity, "Living storage including escrow and transit exceeds capacity.");
+            }
             var grainAccounted = state.Stock.Single(x => x.Good == LivingGood.Grain).Quantity +
                 state.Orders.Sum(x => x.Cargo.Where(y => y.Good == LivingGood.Grain).Sum(y => y.Quantity) +
                     (x.Reserved && !x.Produced ? x.Ingredients.Where(y => y.Resource == nameof(LivingGood.Grain)).Sum(y => y.Quantity) : 0L)) +
+                (migration?.DaughterSettlement?.LivingGoods.SingleOrDefault(x => x.Good == LivingGood.Grain)?.Quantity ?? 0) +
                 state.CommunalGrainConsumed + state.CommunalGrainSpoiled;
             Require(grainAccounted == state.CommunalGrainHarvested, "Unified communal grain stock, escrow, consumption, and spoilage must conserve harvests.");
         }
-        Require(used <= capacity, "Living storage including escrow and transit exceeds capacity.");
+        else
+        {
+            var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + snapshot.Structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus;
+            var livingUsed = state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
+            Require(snapshot.Settlement.StorageUsed + livingUsed <= capacity, "Living storage including escrow and transit exceeds capacity.");
+        }
         Require(state.Facts!.Select(x => x.Id).SequenceEqual(Enumerable.Range(1, state.Facts.Count).Select(x => (long)x)) && state.NextFactId == state.Facts.Count + 1L && state.Facts.Zip(state.Facts.Skip(1)).All(x => x.First.Minute <= x.Second.Minute), "Living history order or counter is invalid.");
         Require(state.Facts.All(x => Enum.IsDefined(x.Kind) && x.Minute >= 0 && x.Minute <= minute && (x.CitizenId is null || citizens.ContainsKey(x.CitizenId.Value)) && (x.Location is null || ValidLocation(x.Location.Value))), "Living historical fact is invalid.");
     }

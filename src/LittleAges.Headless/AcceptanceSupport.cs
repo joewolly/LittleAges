@@ -49,7 +49,8 @@ internal static class HeadlessSnapshotComparer
         ["citizens"] = snapshot.Citizens.OrderBy(item => item.Id.Value).Select(item =>
         {
             var node = JsonSerializer.SerializeToNode(item, JsonOptions)!;
-            node["CurrentAction"] = CitizenActionCodec.ToCanonicalValue(item.CurrentAction, snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion);
+            node["CurrentAction"] = CitizenActionCodec.ToCanonicalValue(item.CurrentAction,
+                SimulationEngine.UnifiedSimulationRulesEnabled(snapshot.SimulationRulesVersion));
             return node;
         }).ToArray(),
         ["settlement"] = snapshot.Settlement,
@@ -67,6 +68,7 @@ internal static class HeadlessSnapshotComparer
         if (snapshot.Economy is not null) components.Add("economy", snapshot.Economy);
         if (snapshot.Agriculture is not null) components.Add("agriculture", snapshot.Agriculture);
         if (snapshot.LivingStateJson is not null) components["livingState"] = snapshot.LivingStateJson;
+        if (snapshot.MigrationStateJson is not null) components["migrationState"] = snapshot.MigrationStateJson;
         return components;
     }
 
@@ -91,6 +93,17 @@ internal static class HeadlessInvariantValidator
             Check("history-links-and-sequence", () => ValidateHistory(snapshot), "History state, events, links, statistics, or memories are malformed."),
             Check("history-fingerprint", () => engine.HistoryFingerprint.Length == 64 && snapshot.HistoryState is not null, "M6 HistoryFingerprint or history state is missing.")
         };
+        if (SimulationEngine.MigrationSystemsEnabled(snapshot.SimulationRulesVersion))
+        {
+            results.Add(Check("migration-ids-and-ownership", () => ValidateMigrationIdsAndOwnership(snapshot),
+                "M14 entity IDs or settlement ownership do not match canonical snapshot entities."));
+            results.Add(Check("migration-households-and-sites", () => ValidateMigrationHouseholdsAndSites(snapshot),
+                "M14 household membership or settlement site ownership is invalid."));
+            results.Add(Check("migration-parties-and-cargo", () => ValidateMigrationPartiesAndCargo(snapshot),
+                "M14 transit party members, cargo stacks, or shared entity IDs are invalid."));
+            results.Add(Check("migration-single-daughter", () => ValidateSingleDaughter(snapshot),
+                "M14 must contain the original settlement and at most one distinct daughter settlement."));
+        }
         return results;
     }
 
@@ -183,6 +196,106 @@ internal static class HeadlessInvariantValidator
         foreach (var sample in snapshot.StatisticsSamples) sample.Validate(snapshot.WorldMinute.Value);
         foreach (var memory in snapshot.Memories) memory.Validate(snapshot.WorldMinute.Value);
         return true;
+    }
+
+    private static bool ValidateMigrationIdsAndOwnership(SimulationPersistenceSnapshot snapshot)
+    {
+        var read = MigrationValidation.CreateReadSnapshot(snapshot);
+        var settlements = read.Settlements;
+        var living = LivingWorldCodec.Deserialize(snapshot.LivingStateJson!);
+        return HasExactSiteOwnership(settlements.Select(site => site.CitizenIds), snapshot.Citizens.Select(item => item.Id.Value)) &&
+            HasExactSiteOwnership(settlements.Select(site => site.HouseholdIds), snapshot.Households.Select(item => item.Id.Value)) &&
+            HasExactSiteOwnership(settlements.Select(site => site.StructureIds), snapshot.Structures.Select(item => item.Id.Value)) &&
+            HasExactSiteOwnership(settlements.Select(site => site.FacilityIds), living.Facilities.Select(item => item.Id)) &&
+            HasExactSiteOwnership(settlements.Select(site => site.WorkOrderIds), living.Orders.Select(item => item.Id));
+    }
+
+    private static bool HasExactSiteOwnership(IEnumerable<IEnumerable<long>> siteIds, IEnumerable<long> expectedIds)
+    {
+        var actual = siteIds.SelectMany(ids => ids).ToArray();
+        var expected = expectedIds.Order().ToArray();
+        return actual.All(static id => id > 0) && actual.Distinct().Count() == actual.Length &&
+            actual.Order().SequenceEqual(expected);
+    }
+
+    private static bool ValidateMigrationHouseholdsAndSites(SimulationPersistenceSnapshot snapshot)
+    {
+        MigrationValidation.Validate(snapshot);
+        var state = snapshot.MigrationState!;
+        var read = MigrationValidation.CreateReadSnapshot(snapshot);
+        var world = snapshot.World!;
+        if (read.Settlements.Single(site => site.Id == 1).Site != world.StartingSite) return false;
+
+        var citizenOwners = state.CitizenResidences.ToDictionary(item => item.EntityId, item => item.SettlementId);
+        var householdOwners = state.HouseholdResidences.ToDictionary(item => item.EntityId, item => item.SettlementId);
+        var structureOwners = state.StructureOwners.ToDictionary(item => item.EntityId, item => item.SettlementId);
+        foreach (var citizen in snapshot.Citizens)
+        {
+            if (citizen.HouseholdId is { } householdId && citizenOwners[citizen.Id.Value] != householdOwners[householdId.Value])
+                return false;
+            if (citizen.HomeStructureId is { } homeId && citizenOwners[citizen.Id.Value] != structureOwners[homeId.Value])
+                return false;
+        }
+        foreach (var household in snapshot.Households)
+        {
+            if (snapshot.Citizens.Where(citizen => citizen.HouseholdId == household.Id)
+                .Any(citizen => citizenOwners[citizen.Id.Value] != householdOwners[household.Id.Value]))
+                return false;
+            if (household.DwellingStructureId is { } dwellingId && householdOwners[household.Id.Value] != structureOwners[dwellingId.Value])
+                return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateMigrationPartiesAndCargo(SimulationPersistenceSnapshot snapshot)
+    {
+        MigrationValidation.Validate(snapshot);
+        var state = snapshot.MigrationState!;
+        var citizens = snapshot.Citizens.ToDictionary(item => item.Id.Value);
+        var households = snapshot.Households.Select(item => item.Id.Value).ToHashSet();
+        var citizenOwners = state.CitizenResidences.ToDictionary(item => item.EntityId, item => item.SettlementId);
+        var householdOwners = state.HouseholdResidences.ToDictionary(item => item.EntityId, item => item.SettlementId);
+        var sharedEntityIds = snapshot.Citizens.Select(item => item.Id.Value)
+            .Concat(snapshot.Households.Select(item => item.Id.Value))
+            .Concat(snapshot.Structures.Select(item => item.Id.Value))
+            .Concat(state.InTransitParties.Select(item => item.Id))
+            .Concat(state.InTransitParties.SelectMany(item => item.Cargo).Select(item => item.Id))
+            .ToArray();
+        if (sharedEntityIds.Any(static id => id <= 0) || sharedEntityIds.Distinct().Count() != sharedEntityIds.Length ||
+            sharedEntityIds.Any(id => id >= snapshot.Counters.NextEntityId))
+            return false;
+
+        var travelers = new HashSet<long>();
+        var cargoIds = new HashSet<long>();
+        foreach (var party in state.InTransitParties)
+        {
+            party.Validate();
+            if (!households.Contains(party.HouseholdId) ||
+                !householdOwners.TryGetValue(party.HouseholdId, out var householdOwner) || householdOwner != party.OriginSettlementId)
+                return false;
+            foreach (var citizenId in party.CitizenIds)
+                if (!travelers.Add(citizenId) || !citizens.TryGetValue(citizenId, out var citizen) ||
+                    citizen.HouseholdId?.Value != party.HouseholdId || citizenOwners[citizenId] != party.OriginSettlementId)
+                    return false;
+            foreach (var cargo in party.Cargo)
+                if (!cargoIds.Add(cargo.Id)) return false;
+        }
+        return true;
+    }
+
+    private static bool ValidateSingleDaughter(SimulationPersistenceSnapshot snapshot)
+    {
+        MigrationValidation.Validate(snapshot);
+        var read = MigrationValidation.CreateReadSnapshot(snapshot);
+        var state = snapshot.MigrationState!;
+        var settlementIds = read.Settlements.Select(item => item.Id).Order().ToArray();
+        if (state.DaughterSettlement is null)
+            return settlementIds.SequenceEqual([1L]);
+        var daughter = state.DaughterSettlement;
+        var world = snapshot.World!;
+        return settlementIds.SequenceEqual([1L, MigrationDaughterSettlementState.SettlementId]) &&
+            read.Settlements.Single(item => item.Id == MigrationDaughterSettlementState.SettlementId).Site == daughter.Site &&
+            daughter.Site != world.StartingSite && world.GetTile(daughter.Site).Walkable;
     }
 }
 

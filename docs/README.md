@@ -5,16 +5,23 @@ baselines, operational runbooks, and measured acceptance evidence. When a
 document describes an earlier milestone or a proposed feature, its role is
 historical or design context rather than a claim about the current runtime.
 
+## Release notes
+
+- [`release-v0.3.0.md`](./release-v0.3.0.md) — draft release notes for the M14
+  candidate in PR #15; the release has not been published.
+
 ## Current implementation
 
+- [`m14-migration.md`](./m14-migration.md) — implemented M14 rules contract and
+  current new-world default for migration and a second settlement; long-horizon
+  acceptance status is documented there.
 - [`living-settlement-v0.2.md`](./living-settlement-v0.2.md) — opt-in successor
   rules, including the `living1` and opt-in new-world `living2` identifiers,
   autonomous work and economy, personal life, environment, knowledge,
   persistence, and observer contracts.
 
-- [`architecture.md`](./architecture.md) — current M0–M8 project boundaries,
-  canonical ownership, persistence, server lifecycle, observer delivery, CI
-  split, and implemented/deferred milestone context.
+- [`architecture.md`](./architecture.md) — project boundaries, canonical
+  ownership, persistence, server lifecycle, observer delivery, and CI split.
 - [`simulation-model.md`](./simulation-model.md) — current deterministic
   calendar, identity, RNG, event ordering, simulation systems, persistence
   compatibility, history, and headless boundaries.

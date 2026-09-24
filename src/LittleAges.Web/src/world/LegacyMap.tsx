@@ -1,13 +1,14 @@
 import type { LivingWorld } from '../living'
 import { useLayoutEffect, useRef } from 'react'
-import type { Citizen, Map, Structure } from '../api'
+import type { Citizen, Map, SettlementSite, Structure } from '../api'
 import { containMap } from './visuals'
 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
 const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175' }
 
-export function LegacyMap({ map, structures, citizens, living, focusSettlement = false }: { living?: LivingWorld | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[] }) {
+export function LegacyMap({ map, structures, citizens, living, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null }: { living?: LivingWorld | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const focusedSite = settlementSites.find(site => site.settlementId === focusedSettlementId) ?? null
   useLayoutEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -27,10 +28,10 @@ export function LegacyMap({ map, structures, citizens, living, focusSettlement =
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
       context.imageSmoothingEnabled = false
       const sites = [map.startingSite, ...structures.map(s => s.location), ...(living?.fields.map(f => f.location) ?? []), ...(living?.facilities.map(f => f.location) ?? [])]
-      const minX = focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.x)) - 8) : 0
-      const minY = focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.y)) - 8) : 0
-      const maxX = focusSettlement ? Math.min(map.width, Math.max(...sites.map(s => s.x)) + 9) : map.width
-      const maxY = focusSettlement ? Math.min(map.height, Math.max(...sites.map(s => s.y)) + 9) : map.height
+      const minX = focusedSite ? Math.max(0, focusedSite.site.x - 8) : focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.x)) - 8) : 0
+      const minY = focusedSite ? Math.max(0, focusedSite.site.y - 8) : focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.y)) - 8) : 0
+      const maxX = focusedSite ? Math.min(map.width, focusedSite.site.x + 9) : focusSettlement ? Math.min(map.width, Math.max(...sites.map(s => s.x)) + 9) : map.width
+      const maxY = focusedSite ? Math.min(map.height, focusedSite.site.y + 9) : focusSettlement ? Math.min(map.height, Math.max(...sites.map(s => s.y)) + 9) : map.height
       const layout = containMap(width, height, maxX - minX, maxY - minY)
       const { scale } = layout
       const offsetX = layout.offsetX - minX * scale
@@ -77,6 +78,17 @@ export function LegacyMap({ map, structures, citizens, living, focusSettlement =
         context.fillStyle = citizen.currentAction === 'WorkFarm' ? '#d3ef9a' : citizen.currentAction === 'HaulHarvest' ? '#ffe375' : citizen.currentAction === 'TradeDelivery' ? '#f54aa1' : '#302a24'
         context.fillRect(offsetX + citizen.location.x * scale + scale * 0.38, offsetY + citizen.location.y * scale + scale * 0.38, Math.max(2, scale * 0.24), Math.max(2, scale * 0.24))
       }
+      if (settlementSites.length > 1) for (const settlement of settlementSites) {
+        const centerX = offsetX + (settlement.site.x + 0.5) * scale
+        const centerY = offsetY + (settlement.site.y + 0.5) * scale
+        context.beginPath()
+        context.arc(centerX, centerY, Math.max(2, Math.min(6, scale * 0.35)), 0, Math.PI * 2)
+        context.fillStyle = settlement.settlementId === selectedSettlementId ? '#f3d287' : '#523f31'
+        context.fill()
+        context.lineWidth = Math.max(1, scale / 10)
+        context.strokeStyle = '#fff8e9'
+        context.stroke()
+      }
       context.restore()
     }
     render()
@@ -87,7 +99,9 @@ export function LegacyMap({ map, structures, citizens, living, focusSettlement =
       observer?.disconnect()
       window.removeEventListener('resize', render)
     }
-  }, [citizens, map, structures, living, focusSettlement])
+  }, [citizens, map, structures, living, focusSettlement, settlementSites, selectedSettlementId, focusedSite])
 
-  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`}. Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
+  const siteDescription = settlementSites.length > 1 ? ` ${settlementSites.length} settlement sites are marked` : ''
+  const focusDescription = focusedSite ? `, focused on settlement ${focusedSite.settlementId} at (${focusedSite.site.x}, ${focusedSite.site.y})` : focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`
+  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription} Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
 }

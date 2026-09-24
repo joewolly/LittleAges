@@ -373,7 +373,15 @@ public sealed record ServerSettlementSnapshot
     public long ExposureGraceUntilMinute { get; }
     public ServerStructureSnapshot? ActiveConstructionProject { get; }
     public int HouseholdCount { get; } public int ActiveHouseholdCount { get; } public int PartnershipCount { get; } public int RelationshipCount { get; } public int FriendCount { get; } public int RivalCount { get; } public int YoungChildCount { get; } public int ChildCount { get; } public int AdolescentCount { get; } public int AdultCount { get; } public int ElderCount { get; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SettlementId { get; init; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public WorldStartingSiteSnapshot? Site { get; init; }
 }
+
+public sealed record ServerSettlementSiteSnapshot(long SettlementId, WorldStartingSiteSnapshot Site, ServerSettlementSnapshot Summary);
 
 public sealed record ServerObservationSnapshot
 {
@@ -387,7 +395,7 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null, System.Text.Json.JsonElement? living = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null, System.Text.Json.JsonElement? living = null, IEnumerable<ServerSettlementSiteSnapshot>? settlements = null)
     {
         ArgumentNullException.ThrowIfNull(status);
         ArgumentOutOfRangeException.ThrowIfNegative(revision);
@@ -400,6 +408,7 @@ public sealed record ServerObservationSnapshot
         Map = map;
         Relationships = Array.AsReadOnly((relationships ?? Array.Empty<RelationshipState>()).OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray());
         Households = Array.AsReadOnly((households ?? Array.Empty<Household>()).OrderBy(x => x.Id.Value).Select(x => new Household(x.Id, x.CreatedMinute) { DissolvedMinute = x.DissolvedMinute, DwellingStructureId = x.DwellingStructureId }).ToArray());
+        Settlements = Array.AsReadOnly((settlements ?? Array.Empty<ServerSettlementSiteSnapshot>()).OrderBy(x => x.SettlementId).ToArray());
         History = history is null ? null : new ServerHistorySnapshot(history, Citizens, Structures);
         Agriculture = agriculture is null ? null : agriculture with
         {
@@ -422,6 +431,7 @@ public sealed record ServerObservationSnapshot
     public ServerMapSnapshot? Map { get; }
     public IReadOnlyList<RelationshipState> Relationships { get; }
     public IReadOnlyList<Household> Households { get; }
+    public IReadOnlyList<ServerSettlementSiteSnapshot> Settlements { get; }
     public ServerHistorySnapshot? History { get; }
     public GrowthObservation? Growth { get; }
     public AgricultureObservation? Agriculture { get; }
@@ -488,6 +498,7 @@ public sealed partial class SimulationHost : BackgroundService
     private readonly ServerOptions _options;
     private readonly ILogger<SimulationHost> _logger;
     private readonly WorldChangeBroadcaster? _broadcaster;
+    private readonly object _migrationTravelCostsCacheGate = new();
     private readonly Channel<SimulationCommand> _commands = Channel.CreateBounded<SimulationCommand>(
         new BoundedChannelOptions(32)
         {
@@ -508,6 +519,8 @@ public sealed partial class SimulationHost : BackgroundService
     private int _consecutiveCheckpointFailures;
     private DateTimeOffset _lastCheckpointAttemptAt;
     private long _observationRevision;
+    private MigrationTravelCostsCacheEntry? _migrationTravelCostsCache;
+    private int _migrationTravelCostMapComputationsForTesting;
     private int _acceptingCommands = 1;
     private int _shutdownRequested;
     private int _paused;
@@ -529,6 +542,10 @@ public sealed partial class SimulationHost : BackgroundService
 
     public ServerObservationSnapshot Observation => Volatile.Read(ref _observation);
     public ServerStatusSnapshot Status => Observation.Status;
+    internal int MigrationTravelCostMapComputationsForTesting => Volatile.Read(ref _migrationTravelCostMapComputationsForTesting);
+
+    internal void EnsureMigrationTravelCostMapsForTesting(WorldMap world, MigrationReadSnapshot migration) =>
+        _ = GetMigrationTravelCosts(world, migration);
     public int CommandCapacity => 32;
 
     public async Task<ServerStatusSnapshot> RequestPauseAsync(CancellationToken cancellationToken = default)
@@ -990,7 +1007,13 @@ public sealed partial class SimulationHost : BackgroundService
         var map = readSnapshot?.World is null ? null : Observation.Map ?? new ServerMapSnapshot(readSnapshot.World);
         var livingPopulation = citizenSnapshots.Count(static citizen => citizen.IsAlive);
         var deadPopulation = citizenSnapshots.Length - livingPopulation;
-        var settlement = readSnapshot is null ? null : CreateSettlementSummary(readSnapshot, citizenSnapshots, structureSnapshots, economy);
+        var migration = engine is not null && SimulationEngine.MigrationSystemsEnabled(engine.SimulationRulesVersion)
+            ? engine.CreateMigrationReadSnapshot()
+            : null;
+        var settlementSites = CreateSettlementSites(readSnapshot, citizenSnapshots, structureSnapshots, economy, migration);
+        var settlement = settlementSites.FirstOrDefault(static item => item.SettlementId == 1)?.Summary;
+        if (settlement is null && readSnapshot is not null)
+            settlement = CreateSettlementSummary(readSnapshot, citizenSnapshots, structureSnapshots, economy);
         var status = new ServerStatusSnapshot(
             state,
             readSnapshot?.WorldMinute.Value ?? 0,
@@ -1009,7 +1032,7 @@ public sealed partial class SimulationHost : BackgroundService
             Paused: Volatile.Read(ref _paused) != 0,
             OperationalSpeed: Volatile.Read(ref _operationalSpeed));
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation());
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation(), settlementSites);
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)
@@ -1049,38 +1072,100 @@ public sealed partial class SimulationHost : BackgroundService
     }
 
     private static ServerSettlementSnapshot CreateSettlementSummary(SimulationStatusSnapshot readSnapshot, ServerCitizenSnapshot[] citizens, ServerStructureSnapshot[] structures, EconomyState? economy)
+        => CreateSettlementSummary(readSnapshot, citizens, structures, economy, null);
+
+    private static ServerResourceNodeSnapshot[] CreateWorldResourceProjection(SimulationStatusSnapshot readSnapshot)
     {
-        var settlement = readSnapshot.Settlement ?? new SettlementState(0, 0, 0);
         var resourceTypes = readSnapshot.World?.Resources.ToDictionary(static node => node.Id.Value, static node => node.Type)
             ?? new Dictionary<long, ResourceType>();
-        var resources = readSnapshot.ResourceStates
+        return readSnapshot.ResourceStates
             .OrderBy(static resource => resource.ResourceNodeId.Value)
             .Select(resource => new ServerResourceNodeSnapshot(
                 resource.ResourceNodeId.Value.ToString(CultureInfo.InvariantCulture),
                 resourceTypes.TryGetValue(resource.ResourceNodeId.Value, out var type) ? type : throw new InvalidDataException("A resource observation references an unknown node."),
                 resource.CurrentQuantity))
             .ToArray();
+    }
+
+    private ServerSettlementSiteSnapshot[] CreateSettlementSites(
+        SimulationStatusSnapshot? readSnapshot,
+        ServerCitizenSnapshot[] citizens,
+        ServerStructureSnapshot[] structures,
+        EconomyState? economy,
+        MigrationReadSnapshot? migration)
+    {
+        if (readSnapshot?.World is null) return Array.Empty<ServerSettlementSiteSnapshot>();
+        if (migration is null)
+        {
+            return
+            [
+                new ServerSettlementSiteSnapshot(1, new WorldStartingSiteSnapshot(readSnapshot.World.StartingSite.X, readSnapshot.World.StartingSite.Y),
+                    CreateSettlementSummary(readSnapshot, citizens, structures, economy))
+            ];
+        }
+
+        var resourcesBySettlement = AssignMigrationResources(readSnapshot.World, migration, readSnapshot.ResourceStates);
+        return migration.Settlements.Select(site => new ServerSettlementSiteSnapshot(
+            site.Id,
+            new WorldStartingSiteSnapshot(site.Site.X, site.Site.Y),
+            CreateSettlementSummary(readSnapshot, citizens, structures, economy, site, resourcesBySettlement[site.Id]))).ToArray();
+    }
+
+    private static ServerSettlementSnapshot CreateSettlementSummary(
+        SimulationStatusSnapshot readSnapshot,
+        ServerCitizenSnapshot[] citizens,
+        ServerStructureSnapshot[] structures,
+        EconomyState? economy,
+        MigrationSettlementReadSnapshot? site,
+        IReadOnlyList<ServerResourceNodeSnapshot>? siteResources = null)
+    {
+        var localCitizenIds = site?.CitizenIds.ToHashSet();
+        var localStructureIds = site?.StructureIds.ToHashSet();
+        var localHouseholdIds = site?.HouseholdIds.ToHashSet();
+        var siteCitizens = site is null
+            ? citizens
+            : citizens.Where(citizen => localCitizenIds!.Contains(long.Parse(citizen.CitizenId, CultureInfo.InvariantCulture))).ToArray();
+        var siteStructures = site is null
+            ? structures
+            : structures.Where(structure => localStructureIds!.Contains(long.Parse(structure.StructureId, CultureInfo.InvariantCulture))).ToArray();
+        var siteHouseholds = site is null
+            ? readSnapshot.Households
+            : readSnapshot.Households.Where(household => localHouseholdIds!.Contains(household.Id.Value)).ToArray();
+        var siteRelationships = site is null
+            ? readSnapshot.Relationships
+            : readSnapshot.Relationships.Where(relationship =>
+                localCitizenIds!.Contains(relationship.CitizenAId.Value) && localCitizenIds!.Contains(relationship.CitizenBId.Value)).ToArray();
+        var settlement = site?.CommunalStock.ToSettlementState() ?? readSnapshot.Settlement ?? new SettlementState(0, 0, 0);
+        var resources = site is null
+            ? CreateWorldResourceProjection(readSnapshot)
+            : siteResources?.ToArray() ?? throw new InvalidDataException("A migration settlement is missing its local resource projection.");
         var remaining = resources
             .GroupBy(static resource => resource.ResourceType)
             .OrderBy(static group => group.Key)
             .Select(static group => new ServerResourceQuantitySnapshot(group.Key, group.Sum(resource => resource.CurrentQuantity)))
             .ToArray();
-        var living = citizens.Count(static citizen => citizen.IsAlive);
-        var completedShelters = structures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Shelter);
-        var completedStockpiles = structures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Stockpile);
-        var completedWorkshops = structures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Workshop);
-        var shelteredPopulation = citizens.Count(static citizen => citizen.IsAlive && citizen.HomeStructureId is not null);
-        var storageCapacity = checked(settlement.BaseStorageCapacity + completedStockpiles * CitizenSimulationRules.StockpileStorageBonus + structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
+        var living = siteCitizens.Count(static citizen => citizen.IsAlive);
+        var completedShelters = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Shelter);
+        var completedStockpiles = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Stockpile);
+        var completedWorkshops = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Workshop);
+        var shelteredPopulation = siteCitizens.Count(static citizen => citizen.IsAlive && citizen.HomeStructureId is not null);
+        var storageCapacity = site?.StorageCapacity ?? checked(settlement.BaseStorageCapacity + completedStockpiles * CitizenSimulationRules.StockpileStorageBonus + siteStructures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
+        var partnershipCount = site is null
+            ? citizens.Count(static citizen => citizen.PartnerId is not null) / 2
+            : siteCitizens.Count(citizen => citizen.PartnerId is not null && localCitizenIds!.Contains(long.Parse(citizen.PartnerId, CultureInfo.InvariantCulture))) / 2;
+        var storageUsed = site is null
+            ? checked((int)(economy?.StoredGoods(settlement).Total ?? settlement.StorageUsed))
+            : GetMigrationStorageUsed(site, economy);
         return new ServerSettlementSnapshot(
             settlement.FoodStored,
             settlement.WoodStored,
             settlement.StoneStored,
             living,
-            citizens.Length - living,
+            siteCitizens.Length - living,
             remaining,
             resources,
             storageCapacity,
-            checked((int)(economy?.StoredGoods(settlement).Total ?? settlement.StorageUsed)),
+            storageUsed,
             checked(completedShelters * CitizenSimulationRules.ShelterCapacityPerBuilding),
             shelteredPopulation,
             living - shelteredPopulation,
@@ -1088,17 +1173,113 @@ public sealed partial class SimulationHost : BackgroundService
             completedStockpiles,
             completedWorkshops,
             settlement.ExposureConsequencesStartMinute,
-            structures.SingleOrDefault(static structure => structure.Status == StructureStatus.UnderConstruction),
-            readSnapshot.Households.Count,
-            readSnapshot.Households.Count(x => x.DissolvedMinute is null),
-            citizens.Count(x => x.PartnerId is not null) / 2,
-            readSnapshot.Relationships.Count,
-            readSnapshot.Relationships.Count(x => RelationshipLabels.Derive(x, false, false) is RelationshipLabels.Friend or RelationshipLabels.CloseFriend),
-            readSnapshot.Relationships.Count(x => RelationshipLabels.Derive(x, false, false) == RelationshipLabels.Rival),
-            citizens.Count(x => x.LifeStage == "Young Child"), citizens.Count(x => x.LifeStage == "Child"), citizens.Count(x => x.LifeStage == "Adolescent"), citizens.Count(x => x.LifeStage == "Adult"), citizens.Count(x => x.LifeStage == "Elder"),
-            structures.Count(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete),
-            structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete),
-            structures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete));
+            siteStructures.SingleOrDefault(static structure => structure.Status == StructureStatus.UnderConstruction),
+            siteHouseholds.Count,
+            siteHouseholds.Count(x => x.DissolvedMinute is null),
+            partnershipCount,
+            siteRelationships.Count,
+            siteRelationships.Count(x => RelationshipLabels.Derive(x, false, false) is RelationshipLabels.Friend or RelationshipLabels.CloseFriend),
+            siteRelationships.Count(x => RelationshipLabels.Derive(x, false, false) == RelationshipLabels.Rival),
+            siteCitizens.Count(x => x.LifeStage == "Young Child"), siteCitizens.Count(x => x.LifeStage == "Child"), siteCitizens.Count(x => x.LifeStage == "Adolescent"), siteCitizens.Count(x => x.LifeStage == "Adult"), siteCitizens.Count(x => x.LifeStage == "Elder"),
+            siteStructures.Count(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete),
+            siteStructures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete),
+            siteStructures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete));
+    }
+
+    private Dictionary<long, ServerResourceNodeSnapshot[]> AssignMigrationResources(
+        WorldMap world,
+        MigrationReadSnapshot migration,
+        IReadOnlyList<ResourceState> resourceStates)
+    {
+        var settlements = migration.Settlements.OrderBy(static site => site.Id).ToArray();
+        var travelCostsBySettlement = GetMigrationTravelCosts(world, migration);
+        var resourceNodes = world.Resources.ToDictionary(static node => node.Id.Value);
+        var assigned = settlements.ToDictionary(static site => site.Id, static _ => new List<ServerResourceNodeSnapshot>());
+
+        foreach (var state in resourceStates.OrderBy(static resource => resource.ResourceNodeId.Value))
+        {
+            if (!resourceNodes.TryGetValue(state.ResourceNodeId.Value, out var resource))
+                throw new InvalidDataException("A resource observation references an unknown node.");
+            long? nearestSettlementId = null;
+            long? nearestTravelCost = null;
+            foreach (var settlement in settlements)
+            {
+                if (!travelCostsBySettlement[settlement.Id].TryGetValue(resource.Coordinate, out var travelCost)) continue;
+                // Settlements are visited in ID order, so an equal-cost tie remains with the lower ID.
+                if (nearestTravelCost is not null && travelCost >= nearestTravelCost.Value) continue;
+                nearestSettlementId = settlement.Id;
+                nearestTravelCost = travelCost;
+            }
+
+            // Resource nodes no site can reach are intentionally absent from every site summary.
+            if (nearestSettlementId is not { } ownerId) continue;
+            assigned[ownerId].Add(new ServerResourceNodeSnapshot(
+                resource.Id.Value.ToString(CultureInfo.InvariantCulture), resource.Type, state.CurrentQuantity));
+        }
+
+        return assigned.ToDictionary(static entry => entry.Key, static entry => entry.Value.ToArray());
+    }
+
+    private IReadOnlyDictionary<long, IReadOnlyDictionary<TileCoordinate, long>> GetMigrationTravelCosts(
+        WorldMap world,
+        MigrationReadSnapshot migration)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(migration);
+        var settlementSites = Array.AsReadOnly(migration.Settlements
+            .OrderBy(static site => site.Id)
+            .Select(static site => new MigrationSettlementSiteKey(site.Id, site.Site))
+            .ToArray());
+
+        lock (_migrationTravelCostsCacheGate)
+        {
+            var cached = _migrationTravelCostsCache;
+            if (cached is not null && ReferenceEquals(cached.World, world) &&
+                cached.WorldFingerprint == world.Fingerprint && cached.SettlementSites.SequenceEqual(settlementSites))
+                return cached.TravelCostsBySettlement;
+
+            var travelCostsBySettlement = new Dictionary<long, IReadOnlyDictionary<TileCoordinate, long>>();
+            foreach (var site in migration.Settlements.OrderBy(static site => site.Id))
+            {
+                var travelCosts = DeterministicPathfinder.ComputeTravelCosts(world, site.Site)
+                    .ToDictionary(static item => item.Key, static item => item.Value);
+                travelCostsBySettlement.Add(site.Id, new ReadOnlyDictionary<TileCoordinate, long>(travelCosts));
+                Interlocked.Increment(ref _migrationTravelCostMapComputationsForTesting);
+            }
+
+            var immutableTravelCosts = new ReadOnlyDictionary<long, IReadOnlyDictionary<TileCoordinate, long>>(travelCostsBySettlement);
+            _migrationTravelCostsCache = new MigrationTravelCostsCacheEntry(
+                world,
+                world.Fingerprint,
+                settlementSites,
+                immutableTravelCosts);
+            return immutableTravelCosts;
+        }
+    }
+
+    private readonly record struct MigrationSettlementSiteKey(long SettlementId, TileCoordinate Site);
+
+    private sealed record MigrationTravelCostsCacheEntry(
+        WorldMap World,
+        string WorldFingerprint,
+        IReadOnlyList<MigrationSettlementSiteKey> SettlementSites,
+        IReadOnlyDictionary<long, IReadOnlyDictionary<TileCoordinate, long>> TravelCostsBySettlement);
+
+    private static int GetMigrationStorageUsed(MigrationSettlementReadSnapshot site, EconomyState? economy)
+    {
+        var householdIds = site.HouseholdIds.ToHashSet();
+        var stored = checked((long)site.CommunalStock.StorageUsed + site.LivingGoods.Sum(static item => (long)item.Quantity));
+        if (economy is null) return checked((int)stored);
+
+        foreach (var household in economy.Households.Where(item => householdIds.Contains(item.HouseholdId)))
+            stored = checked(stored + household.Holdings.Total);
+        foreach (var trade in economy.Trades.Where(static item => item.Status == BarterStatus.Reserved))
+        {
+            if (trade.DeliveredA && householdIds.Contains(trade.HouseholdA)) stored = checked(stored + trade.QuantityA);
+            if (trade.DeliveredB && householdIds.Contains(trade.HouseholdB)) stored = checked(stored + trade.QuantityB);
+        }
+        stored = checked(stored + economy.PublicWork.Where(item => householdIds.Contains(item.HouseholdId)).Sum(static item => (long)item.Food));
+        return checked((int)stored);
     }
 
     private static WorldSummarySnapshot CreateWorldSummary(WorldMap world)

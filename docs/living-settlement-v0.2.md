@@ -12,7 +12,8 @@ retains its original recipes. `v02-rng1-living2` is an opt-in new-world variant
 that changes the Cut fuel output from 10 to 30 fuel for the same 10 wood. This
 raises fuel production capacity to address the fuel-blocked work diagnosed in
 the living1 seed-42 run; it does not change the living1 rules or convert an
-existing save. The default for new worlds remains `m12-rng1-spaced1`.
+existing save. `m12-rng1-spaced1` remains a historical rules boundary; new
+worlds now use `m14-rng1-migration1` by default.
 
 Existing worlds retain their saved rules and histories. Select living2 only
 when creating a **disposable new world**:

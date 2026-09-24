@@ -1,5 +1,6 @@
 type Point = { x: number; y: number }
 export const UNIFIED_RULES_VERSION = 'm13-rng1-unified1'
+const UNIFIED_LIVING_SUCCESSOR_RULES_VERSION = 'm14-rng1-migration1'
 const m12OwnedGoods = new Set(['Food', 'Wood', 'Stone'])
 export type LivingPerson = { citizenId: string; goal: string; mood: number; stress: number; injury: number; illness: number; toolCondition: number; clothingCondition: number; knowledge: string[]; deathObserved: boolean; experiences: { kind: string; minute: number; otherCitizenId: string | null }[] }
 export type LivingOrder = { id: string; kind: string; location: Point; citizenId: string | null; subjectId: string | null; technique: string | null; phase: string; cargoInTransit?: boolean; suppliesDelivered?: boolean; workDone: number; requiredWork: number; blockedReason: string; ingredients: { resource: string; quantity: number }[]; cargo: { good: string; quantity: number }[] }
@@ -13,7 +14,7 @@ export type LivingWorld = {
   stock: { good: string; quantity: number }[]; people: LivingPerson[]; orders: LivingOrder[]; fields: LivingField[]; facilities: LivingFacility[]; animals: LivingAnimal[]; facts: LivingFact[]
 }
 
-export function isUnifiedLivingRules(rulesVersion: string): boolean { return rulesVersion === UNIFIED_RULES_VERSION }
+export function isUnifiedLivingRules(rulesVersion: string): boolean { return rulesVersion === UNIFIED_RULES_VERSION || rulesVersion === UNIFIED_LIVING_SUCCESSOR_RULES_VERSION }
 export function isM12OwnedGood(good: string): boolean { return m12OwnedGoods.has(good) }
 
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid living-world record.'); return value as Record<string, unknown> }
@@ -29,9 +30,10 @@ const good = (value: unknown) => { const item = record(value); return { good: te
 export function parseLivingWorld(value: unknown): LivingWorld | null {
   if (value === null || value === undefined) return null
   const w = record(value)
-  if (w.version !== 1 || (w.rulesVersion !== 'v02-rng1-living1' && w.rulesVersion !== 'v02-rng1-living2' && w.rulesVersion !== UNIFIED_RULES_VERSION)) throw new Error('Unsupported living-world version.')
+  const rulesVersion = text(w.rulesVersion)
+  if (w.version !== 1 || (rulesVersion !== 'v02-rng1-living1' && rulesVersion !== 'v02-rng1-living2' && !isUnifiedLivingRules(rulesVersion))) throw new Error('Unsupported living-world version.')
   return {
-    version: 1, rulesVersion: w.rulesVersion, worldMinute: number(w.worldMinute), age: text(w.age), capabilities: list(w.capabilities, text), weather: text(w.weather), temperature: number(w.temperature, -40, 60), rainfall: number(w.rainfall, 0, 100),
+    version: 1, rulesVersion, worldMinute: number(w.worldMinute), age: text(w.age), capabilities: list(w.capabilities, text), weather: text(w.weather), temperature: number(w.temperature, -40, 60), rainfall: number(w.rainfall, 0, 100),
     completedOrders: number(w.completedOrders), foodHarvested: number(w.foodHarvested), foodPrepared: number(w.foodPrepared), careGiven: number(w.careGiven), goodsSpoiled: number(w.goodsSpoiled), totalFacts: number(w.totalFacts), stock: list(w.stock, good),
     people: list(w.people, value => { const p = record(value); return { citizenId: id(p.citizenId), goal: text(p.goal), mood: number(p.mood, 0, 10000), stress: number(p.stress, 0, 10000), injury: number(p.injury, 0, 10000), illness: number(p.illness, 0, 10000), toolCondition: number(p.toolCondition, 0, 10000), clothingCondition: number(p.clothingCondition, 0, 10000), knowledge: list(p.knowledge, text), deathObserved: bool(p.deathObserved), experiences: list(p.experiences, value => { const e = record(value); return { kind: text(e.kind), minute: number(e.minute), otherCitizenId: optionalId(e.otherCitizenId) } }) } }),
     orders: list(w.orders, value => { const o = record(value); return { id: id(o.id), kind: text(o.kind), location: point(o.location), citizenId: optionalId(o.citizenId), subjectId: optionalId(o.subjectId), technique: o.technique === null ? null : text(o.technique), phase: text(o.phase), cargoInTransit: o.cargoInTransit === undefined ? false : bool(o.cargoInTransit), suppliesDelivered: o.suppliesDelivered === undefined ? false : bool(o.suppliesDelivered), workDone: number(o.workDone), requiredWork: number(o.requiredWork, 1), blockedReason: text(o.blockedReason), ingredients: list(o.ingredients, value => { const i = record(value); return { resource: text(i.resource), quantity: number(i.quantity) } }), cargo: list(o.cargo, good) } }),

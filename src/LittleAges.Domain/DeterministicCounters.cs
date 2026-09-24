@@ -66,6 +66,8 @@ public sealed class DeterministicCounters
     public CitizenId AllocateCitizenId() => new(AllocateEntityId());
     public StructureId AllocateStructureId() => new(AllocateEntityId());
     public HouseholdId AllocateHouseholdId() => new(AllocateEntityId());
+    public long AllocateMigrationPartyId() => AllocateEntityId();
+    public long AllocateMigrationCargoStackId() => AllocateEntityId();
     public HistoricalEventId AllocateHistoricalEventId() => new(AllocateHistoricalEventIdValue());
     public long AllocateScheduledEventSequence() => _scheduledEventSequences.Allocate();
 

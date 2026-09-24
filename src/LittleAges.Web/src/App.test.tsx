@@ -86,6 +86,7 @@ const citizen = {
 const structure = { structureId: '2', type: 'Shelter', status: 'UnderConstruction', location: { x: 2, y: 1 }, startedMinute: 12, completedMinute: null, requiredWood: 10, deliveredWood: 3, requiredStone: 4, deliveredStone: 1, requiredWork: 20, completedWork: 7, condition: 0, capacity: 4, storageBonus: null, constructionMultiplierBasisPoints: null, currentOccupantIds: [], contributions: [{ citizenId: citizen.citizenId, constructionWork: 7, woodDelivered: 3, stoneDelivered: 1 }] }
 const settlement = { foodStored: 400, woodStored: 120, stoneStored: 30, livingPopulation: 20, deadPopulation: 0, totalPopulation: 20, remainingResources: [], resources: [], storageCapacity: 1000, storageUsed: 550, shelterCapacity: 24, shelteredPopulation: 19, unhousedPopulation: 1, completedShelters: 5, completedStockpiles: 1, completedWorkshops: 0, exposureGraceUntilMinute: 720, activeConstructionProject: structure }
 const map = { width: 3, height: 3, terrain: [1, 2, 3, 4, 5, 1, 2, 3, 4], startingSite: { x: 1, y: 1 } }
+const settlementSite = { settlementId: '1', site: map.startingSite, livingPopulation: 20, foodStored: 400, woodStored: 120, stoneStored: 30 }
 const household = { householdId: '3', createdMinute: 12, dissolvedMinute: null, dwellingStructureId: '1', memberIds: [citizen.citizenId], livingMemberIds: [citizen.citizenId], partnerPair: null, childrenIds: [] }
 const historicalEvent = { eventId: '9223372036854775806', historicalEventId: '9223372036854775806', worldMinute: 12, eventType: 'CitizenBorn', importance: 'Personal', origin: 'Live', location: { x: 1, y: 2 }, payloadJson: `{"citizenId":"${citizen.citizenId}"}`, schemaVersion: 1, summary: 'Elara Venn was born.', citizenLinks: [{ eventId: '9223372036854775806', citizenId: citizen.citizenId, role: 'subject' }], structureLinks: [] }
 const statisticsSample = { worldMinute: 43200, periodStartMinute: 0, population: 20, birthsPeriod: 2, deathsPeriod: 0, foodStored: 400, foodProducedPeriod: 100, foodConsumedPeriod: 80, woodStored: 120, stoneStored: 30, shelterCapacity: 24, averageHealth: 9800, averageHunger: 1200 }
@@ -105,6 +106,7 @@ function responseFor(path: string, worldMinute: number, name = citizen.name) {
   if (path.endsWith('/map')) return new Response(JSON.stringify(map))
   if (path.endsWith('/health')) return new Response('Healthy')
   if (path.endsWith('/status')) return new Response(JSON.stringify({ state: 'Running', worldMinute, pendingEventCount: 1, worldSeed: '42', population: 20, totalPopulation: 20, livingPopulation: 20, deadPopulation: 0 }))
+  if (path === '/api/v1/settlements') return new Response(JSON.stringify([settlementSite]))
   if (path.endsWith('/settlement')) return new Response(JSON.stringify({ ...settlement, livingPopulation: 20, deadPopulation: 0, totalPopulation: 20 }))
   if (path.endsWith('/structures')) return new Response(JSON.stringify([structure]))
   if (path.endsWith('/households')) return new Response(JSON.stringify([]))
@@ -298,20 +300,20 @@ describe('citizen observer', () => {
     })
 
     renderAppWithRecords()
-    expect(requests).toHaveLength(8)
+    expect(requests).toHaveLength(9)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-    expect(requests).toHaveLength(8)
+    expect(requests).toHaveLength(9)
 
     await act(async () => {
       requests.forEach((request, index) => request.resolve(responseFor(paths[index], 1)))
       await Promise.all(requests.map(request => request.promise))
     })
     await act(async () => { await vi.advanceTimersByTimeAsync(1999) })
-    expect(requests).toHaveLength(8)
+    expect(requests).toHaveLength(9)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     await act(async () => { await Promise.resolve() })
-    expect(requests.length).toBeGreaterThan(8)
+    expect(requests.length).toBeGreaterThan(9)
     expect(paths).toContain('/api/v1/settlement')
     expect(paths.filter(path => path.endsWith('/map'))).toHaveLength(1)
   })
@@ -349,7 +351,7 @@ describe('citizen observer', () => {
     })
 
     const { unmount } = render(<App />)
-    expect(requests).toHaveLength(8)
+    expect(requests).toHaveLength(9)
     unmount()
 
     await act(async () => {
@@ -357,7 +359,7 @@ describe('citizen observer', () => {
       await Promise.all(requests.map(request => request.promise))
       await vi.advanceTimersByTimeAsync(10000)
     })
-    expect(requests).toHaveLength(8)
+    expect(requests).toHaveLength(9)
   })
 
   it('shows settlement survival metrics and citizen survival details', async () => {
@@ -404,6 +406,29 @@ describe('citizen observer', () => {
     expect(screen.getByText('Shelter, stores, and workshop')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Settlement map, 3 by 3 tiles/i })).toBeInTheDocument()
     expect(screen.getByText('Starting site')).toBeInTheDocument()
+  })
+
+  it('selects either settlement site, shows local stores, and focuses the 2D fallback map', async () => {
+    const sites = [settlementSite, { settlementId: '2', site: { x: 2, y: 2 }, livingPopulation: 7, foodStored: 71, woodStored: 8, stoneStored: 9 }]
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path === '/api/v1/settlements') return new Response(JSON.stringify(sites))
+      return responseFor(path, 42)
+    })
+    render(<App />)
+    const selector = await screen.findByRole('combobox', { name: 'Settlement site' })
+    expect(screen.getByText('Population 20 · Food 400 · Wood 120 · Stone 30')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /2 settlement sites are marked/ })).toBeInTheDocument()
+
+    fireEvent.change(selector, { target: { value: '2' } })
+    expect(screen.getByText('Population 7 · Food 71 · Wood 8 · Stone 9')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus site' }))
+    expect(screen.getByRole('img', { name: /focused on settlement 2 at \(2, 2\)/ })).toBeInTheDocument()
+
+    fireEvent.change(selector, { target: { value: '1' } })
+    expect(screen.getByText('Population 20 · Food 400 · Wood 120 · Stone 30')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus site' }))
+    expect(screen.getByRole('img', { name: /focused on settlement 1 at \(1, 1\)/ })).toBeInTheDocument()
   })
 
   it('renders selected read-only relationship and household details without polling either endpoint', async () => {
@@ -477,6 +502,26 @@ describe('citizen observer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
     const historyPaths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/history'))
     expect(historyPaths.at(-1)).toBe('/api/v1/history?fromMinute=10&toMinute=20&eventType=CitizenDied&minimumImportance=4&citizenId=7&familyCitizenId=8&structureId=9&limit=50')
+  })
+
+  it('shows readable M14 event labels and applies their history filter', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => responseFor(String(input), 12))
+    renderAppWithRecords('History')
+    expect(await screen.findByLabelText('Event type')).toBeInTheDocument()
+    const eventTypes = [
+      ['ExpeditionDeparted', 'Expedition Departed'],
+      ['ExpeditionReturned', 'Expedition Returned'],
+      ['ExpeditionLost', 'Expedition Lost'],
+      ['DaughterSettlementFounded', 'Daughter Settlement Founded'],
+      ['HouseholdRelocated', 'Household Relocated'],
+      ['FamilyVisitDeparted', 'Family Visit Departed'],
+      ['FamilyVisitReturned', 'Family Visit Returned'],
+    ] as const
+    for (const [value, label] of eventTypes) expect(screen.getByRole('option', { name: label })).toHaveAttribute('value', value)
+
+    fireEvent.change(screen.getByLabelText('Event type'), { target: { value: 'HouseholdRelocated' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await waitFor(() => expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/history?')).at(-1)).toContain('eventType=HouseholdRelocated'))
   })
 
   it('continues history pagination while each returned page is full', async () => {

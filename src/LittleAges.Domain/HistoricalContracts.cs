@@ -21,7 +21,14 @@ public enum HistoricalEventType : int
     ResourceShortageStarted = 12,
     ResourceShortageEnded = 13,
     CitizenSpecializationChanged = 14,
-    SeasonStarted = 15
+    SeasonStarted = 15,
+    ExpeditionDeparted = 16,
+    ExpeditionReturned = 17,
+    ExpeditionLost = 18,
+    DaughterSettlementFounded = 19,
+    HouseholdRelocated = 20,
+    FamilyVisitDeparted = 21,
+    FamilyVisitReturned = 22
 }
 
 public enum HistoricalImportance : int
@@ -151,7 +158,7 @@ public sealed record HistoricalEvent
     {
         WorldIdValidation.RequirePositive(Id.Value, nameof(Id));
         if (WorldMinute < 0 || WorldMinute > currentMinute) throw new ArgumentException("Historical event minute is outside the world timeline.");
-        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.SeasonStarted) throw new ArgumentException("Historical event type is unsupported.");
+        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.FamilyVisitReturned) throw new ArgumentException("Historical event type is unsupported.");
         if (!Enum.IsDefined(Importance) || Importance is < HistoricalImportance.Debug or > HistoricalImportance.Historic) throw new ArgumentException("Historical event importance is unsupported.");
         if (!Enum.IsDefined(Origin) || Origin is not (HistoricalEventOrigin.Live or HistoricalEventOrigin.MigrationBackfill)) throw new ArgumentException("Historical event origin is unsupported.");
         if (SchemaVersion != CurrentSchemaVersion) throw new NotSupportedException($"Historical event schema version '{SchemaVersion}' is not supported.");
@@ -187,6 +194,30 @@ public sealed record HistoricalEvent
             case HistoricalEventType.ResourceShortageEnded:
             case HistoricalEventType.SeasonStarted:
                 if (citizens.Length != 0 || structures.Length != 0) throw new ArgumentException("This historical event cannot have entity links.");
+                break;
+            case HistoricalEventType.ExpeditionDeparted:
+            case HistoricalEventType.ExpeditionReturned:
+            case HistoricalEventType.ExpeditionLost:
+                RequireRoles(citizens, "participant", 1, int.MaxValue);
+                if (structures.Length != 0) throw new ArgumentException("Expedition events cannot have structure links.");
+                break;
+            case HistoricalEventType.DaughterSettlementFounded:
+                RequireRoles(citizens, "founder", 1, int.MaxValue);
+                if (structures.Length != 0) throw new ArgumentException("DaughterSettlementFounded cannot have structure links.");
+                if (citizens.Length != CanonicalPayloadCount("founderCount")) throw new ArgumentException("DaughterSettlementFounded founder links must match founderCount.");
+                break;
+            case HistoricalEventType.HouseholdRelocated:
+                RequireRoles(citizens, "member", 1, int.MaxValue);
+                if (structures.Length != 0) throw new ArgumentException("HouseholdRelocated cannot have structure links.");
+                if (citizens.Length != CanonicalPayloadCount("travelerCount")) throw new ArgumentException("HouseholdRelocated member links must match travelerCount.");
+                break;
+            case HistoricalEventType.FamilyVisitDeparted:
+            case HistoricalEventType.FamilyVisitReturned:
+                if (citizens.Length != 2 || citizens.Count(x => x.Role == "subject") != 1 || citizens.Count(x => x.Role == "participant") != 1 ||
+                    citizens.Any(x => x.Role is not ("subject" or "participant")) ||
+                    citizens[0].CitizenId == citizens[1].CitizenId)
+                    throw new ArgumentException("Family visit citizen links must identify one distinct subject and participant.");
+                if (structures.Length != 0) throw new ArgumentException("Family visit events cannot have structure links.");
                 break;
             case HistoricalEventType.SettlementFounded:
                 RequireRoles(citizens, "founder", 1, int.MaxValue);
@@ -228,6 +259,13 @@ public sealed record HistoricalEvent
             default:
                 throw new ArgumentException("Historical event type is unsupported.");
         }
+    }
+
+    private int CanonicalPayloadCount(string propertyName)
+    {
+        HistoricalEventPayloads.Validate(EventType, PayloadJson);
+        using var document = JsonDocument.Parse(PayloadJson);
+        return document.RootElement.GetProperty(propertyName).GetInt32();
     }
 }
 
@@ -397,6 +435,20 @@ public static class HistoricalEventPayloads
     public static string ResourceShortage(ResourceType resourceType, int quantity, int livingPopulation, bool preexistingAtHistoryStart = false) => $"{{\"resourceType\":{JsonSerializer.Serialize(resourceType.ToString())},\"quantity\":{quantity.ToString(CultureInfo.InvariantCulture)},\"livingPopulation\":{livingPopulation.ToString(CultureInfo.InvariantCulture)},\"preexistingAtHistoryStart\":{(preexistingAtHistoryStart ? "true" : "false")}}}";
     public static string SpecializationChanged(string from, string to) => $"{{\"from\":{JsonSerializer.Serialize(from)},\"to\":{JsonSerializer.Serialize(to)}}}";
     public static string SeasonStarted(WorldSeason season, long year) => $"{{\"season\":{JsonSerializer.Serialize(season.ToString())},\"year\":{year.ToString(CultureInfo.InvariantCulture)}}}";
+    public static string ExpeditionDeparted(long partyId, long householdId, long originSettlementId, int destinationX, int destinationY, int travelerCount) =>
+        MigrationExpedition(partyId, householdId, originSettlementId, destinationX, destinationY, travelerCount);
+    public static string ExpeditionReturned(long partyId, long householdId, long originSettlementId, int destinationX, int destinationY, int travelerCount) =>
+        MigrationExpedition(partyId, householdId, originSettlementId, destinationX, destinationY, travelerCount);
+    public static string ExpeditionLost(long partyId, long householdId, long originSettlementId, int destinationX, int destinationY, int travelerCount) =>
+        MigrationExpedition(partyId, householdId, originSettlementId, destinationX, destinationY, travelerCount);
+    public static string DaughterSettlementFounded(long settlementId, long partyId, long householdId, int founderCount) =>
+        $"{{\"settlementId\":\"{Id(RequirePositiveId(settlementId, nameof(settlementId)))}\",\"partyId\":\"{Id(RequirePositiveId(partyId, nameof(partyId)))}\",\"householdId\":\"{Id(RequirePositiveId(householdId, nameof(householdId)))}\",\"founderCount\":{RequirePositiveInt(founderCount, nameof(founderCount)).ToString(CultureInfo.InvariantCulture)}}}";
+    public static string HouseholdRelocated(long householdId, long originSettlementId, long destinationSettlementId, int travelerCount) =>
+        $"{{\"householdId\":\"{Id(RequirePositiveId(householdId, nameof(householdId)))}\",\"originSettlementId\":\"{Id(RequireDistinctSettlementIds(originSettlementId, destinationSettlementId))}\",\"destinationSettlementId\":\"{Id(RequirePositiveId(destinationSettlementId, nameof(destinationSettlementId)))}\",\"travelerCount\":{RequirePositiveInt(travelerCount, nameof(travelerCount)).ToString(CultureInfo.InvariantCulture)}}}";
+    public static string FamilyVisitDeparted(long visitorId, long relativeId, long originSettlementId, long destinationSettlementId) =>
+        FamilyVisit(visitorId, relativeId, originSettlementId, destinationSettlementId);
+    public static string FamilyVisitReturned(long visitorId, long relativeId, long originSettlementId, long destinationSettlementId) =>
+        FamilyVisit(visitorId, relativeId, originSettlementId, destinationSettlementId);
 
     /// <summary>Validates the event-specific canonical JSON representation.</summary>
     public static void Validate(HistoricalEventType eventType, string payloadJson)
@@ -482,6 +534,30 @@ public static class HistoricalEventPayloads
                         return SeasonStarted(season, RequiredNonNegativeLong(root, "year"));
                     });
                     break;
+                case HistoricalEventType.ExpeditionDeparted:
+                case HistoricalEventType.ExpeditionReturned:
+                case HistoricalEventType.ExpeditionLost:
+                    RequireCanonical(payloadJson, root, ["partyId", "householdId", "originSettlementId", "destinationX", "destinationY", "travelerCount"], () =>
+                        MigrationExpedition(RequiredPositiveId(root, "partyId"), RequiredPositiveId(root, "householdId"),
+                            RequiredPositiveId(root, "originSettlementId"), RequiredNonNegativeInt(root, "destinationX"),
+                            RequiredNonNegativeInt(root, "destinationY"), RequiredPositiveInt(root, "travelerCount")));
+                    break;
+                case HistoricalEventType.DaughterSettlementFounded:
+                    RequireCanonical(payloadJson, root, ["settlementId", "partyId", "householdId", "founderCount"], () =>
+                        DaughterSettlementFounded(RequiredPositiveId(root, "settlementId"), RequiredPositiveId(root, "partyId"),
+                            RequiredPositiveId(root, "householdId"), RequiredPositiveInt(root, "founderCount")));
+                    break;
+                case HistoricalEventType.HouseholdRelocated:
+                    RequireCanonical(payloadJson, root, ["householdId", "originSettlementId", "destinationSettlementId", "travelerCount"], () =>
+                        HouseholdRelocated(RequiredPositiveId(root, "householdId"), RequiredPositiveId(root, "originSettlementId"),
+                            RequiredPositiveId(root, "destinationSettlementId"), RequiredPositiveInt(root, "travelerCount")));
+                    break;
+                case HistoricalEventType.FamilyVisitDeparted:
+                case HistoricalEventType.FamilyVisitReturned:
+                    RequireCanonical(payloadJson, root, ["visitorId", "relativeId", "originSettlementId", "destinationSettlementId"], () =>
+                        FamilyVisit(RequiredPositiveId(root, "visitorId"), RequiredPositiveId(root, "relativeId"),
+                            RequiredPositiveId(root, "originSettlementId"), RequiredPositiveId(root, "destinationSettlementId")));
+                    break;
                 default:
                     throw new ArgumentException("Historical event type is unsupported.", nameof(eventType));
             }
@@ -513,6 +589,20 @@ public static class HistoricalEventPayloads
     }
     private static int RequiredNonNegativeInt(JsonElement root, string name) => RequiredRange(root, name, 0, int.MaxValue);
     private static int RequiredPositiveInt(JsonElement root, string name) => RequiredRange(root, name, 1, int.MaxValue);
+    private static string MigrationExpedition(long partyId, long householdId, long originSettlementId, int destinationX, int destinationY, int travelerCount) =>
+        $"{{\"partyId\":\"{Id(RequirePositiveId(partyId, nameof(partyId)))}\",\"householdId\":\"{Id(RequirePositiveId(householdId, nameof(householdId)))}\",\"originSettlementId\":\"{Id(RequirePositiveId(originSettlementId, nameof(originSettlementId)))}\",\"destinationX\":{RequireNonNegativeInt(destinationX, nameof(destinationX)).ToString(CultureInfo.InvariantCulture)},\"destinationY\":{RequireNonNegativeInt(destinationY, nameof(destinationY)).ToString(CultureInfo.InvariantCulture)},\"travelerCount\":{RequirePositiveInt(travelerCount, nameof(travelerCount)).ToString(CultureInfo.InvariantCulture)}}}";
+    private static string FamilyVisit(long visitorId, long relativeId, long originSettlementId, long destinationSettlementId) =>
+        $"{{\"visitorId\":\"{Id(RequirePositiveId(visitorId, nameof(visitorId)))}\",\"relativeId\":\"{Id(RequirePositiveId(relativeId, nameof(relativeId)))}\",\"originSettlementId\":\"{Id(RequireDistinctSettlementIds(originSettlementId, destinationSettlementId))}\",\"destinationSettlementId\":\"{Id(RequirePositiveId(destinationSettlementId, nameof(destinationSettlementId)))}\"}}";
+    private static long RequireDistinctSettlementIds(long originSettlementId, long destinationSettlementId)
+    {
+        RequirePositiveId(originSettlementId, nameof(originSettlementId));
+        RequirePositiveId(destinationSettlementId, nameof(destinationSettlementId));
+        if (originSettlementId == destinationSettlementId) throw new ArgumentException("Origin and destination settlements must be distinct.");
+        return originSettlementId;
+    }
+    private static long RequirePositiveId(long value, string parameterName) => value > 0 ? value : throw new ArgumentOutOfRangeException(parameterName, "ID must be positive.");
+    private static int RequireNonNegativeInt(int value, string parameterName) => value >= 0 ? value : throw new ArgumentOutOfRangeException(parameterName, "Coordinate must be non-negative.");
+    private static int RequirePositiveInt(int value, string parameterName) => value > 0 ? value : throw new ArgumentOutOfRangeException(parameterName, "Count must be positive.");
     private static long RequiredNonNegativeLong(JsonElement root, string name)
     {
         if (!root.TryGetProperty(name, out var value) || !value.TryGetInt64(out var result) || result < 0 || value.GetRawText() != result.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException($"Payload field '{name}' must be a canonical non-negative integer.");

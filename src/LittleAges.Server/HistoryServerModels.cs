@@ -104,8 +104,12 @@ public static class HistoricalEventSummary
         var subjectName = subjectId is { } subject ? name(subject) : "Citizen";
         var pair = citizens.Where(x => x.Role is "partner" or "participant" or "member").OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).ToArray();
         var parentNames = citizens.Where(x => x.Role == "parent").OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).ToArray();
+        var founderNames = citizens.Where(x => x.Role == "founder").OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).ToArray();
+        var memberNames = citizens.Where(x => x.Role == "member").OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).ToArray();
+        var participantNames = citizens.Where(x => x.Role == "participant").OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).ToArray();
         using var document = JsonDocument.Parse(item.PayloadJson);
         var payload = document.RootElement;
+        var namedRole = (string role, string fallbackId) => citizens.Where(x => x.Role == role).OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).FirstOrDefault() ?? name(long.Parse(fallbackId, CultureInfo.InvariantCulture));
         return item.EventType switch
         {
             HistoricalEventType.WorldCreated => $"The world was created with seed {payload.GetProperty("seed").GetString()}.",
@@ -123,6 +127,13 @@ public static class HistoricalEventSummary
             HistoricalEventType.ResourceShortageEnded => "The food shortage ended.",
             HistoricalEventType.CitizenSpecializationChanged => $"{subjectName} became a {payload.GetProperty("to").GetString()}.",
             HistoricalEventType.SeasonStarted => $"{payload.GetProperty("season").GetString()} began in Year {payload.GetProperty("year").GetInt64().ToString(CultureInfo.InvariantCulture)}.",
+            HistoricalEventType.ExpeditionDeparted => $"Expedition {payload.GetProperty("partyId").GetString()} departed Settlement {payload.GetProperty("originSettlementId").GetString()} for site ({payload.GetProperty("destinationX").GetInt32().ToString(CultureInfo.InvariantCulture)}, {payload.GetProperty("destinationY").GetInt32().ToString(CultureInfo.InvariantCulture)}) with {payload.GetProperty("travelerCount").GetInt32().ToString(CultureInfo.InvariantCulture)} travelers: {string.Join(" and ", participantNames)}.",
+            HistoricalEventType.ExpeditionReturned => $"Expedition {payload.GetProperty("partyId").GetString()} returned to Settlement {payload.GetProperty("originSettlementId").GetString()} from site ({payload.GetProperty("destinationX").GetInt32().ToString(CultureInfo.InvariantCulture)}, {payload.GetProperty("destinationY").GetInt32().ToString(CultureInfo.InvariantCulture)}) with {payload.GetProperty("travelerCount").GetInt32().ToString(CultureInfo.InvariantCulture)} travelers: {string.Join(" and ", participantNames)}.",
+            HistoricalEventType.ExpeditionLost => $"Expedition {payload.GetProperty("partyId").GetString()} ended without founding a settlement at site ({payload.GetProperty("destinationX").GetInt32().ToString(CultureInfo.InvariantCulture)}, {payload.GetProperty("destinationY").GetInt32().ToString(CultureInfo.InvariantCulture)}); its party included {payload.GetProperty("travelerCount").GetInt32().ToString(CultureInfo.InvariantCulture)} travelers: {string.Join(" and ", participantNames)}.",
+            HistoricalEventType.DaughterSettlementFounded => $"Settlement {payload.GetProperty("settlementId").GetString()} was founded by {payload.GetProperty("founderCount").GetInt32().ToString(CultureInfo.InvariantCulture)} founders from expedition {payload.GetProperty("partyId").GetString()}: {string.Join(" and ", founderNames)}.",
+            HistoricalEventType.HouseholdRelocated => $"Household {payload.GetProperty("householdId").GetString()} relocated {payload.GetProperty("travelerCount").GetInt32().ToString(CultureInfo.InvariantCulture)} members from Settlement {payload.GetProperty("originSettlementId").GetString()} to Settlement {payload.GetProperty("destinationSettlementId").GetString()}: {string.Join(" and ", memberNames)}.",
+            HistoricalEventType.FamilyVisitDeparted => $"{namedRole("subject", payload.GetProperty("visitorId").GetString()!)} departed Settlement {payload.GetProperty("originSettlementId").GetString()} to visit {namedRole("participant", payload.GetProperty("relativeId").GetString()!)} in Settlement {payload.GetProperty("destinationSettlementId").GetString()}.",
+            HistoricalEventType.FamilyVisitReturned => $"{namedRole("subject", payload.GetProperty("visitorId").GetString()!)} returned to Settlement {payload.GetProperty("originSettlementId").GetString()} from a trip to see {namedRole("participant", payload.GetProperty("relativeId").GetString()!)} in Settlement {payload.GetProperty("destinationSettlementId").GetString()}.",
             _ => item.EventType.ToString()
         };
     }

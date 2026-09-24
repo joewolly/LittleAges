@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using LittleAges.Domain;
 
 namespace LittleAges.Simulation;
@@ -346,6 +347,38 @@ public sealed partial class SimulationEngine
             result = left.HistoricalEventId.Value.CompareTo(right.HistoricalEventId.Value);
             return result != 0 ? result : left.MemoryType.CompareTo(right.MemoryType);
         });
+    }
+
+    private TileCoordinate ExpeditionDestinationForHistory(long partyId, TileCoordinate fallback)
+    {
+        var partyText = partyId.ToString(CultureInfo.InvariantCulture);
+        foreach (var item in _historicalEvents.Where(x => x.EventType == HistoricalEventType.ExpeditionDeparted))
+        {
+            using var payload = JsonDocument.Parse(item.PayloadJson);
+            var root = payload.RootElement;
+            if (!root.TryGetProperty("partyId", out var id) || id.GetString() != partyText) continue;
+            return new TileCoordinate(root.GetProperty("destinationX").GetInt32(),
+                root.GetProperty("destinationY").GetInt32());
+        }
+        return fallback;
+    }
+
+    private long FamilyVisitDestinationForHistory(long visitorId, long relativeId, long originSettlementId, long fallback)
+    {
+        var visitorText = visitorId.ToString(CultureInfo.InvariantCulture);
+        var relativeText = relativeId.ToString(CultureInfo.InvariantCulture);
+        var originText = originSettlementId.ToString(CultureInfo.InvariantCulture);
+        foreach (var item in _historicalEvents.Where(x => x.EventType == HistoricalEventType.FamilyVisitDeparted))
+        {
+            using var payload = JsonDocument.Parse(item.PayloadJson);
+            var root = payload.RootElement;
+            if (!root.TryGetProperty("visitorId", out var visitor) || visitor.GetString() != visitorText ||
+                !root.TryGetProperty("relativeId", out var relative) || relative.GetString() != relativeText ||
+                !root.TryGetProperty("originSettlementId", out var origin) || origin.GetString() != originText)
+                continue;
+            return long.Parse(root.GetProperty("destinationSettlementId").GetString()!, CultureInfo.InvariantCulture);
+        }
+        return fallback;
     }
 
     private void AddMemories(HistoricalEvent item)

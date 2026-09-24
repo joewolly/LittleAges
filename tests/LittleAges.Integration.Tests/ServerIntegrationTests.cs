@@ -21,11 +21,11 @@ namespace LittleAges.Integration.Tests;
 public sealed class ServerIntegrationTests
 {
     [Fact]
-    public void FreshWorldConfigurationDefaultsToUnifiedRulesWithoutChangingLegacyRules()
+    public void FreshWorldConfigurationDefaultsToCurrentRulesWithoutChangingLegacyRules()
     {
         var options = ServerOptions.FromConfiguration(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
-        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, options.NewWorldRules);
+        Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, options.NewWorldRules);
         Assert.Equal("m12-rng1-spaced1", SimulationEngine.SpacedSimulationRulesVersion);
         Assert.Equal("m11-rng1-barter1", SimulationEngine.BarterSimulationRulesVersion);
         Assert.Equal("m8-rng1-balance1", SimulationEngine.M8SimulationRulesVersion);

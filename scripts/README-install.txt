@@ -19,4 +19,4 @@ To uninstall while preserving the world:
    .\uninstall.ps1
 
 LAN access is for a trusted local network only. Do not expose Little Ages to
-the public Internet. v0.1 has no built-in authentication or TLS.
+the public Internet. Little Ages has no built-in authentication or TLS.

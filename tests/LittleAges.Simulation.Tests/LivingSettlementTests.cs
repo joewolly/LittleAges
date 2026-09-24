@@ -36,7 +36,7 @@ public sealed class LivingSettlementTests(ITestOutputHelper output)
         Assert.False(SimulationEngine.LivingSystemsEnabled("v02-rng1-living3"));
         Assert.True(SimulationEngine.UsesSampledShortageRecovery(SimulationEngine.LivingSimulationRulesVersion));
         Assert.True(SimulationEngine.UsesSampledShortageRecovery(SimulationEngine.Living2SimulationRulesVersion));
-        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.True(SimulationEngine.LivingSystemsEnabled(SimulationEngine.CurrentSimulationRulesVersion));
         LivingValidation.Validate(snapshot);
     }

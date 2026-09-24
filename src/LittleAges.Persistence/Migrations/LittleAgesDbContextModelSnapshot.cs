@@ -379,7 +379,7 @@ namespace LittleAges.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_historical_events_id", "id > 0");
 
-                            t.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 15 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
+                            t.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 22 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
                         });
                 });
 
@@ -885,6 +885,8 @@ namespace LittleAges.Persistence.Migrations
                         .HasColumnName("last_checkpoint_utc");
 
                     b.Property<string>("LivingStateJson").HasColumnType("TEXT").HasColumnName("living_state_json");
+
+                    b.Property<string>("MigrationStateJson").HasColumnType("TEXT").HasColumnName("migration_state_json");
 
                     b.Property<long>("NextEntityId")
                         .HasColumnType("INTEGER")

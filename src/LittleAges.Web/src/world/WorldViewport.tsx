@@ -7,7 +7,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import type { MapControls as MapControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
-import type { Citizen, Map, Settlement, Structure } from '../api'
+import type { Citizen, Map, Settlement, SettlementSite, Structure } from '../api'
 import { LegacyMap } from './LegacyMap'
 import { FarmModel, GranaryModel, MarketplaceModel } from './FarmModel'
 import { GroundContacts } from './GroundContacts'
@@ -19,7 +19,7 @@ import { createGroundTexture, upgradeGroundTexture } from './terrainArt'
 import { disposeRendererResources, trackAssetResources, trackLightingUniform } from './rendererResources'
 import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
 import artManifest from './art-manifest.json'
-import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, stableVisualHash, worldToScene } from './visuals'
+import { citizenPaletteIndex, detailVariant, scenePointAlongMovementPlan, settlementSiteScenePoint, stableVisualHash, worldToScene } from './visuals'
 
 type DetailTier = 'full' | 'reduced'
 const DIORAMA_ASSET_BYTES = artManifest.bytes
@@ -460,7 +460,11 @@ function CitizenModel({ citizen, livingOrder, fitTile = false, map, structures, 
   </group>
 }
 
-function cameraFocus(map: Map, structures: Structure[]): THREE.Vector3 {
+function cameraFocus(map: Map, structures: Structure[], focusedSite: SettlementSite | null = null): THREE.Vector3 {
+  if (focusedSite !== null) {
+    const point = settlementSiteScenePoint(map, focusedSite.site)
+    return new THREE.Vector3(point.x, point.y, point.z)
+  }
   // Gathering citizens can roam across the map. Keep the default composition
   // anchored on the settlement and let selection/follow mode chase individuals.
   const prominent = structures.filter(structure => structure.type !== 'Stockpile')
@@ -470,6 +474,24 @@ function cameraFocus(map: Map, structures: Structure[]): THREE.Vector3 {
   const y = coordinates.reduce((total, coordinate) => total + coordinate.y, 0) / coordinates.length
   const point = worldToScene(map, x, y)
   return new THREE.Vector3(point.x, point.y, point.z)
+}
+
+function SettlementSiteMarkers({ map, settlementSites, selectedSettlementId, onFocus }: { map: Map; settlementSites: SettlementSite[]; selectedSettlementId: string | null; onFocus: (settlementId: string) => void }) {
+  if (settlementSites.length < 2) return null
+  return <group>{settlementSites.map(site => {
+    const point = settlementSiteScenePoint(map, site.site)
+    const selected = site.settlementId === selectedSettlementId
+    return <group key={site.settlementId} position={[point.x, point.y, point.z]} onClick={event => { event.stopPropagation(); onFocus(site.settlementId) }}>
+      <mesh position={[0, 0.42, 0]} castShadow>
+        <cylinderGeometry args={[0.13, 0.2, 0.84, 8]} />
+        <meshStandardMaterial color={selected ? '#e4b958' : '#49372d'} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
+        <ringGeometry args={[0.34, selected ? 0.55 : 0.48, 24]} />
+        <meshBasicMaterial color={selected ? '#fff0b5' : '#f4e1b6'} side={THREE.DoubleSide} />
+      </mesh>
+    </group>
+  })}</group>
 }
 
 function CameraRig({ focus, rotation, resetToken, nudge, follow, controlsEnabled, structureCount }: { focus: THREE.Vector3; rotation: number; resetToken: number; nudge: CameraNudge; follow: (() => { x: number; y: number; z: number }) | null; controlsEnabled: boolean; structureCount: number }) {
@@ -586,11 +608,12 @@ function useSharedAssetResources(scene: THREE.Object3D) {
   useLayoutEffect(() => trackAssetResources(gl, scene), [gl, scene])
 }
 
-function DioramaScene({ map, living, citizens, structures, worldMinute, settlement, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; living?: LivingWorld | null; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
+function DioramaScene({ map, living, citizens, structures, settlement, settlementSites, focusedSettlementId, onFocusSettlementSite, worldMinute, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; living?: LivingWorld | null; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; settlementSites: SettlementSite[]; focusedSettlementId: string | null; onFocusSettlementSite: (id: string) => void; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
   const [presentationClock] = useState(() => new PresentationClock())
   const observedMinute = worldMinute ?? Math.max(0, ...citizens.map(c => c.movementPlan?.observedMinute ?? 0))
   useLayoutEffect(() => { presentationClock.observe(observedMinute, operationalSpeed, paused, performance.now()) }, [presentationClock, observedMinute, operationalSpeed, paused])
-  const focus = useMemo(() => cameraFocus(map, structures), [map, structures])
+  const focusedSite = settlementSites.find(site => site.settlementId === focusedSettlementId) ?? null
+  const focus = useMemo(() => cameraFocus(map, structures, focusedSite), [map, structures, focusedSite])
   const stockpiles = useMemo(() => structures.filter(structure => structure.type === 'Stockpile' && structure.status === 'Complete'), [structures])
   const otherStructures = useMemo(() => structures.filter(structure => structure.type !== 'Stockpile' || structure.status !== 'Complete'), [structures])
   const livingOrders = useMemo(() => new Map(living?.orders.filter(order => order.citizenId !== null).map(order => [order.citizenId, order])), [living])
@@ -612,6 +635,7 @@ function DioramaScene({ map, living, citizens, structures, worldMinute, settleme
       <GroundContacts map={map} structures={structures} settlement={settlement} />
       <LivingScene map={map} world={living ?? null} />
       <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
+      <SettlementSiteMarkers map={map} settlementSites={settlementSites} selectedSettlementId={focusedSite?.settlementId ?? null} onFocus={onFocusSettlementSite} />
       <Suspense fallback={null}>
         <ResourceInstances map={map} settlement={settlement} worldSeed={worldSeed} detailTier={detailTier} />
         <StockpileInstances map={map} structures={stockpiles} detailTier={detailTier} fitTile={!!living} />
@@ -632,6 +656,7 @@ export type WorldViewportProps = {
   citizens: Citizen[]
   structures: Structure[]
   settlement: Settlement | null
+  settlementSites?: SettlementSite[]
   worldSeed: string | null
   operationalSpeed: number | null
   worldMinute?: number
@@ -650,6 +675,8 @@ export function WorldViewport(props: WorldViewportProps) {
   const [rotation, setRotation] = useState(0)
   const [resetToken, setResetToken] = useState(0)
   const [followCitizenId, setFollowCitizenId] = useState<string | null>(null)
+  const [selectedSettlementId, setSelectedSettlementId] = useState<string | null>(null)
+  const [focusedSettlementId, setFocusedSettlementId] = useState<string | null>(null)
   const [detailTier, setDetailTier] = useState<DetailTier>('full')
   const compact = typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches
   const effectiveDetailTier = props.structures.length >= 50 || compact && props.structures.length >= 20
@@ -658,9 +685,19 @@ export function WorldViewport(props: WorldViewportProps) {
   const [nudge, setNudge] = useState<CameraNudge>({ x: 0, z: 0, zoom: 0, sequence: 0 })
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   const selected = props.citizens.find(citizen => citizen.citizenId === props.selectedCitizenId) ?? null
+  const settlementSites = props.settlementSites ?? []
+  const selectedSite = settlementSites.find(site => site.settlementId === selectedSettlementId) ?? settlementSites[0] ?? null
   const selectedWork = props.living?.orders.find(order => order.citizenId === selected?.citizenId)
   const effectiveFollowCitizenId = followCitizenId !== null && props.citizens.some(citizen => citizen.citizenId === followCitizenId && citizen.isAlive) ? followCitizenId : null
   const issueNudge = (x: number, z: number, zoom = 0) => setNudge(previous => ({ x, z, zoom, sequence: previous.sequence + 1 }))
+  const focusSettlementSite = (settlementId: string) => {
+    setSelectedSettlementId(settlementId)
+    setFocusedSettlementId(settlementId)
+    setResetToken(value => value + 1)
+    setFollowCitizenId(null)
+    setWholeMap(false)
+  }
+  const focusSelectedSettlement = () => { if (selectedSite !== null) focusSettlementSite(selectedSite.settlementId) }
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'ArrowLeft') issueNudge(-2, 0)
     else if (event.key === 'ArrowRight') issueNudge(2, 0)
@@ -678,16 +715,23 @@ export function WorldViewport(props: WorldViewportProps) {
     <div className="world-toolbar" aria-label="World camera controls">
       <button type="button" onClick={() => setRotation(value => (value + 3) % 4)} aria-label="Rotate world left">↶</button>
       <button type="button" onClick={() => setRotation(value => (value + 1) % 4)} aria-label="Rotate world right">↷</button>
-      <button type="button" onClick={() => { setResetToken(value => value + 1); setFollowCitizenId(null) }}>Reset view</button>
+      <button type="button" onClick={() => { setResetToken(value => value + 1); setFollowCitizenId(null); setFocusedSettlementId(null) }}>Reset view</button>
       <button type="button" disabled={selected === null || !selected.isAlive} onClick={() => setFollowCitizenId(current => current === selected?.citizenId ? null : selected?.citizenId ?? null)}>{effectiveFollowCitizenId === selected?.citizenId ? 'Unfollow' : 'Follow selected'}</button>
       <button type="button" onClick={() => setFallback(value => !value)}>{fallback ? 'Try 3D' : '2D fallback'}</button>
       {fallback && props.living && <button type="button" onClick={() => setWholeMap(value => !value)}>{wholeMap ? 'Settlement view' : 'Whole map'}</button>}
     </div>
+    {settlementSites.length > 1 && <div className="world-site-control" aria-label="Settlement site controls">
+      <label>Settlement site<select aria-label="Settlement site" value={selectedSite?.settlementId ?? ''} onChange={event => setSelectedSettlementId(event.target.value)}>
+        {settlementSites.map(site => <option key={site.settlementId} value={site.settlementId}>Settlement {site.settlementId} · ({site.site.x}, {site.site.y})</option>)}
+      </select></label>
+      {selectedSite && <output aria-live="polite">Population {selectedSite.livingPopulation.toLocaleString()} · Food {selectedSite.foodStored.toLocaleString()} · Wood {selectedSite.woodStored.toLocaleString()} · Stone {selectedSite.stoneStored.toLocaleString()}</output>}
+      <button type="button" onClick={focusSelectedSettlement} disabled={selectedSite === null}>Focus site</button>
+    </div>}
     <div className="world-stage">
-      {fallback ? <LegacyMap living={props.living} focusSettlement={!!props.living && !wholeMap} map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
+      {fallback ? <LegacyMap living={props.living} focusSettlement={!!props.living && !wholeMap} settlementSites={settlementSites} selectedSettlementId={selectedSite?.settlementId ?? null} focusedSettlementId={wholeMap ? null : focusedSettlementId} map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
         <Canvas dpr={[1, 1.5]} shadows frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05 }}>
           <ContextLossGuard onLoss={() => setFallback(true)} />
-          <DioramaScene {...props} controlsEnabled={props.controlsEnabled !== false} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={effectiveDetailTier} onDetailTier={setDetailTier} onStats={setStats} />
+          <DioramaScene {...props} settlementSites={settlementSites} focusedSettlementId={focusedSettlementId} onFocusSettlementSite={focusSettlementSite} controlsEnabled={props.controlsEnabled !== false} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={effectiveDetailTier} onDetailTier={setDetailTier} onStats={setStats} />
         </Canvas>
       </SceneBoundary>}
     </div>

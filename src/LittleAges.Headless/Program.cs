@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
@@ -262,6 +263,12 @@ public sealed record HeadlessReport
     public string SocialFingerprint { get; init; } = string.Empty;
     public string HistoryFingerprint { get; init; } = string.Empty;
     public JsonElement? Living { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SettlementMetricsScope { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public MigrationReadSnapshot? Migration { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyDictionary<long, int> LivingResidentCountsBySettlement { get; init; } = new Dictionary<long, int>();
     public IReadOnlyList<HeadlessEvidence> Evidence { get; init; } = Array.Empty<HeadlessEvidence>();
     public HeadlessAcceptanceResult? Acceptance { get; init; }
     public IReadOnlyList<HeadlessInvariantResult> Invariants { get; init; } = Array.Empty<HeadlessInvariantResult>();
@@ -405,6 +412,9 @@ public static class HeadlessRunner
         var firstGrandchild = descendants.FirstOrDefault(x => HeadlessFactEvidence.AncestryDepth(x, citizensById) >= 2);
         var historyByType = Enum.GetValues<HistoricalEventType>().ToDictionary(value => value.ToString(), value => historyEvents.Count(item => item.EventType == value), StringComparer.Ordinal);
         var invariants = HeadlessInvariantValidator.Validate(engine, snapshot, targetMinute);
+        var migration = SimulationEngine.MigrationSystemsEnabled(snapshot.SimulationRulesVersion)
+            ? MigrationValidation.CreateReadSnapshot(snapshot)
+            : null;
         var shortageMetrics = BuildShortageMetrics(snapshot);
         var trajectoryCadence = options.Years <= 10 ? "annual (year 0 through requested horizon)" : "decade (year 0 through requested horizon)";
         var elapsedMilliseconds = run.ElapsedMilliseconds;
@@ -458,6 +468,10 @@ public static class HeadlessRunner
             SocialFingerprint = engine.SocialFingerprint,
             HistoryFingerprint = engine.HistoryFingerprint,
             Living = engine.CreateLivingObservation(),
+            SettlementMetricsScope = migration is null ? null : "FoodStored, WoodStored, and StoneStored describe settlement 1 only; Migration.Settlements reports each site's stocks and local capacity.",
+            Migration = migration,
+            LivingResidentCountsBySettlement = migration is null ? new Dictionary<long, int>() :
+                MigrationValidation.GetLivingResidentCountsBySettlement(snapshot, migration),
             Evidence = HeadlessFactEvidence.Build(snapshot),
             Invariants = invariants
         };
@@ -557,7 +571,12 @@ public static class HeadlessReportSerialization
         DictionaryKeyPolicy = null
     };
 
-    public static string Serialize(HeadlessReport report) => JsonSerializer.Serialize(report, JsonOptions);
+    public static string Serialize(HeadlessReport report)
+    {
+        var projection = JsonSerializer.SerializeToNode(report, JsonOptions)!.AsObject();
+        AddLivingResidentCounts(report, projection);
+        return projection.ToJsonString(JsonOptions);
+    }
 
     public static string SerializeDeterministicReport(HeadlessReport report)
     {
@@ -615,6 +634,16 @@ public static class HeadlessReportSerialization
                 report.Acceptance.Mismatches
             }
         };
+        if (report.Migration is not null)
+        {
+            var migrationProjection = JsonSerializer.SerializeToNode(projection, JsonOptions)!.AsObject();
+            migrationProjection["settlementMetricsScope"] = report.SettlementMetricsScope;
+            migrationProjection["migration"] = JsonSerializer.SerializeToNode(report.Migration, JsonOptions);
+            AddLivingResidentCounts(report, migrationProjection);
+            if (report.Living is not null)
+                migrationProjection["living"] = JsonSerializer.SerializeToNode(report.Living.Value);
+            return migrationProjection.ToJsonString(JsonOptions);
+        }
         if (report.Living is null)
         {
         if (report.Economy is not null) return JsonSerializer.Serialize(new { Summary = projection, report.Agriculture, report.Economy }, JsonOptions);
@@ -624,6 +653,22 @@ public static class HeadlessReportSerialization
         var extended = JsonSerializer.SerializeToNode(projection, JsonOptions)!.AsObject();
         extended["living"] = JsonSerializer.SerializeToNode(report.Living.Value);
         return extended.ToJsonString(JsonOptions);
+    }
+
+    private static void AddLivingResidentCounts(HeadlessReport report, System.Text.Json.Nodes.JsonObject projection)
+    {
+        if (report.Migration is null || report.LivingResidentCountsBySettlement.Count == 0 ||
+            projection["migration"] is not JsonObject migration || migration["settlements"] is not JsonArray settlements)
+            return;
+
+        foreach (var settlementNode in settlements)
+        {
+            if (settlementNode is not JsonObject settlement || settlement["id"] is not { } idNode)
+                continue;
+            var id = idNode.GetValue<long>();
+            if (report.LivingResidentCountsBySettlement.TryGetValue(id, out var count))
+                settlement["livingResidentCount"] = JsonValue.Create(count);
+        }
     }
 
     public static void WriteArtifacts(HeadlessReport report, HeadlessOptions options)
@@ -672,6 +717,33 @@ public static class HeadlessReportSerialization
         AddRow(builder, "Households / relationships / structures", $"{report.Households.ToString(CultureInfo.InvariantCulture)} / {report.Relationships.ToString(CultureInfo.InvariantCulture)} / {report.Structures.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Food / wood / stone", $"{report.FoodStored.ToString(CultureInfo.InvariantCulture)} / {report.WoodStored.ToString(CultureInfo.InvariantCulture)} / {report.StoneStored.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Storage / shelter capacity", $"{report.StorageCapacity.ToString(CultureInfo.InvariantCulture)} / {report.ShelterCapacity.ToString(CultureInfo.InvariantCulture)}");
+        if (report.Migration is { } migration)
+        {
+            AddRow(builder, "Settlement metric scope", report.SettlementMetricsScope ?? "per-site state is listed below");
+            builder.AppendLine();
+            builder.AppendLine("## M14 settlements");
+            builder.AppendLine();
+            builder.AppendLine("| Settlement ID | Site (x, y) | Citizens | Living residents | Households | Structures | Facilities | Work orders | Food | Wood | Stone | Local capacity |");
+            builder.AppendLine("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+            foreach (var site in migration.Settlements)
+            {
+                builder.Append("| ").Append(site.Id.ToString(CultureInfo.InvariantCulture)).Append(" | (")
+                    .Append(site.Site.X.ToString(CultureInfo.InvariantCulture)).Append(", ")
+                    .Append(site.Site.Y.ToString(CultureInfo.InvariantCulture)).Append(") | ")
+                    .Append(site.CitizenIds.Count.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(report.LivingResidentCountsBySettlement.TryGetValue(site.Id, out var livingResidents)
+                        ? livingResidents.ToString(CultureInfo.InvariantCulture) : "unavailable").Append(" | ")
+                    .Append(site.HouseholdIds.Count.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.StructureIds.Count.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.FacilityIds.Count.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.WorkOrderIds.Count.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.CommunalStock.FoodStored.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.CommunalStock.WoodStored.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.CommunalStock.StoneStored.ToString(CultureInfo.InvariantCulture)).Append(" | ")
+                    .Append(site.StorageCapacity.ToString(CultureInfo.InvariantCulture)).AppendLine(" |");
+            }
+            AddRow(builder, "In-transit parties", migration.InTransitParties.Count.ToString(CultureInfo.InvariantCulture));
+        }
         AddRow(builder, "Historical events / statistics / memories", $"{report.HistoricalEventTotal.ToString(CultureInfo.InvariantCulture)} / {report.StatisticsCount.ToString(CultureInfo.InvariantCulture)} / {report.MemoryCount.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Shortage starts / ends", $"{report.ShortageStarts.ToString(CultureInfo.InvariantCulture)} / {report.ShortageEnds.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Shortage transition percentage of history", report.ShortageTransitionPercentageOfHistory.ToString("F3", CultureInfo.InvariantCulture));

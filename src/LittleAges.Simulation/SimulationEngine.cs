@@ -140,7 +140,7 @@ public sealed record SimulationPersistenceSnapshot
     private static readonly int[] M6PopulationMilestones = [25, 50, 100, 250, 500, 1000, 2000];
     public SimulationPersistenceSnapshot(WorldSeed seed, WorldMinute worldMinute, string worldSchemaVersion, string simulationRulesVersion, string applicationVersion, string worldConfiguration, DeterministicCountersSnapshot counters, IReadOnlyList<ScheduledEventSnapshot> scheduledEvents) : this(seed, worldMinute, worldSchemaVersion, simulationRulesVersion, applicationVersion, worldConfiguration, counters, scheduledEvents, null, null, 0) { }
     public SimulationPersistenceSnapshot(WorldSeed seed, WorldMinute worldMinute, string worldSchemaVersion, string simulationRulesVersion, string applicationVersion, string worldConfiguration, DeterministicCountersSnapshot counters, IReadOnlyList<ScheduledEventSnapshot> scheduledEvents, WorldMap? world) : this(seed, worldMinute, worldSchemaVersion, simulationRulesVersion, applicationVersion, worldConfiguration, counters, scheduledEvents, world, null, 0) { }
-    public SimulationPersistenceSnapshot(WorldSeed seed, WorldMinute worldMinute, string worldSchemaVersion, string simulationRulesVersion, string applicationVersion, string worldConfiguration, DeterministicCountersSnapshot counters, IReadOnlyList<ScheduledEventSnapshot> scheduledEvents, WorldMap? world, IReadOnlyList<Citizen>? citizens, int citizenGenerationVersion = 0, IReadOnlyList<ResourceState>? resourceStates = null, SettlementState? settlement = null, int survivalVersion = 0, int settlementVersion = 0, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? structureContributions = null, int socialVersion = 0, IReadOnlyList<RelationshipState>? relationships = null, IReadOnlyList<Household>? households = null, int historyVersion = 0, HistoryState? historyState = null, IReadOnlyList<HistoricalEvent>? historicalEvents = null, IReadOnlyList<HistoricalEventCitizenLink>? historicalEventCitizens = null, IReadOnlyList<HistoricalEventStructureLink>? historicalEventStructures = null, IReadOnlyList<StatisticsSample>? statisticsSamples = null, IReadOnlyList<CitizenMemory>? memories = null, AgricultureState? agriculture = null, EconomyState? economy = null, string? livingStateJson = null)
+    public SimulationPersistenceSnapshot(WorldSeed seed, WorldMinute worldMinute, string worldSchemaVersion, string simulationRulesVersion, string applicationVersion, string worldConfiguration, DeterministicCountersSnapshot counters, IReadOnlyList<ScheduledEventSnapshot> scheduledEvents, WorldMap? world, IReadOnlyList<Citizen>? citizens, int citizenGenerationVersion = 0, IReadOnlyList<ResourceState>? resourceStates = null, SettlementState? settlement = null, int survivalVersion = 0, int settlementVersion = 0, IReadOnlyList<Structure>? structures = null, IReadOnlyList<StructureContribution>? structureContributions = null, int socialVersion = 0, IReadOnlyList<RelationshipState>? relationships = null, IReadOnlyList<Household>? households = null, int historyVersion = 0, HistoryState? historyState = null, IReadOnlyList<HistoricalEvent>? historicalEvents = null, IReadOnlyList<HistoricalEventCitizenLink>? historicalEventCitizens = null, IReadOnlyList<HistoricalEventStructureLink>? historicalEventStructures = null, IReadOnlyList<StatisticsSample>? statisticsSamples = null, IReadOnlyList<CitizenMemory>? memories = null, AgricultureState? agriculture = null, EconomyState? economy = null, string? livingStateJson = null, string? migrationStateJson = null)
     {
         Seed = seed; WorldMinute = worldMinute; WorldSchemaVersion = RequireMetadata(worldSchemaVersion, nameof(worldSchemaVersion)); SimulationRulesVersion = RequireMetadata(simulationRulesVersion, nameof(simulationRulesVersion)); ApplicationVersion = RequireMetadata(applicationVersion, nameof(applicationVersion)); WorldConfiguration = worldConfiguration ?? throw new ArgumentNullException(nameof(worldConfiguration)); Counters = counters.Validate();
         ArgumentNullException.ThrowIfNull(scheduledEvents);
@@ -150,11 +150,13 @@ public sealed record SimulationPersistenceSnapshot
         if (citizenGenerationVersion is not (0 or 1)) throw new NotSupportedException($"Citizen generation version '{citizenGenerationVersion}' is not supported.");
         if (survivalVersion is not (0 or SimulationEngine.SurvivalVersion)) throw new NotSupportedException($"Survival version '{survivalVersion}' is not supported.");
         LivingStateJson = livingStateJson;
+        MigrationStateJson = migrationStateJson;
+        MigrationState = migrationStateJson is null ? null : MigrationWorldState.Parse(migrationStateJson);
         var m2 = simulationRulesVersion == SimulationEngine.M2SimulationRulesVersion;
         var m3 = simulationRulesVersion == SimulationEngine.M3SimulationRulesVersion;
         var m4 = simulationRulesVersion == SimulationEngine.M4SimulationRulesVersion;
-        var m5 = simulationRulesVersion is SimulationEngine.M5SimulationRulesVersion or SimulationEngine.M6SimulationRulesVersion or SimulationEngine.M8SimulationRulesVersion or SimulationEngine.GrowthSimulationRulesVersion or SimulationEngine.AgricultureSimulationRulesVersion or SimulationEngine.BarterSimulationRulesVersion or SimulationEngine.SpacedSimulationRulesVersion or SimulationEngine.LivingSimulationRulesVersion or SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion;
-        var m6 = simulationRulesVersion is SimulationEngine.M6SimulationRulesVersion or SimulationEngine.M8SimulationRulesVersion or SimulationEngine.GrowthSimulationRulesVersion or SimulationEngine.AgricultureSimulationRulesVersion or SimulationEngine.BarterSimulationRulesVersion or SimulationEngine.SpacedSimulationRulesVersion or SimulationEngine.LivingSimulationRulesVersion or SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion;
+        var m5 = simulationRulesVersion is SimulationEngine.M5SimulationRulesVersion or SimulationEngine.M6SimulationRulesVersion or SimulationEngine.M8SimulationRulesVersion or SimulationEngine.GrowthSimulationRulesVersion or SimulationEngine.AgricultureSimulationRulesVersion or SimulationEngine.BarterSimulationRulesVersion or SimulationEngine.SpacedSimulationRulesVersion or SimulationEngine.LivingSimulationRulesVersion or SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion or SimulationEngine.MigrationSimulationRulesVersion;
+        var m6 = simulationRulesVersion is SimulationEngine.M6SimulationRulesVersion or SimulationEngine.M8SimulationRulesVersion or SimulationEngine.GrowthSimulationRulesVersion or SimulationEngine.AgricultureSimulationRulesVersion or SimulationEngine.BarterSimulationRulesVersion or SimulationEngine.SpacedSimulationRulesVersion or SimulationEngine.LivingSimulationRulesVersion or SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion or SimulationEngine.MigrationSimulationRulesVersion;
         if ((m3 || m4 || m5) && survivalVersion != SimulationEngine.SurvivalVersion) throw new ArgumentException("M3+ snapshots require survival version 1.", nameof(survivalVersion));
         if (!m3 && !m4 && !m5 && survivalVersion != 0) throw new ArgumentException("Only M3+ snapshots may carry survival state.", nameof(survivalVersion));
         if ((m3 || m4 || m5) && citizenGenerationVersion == 0) throw new ArgumentException("M3+ rules require the citizen generation sentinel.", nameof(citizenGenerationVersion));
@@ -187,8 +189,8 @@ public sealed record SimulationPersistenceSnapshot
         Economy = economy?.Copy();
         if (SimulationEngine.EconomySystemsEnabled(simulationRulesVersion) != (Economy is not null)) throw new ArgumentException("Economy state must match its rules.");
         if (Economy is null && (Structures.Any(s => s.Type == StructureType.Marketplace) || Citizens.Any(c => c.CurrentAction == CitizenAction.TradeDelivery))) throw new ArgumentException("Legacy worlds cannot contain economy state.");
-        Goods? unifiedLivingAccounted = null;
-        if (simulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion && livingStateJson is not null)
+        Goods? additionalEconomyAccounted = null;
+        if (SimulationEngine.UnifiedSimulationRulesEnabled(simulationRulesVersion) && livingStateJson is not null)
         {
             var living = LivingWorldCodec.Deserialize(livingStateJson);
             var escrow = living.Orders.Where(order => order.Reserved && !order.Produced).SelectMany(order => order.Ingredients)
@@ -199,9 +201,29 @@ public sealed record SimulationPersistenceSnapshot
                     "Stone" => sum.Add(ResourceType.Stone, ingredient.Quantity),
                     _ => sum
                 });
-            unifiedLivingAccounted = escrow.Plus(living.UnifiedM12InputsConsumed ?? new Goods());
+            additionalEconomyAccounted = escrow.Plus(living.UnifiedM12InputsConsumed ?? new Goods());
         }
-        Economy?.Validate(Citizens, Households, Structures, Settlement!, World!, worldMinute.Value, checked(Settlement!.BaseStorageCapacity + Structures.Count(s => s.Type == StructureType.Stockpile && s.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus + Structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity), Structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity, unifiedLivingAccounted);
+        if (MigrationState?.DaughterSettlement is { } daughter)
+        {
+            var daughterGoods = new Goods(daughter.CommunalStock.FoodStored,
+                daughter.CommunalStock.WoodStored, daughter.CommunalStock.StoneStored);
+            additionalEconomyAccounted = (additionalEconomyAccounted ?? new Goods()).Plus(daughterGoods);
+        }
+        if (MigrationState is { InTransitParties.Count: > 0 } migration)
+        {
+            var transitGoods = migration.InTransitParties.SelectMany(x => x.Cargo).Aggregate(new Goods(),
+                static (sum, stack) => stack.Good switch
+                {
+                    MigrationCargoGood.Food or MigrationCargoGood.Meal => sum.Add(ResourceType.Food, stack.Quantity),
+                    MigrationCargoGood.Wood => sum.Add(ResourceType.Wood, stack.Quantity),
+                    MigrationCargoGood.Stone => sum.Add(ResourceType.Stone, stack.Quantity),
+                    _ => sum
+                });
+            additionalEconomyAccounted = (additionalEconomyAccounted ?? new Goods()).Plus(transitGoods);
+        }
+        Economy?.Validate(Citizens, Households, Structures, Settlement!, World!, worldMinute.Value, checked(Settlement!.BaseStorageCapacity + Structures.Count(s => s.Type == StructureType.Stockpile && s.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus + Structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity), Structures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity, additionalEconomyAccounted, MigrationState);
+        if (Economy is not null && MigrationState is { } migrationState)
+            ValidateMigrationEconomyCapacity(Economy, Settlement!, Structures, migrationState);
         var agricultural = SimulationEngine.AgricultureSystemsEnabled(simulationRulesVersion);
         if (agricultural != (Agriculture is not null)) throw new ArgumentException("Agriculture state must match the selected rules.");
         if (!agricultural && (Structures.Any(s => s.Type is StructureType.Farm or StructureType.Granary) || Citizens.Any(c => c.CurrentAction is CitizenAction.WorkFarm or CitizenAction.HaulHarvest))) throw new ArgumentException("Legacy worlds cannot contain agriculture state.");
@@ -219,11 +241,38 @@ public sealed record SimulationPersistenceSnapshot
         if (citizenGenerationVersion == 1 && m2) ValidateM2Roster(Citizens, ScheduledEvents, world, worldMinute);
         if (m3) ValidateM3State(Citizens, ScheduledEvents, ResourceStates, Settlement, world, worldMinute);
         if (m4) ValidateM4State(Citizens, ScheduledEvents, ResourceStates, Settlement, Structures, StructureContributions, Counters, world, worldMinute);
-        if (m5) ValidateM5State(Citizens, ScheduledEvents, ResourceStates, Settlement, Structures, StructureContributions, Relationships, Households, Counters, world, worldMinute, SimulationEngine.GrowthSystemsEnabled(simulationRulesVersion));
+        if (m5) ValidateM5State(Citizens, ScheduledEvents, ResourceStates, Settlement, Structures, StructureContributions, Relationships, Households, Counters, world, worldMinute, SimulationEngine.GrowthSystemsEnabled(simulationRulesVersion), SimulationEngine.MigrationSystemsEnabled(simulationRulesVersion) ? MigrationState : null);
         LivingValidation.Validate(this);
+        MigrationValidation.Validate(this);
     }
     public WorldSeed Seed { get; } public WorldMinute WorldMinute { get; } public string WorldSchemaVersion { get; } public string SimulationRulesVersion { get; } public string ApplicationVersion { get; } public string WorldConfiguration { get; } public DeterministicCountersSnapshot Counters { get; } public IReadOnlyList<ScheduledEventSnapshot> ScheduledEvents { get; } public WorldMap? World { get; } public IReadOnlyList<Citizen> Citizens { get; } public int CitizenGenerationVersion { get; } public IReadOnlyList<ResourceState> ResourceStates { get; } public SettlementState? Settlement { get; } public int SurvivalVersion { get; } public int SettlementVersion { get; } public IReadOnlyList<Structure> Structures { get; } public IReadOnlyList<StructureContribution> StructureContributions { get; } public int SocialVersion { get; } public IReadOnlyList<RelationshipState> Relationships { get; } public IReadOnlyList<Household> Households { get; } public int HistoryVersion { get; } public HistoryState? HistoryState { get; } public IReadOnlyList<HistoricalEvent> HistoricalEvents { get; } public IReadOnlyList<HistoricalEventCitizenLink> HistoricalEventCitizens { get; } public IReadOnlyList<HistoricalEventStructureLink> HistoricalEventStructures { get; } public IReadOnlyList<StatisticsSample> StatisticsSamples { get; } public IReadOnlyList<CitizenMemory> Memories { get; } public AgricultureState? Agriculture { get; } public EconomyState? Economy { get; }
     public string? LivingStateJson { get; }
+    public string? MigrationStateJson { get; }
+    public MigrationWorldState? MigrationState { get; }
+    private static void ValidateMigrationEconomyCapacity(EconomyState economy, SettlementState siteOne,
+        IReadOnlyList<Structure> structures, MigrationWorldState migrationState)
+    {
+        var householdSites = migrationState.HouseholdResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
+        var structureSites = migrationState.StructureOwners.ToDictionary(x => x.EntityId, x => x.SettlementId);
+        var sites = migrationState.DaughterSettlement is null ? new long[] { 1 } : [1, MigrationDaughterSettlementState.SettlementId];
+        foreach (var siteId in sites)
+        {
+            var commons = siteId == 1 ? siteOne : migrationState.DaughterSettlement!.CommunalStock.ToSettlementState();
+            var siteStructures = structures.Where(x => structureSites.GetValueOrDefault(x.Id.Value, 1) == siteId).ToArray();
+            var capacity = checked(commons.BaseStorageCapacity +
+                siteStructures.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Stockpile) * CitizenSimulationRules.StockpileStorageBonus +
+                siteStructures.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Granary) * AgricultureRules.GranaryFoodCapacity);
+            var dedicatedFoodCapacity = siteStructures.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Granary) * AgricultureRules.GranaryFoodCapacity;
+            var stored = economy.StoredGoodsAt(commons, migrationState, siteId);
+            stored.Validate();
+            var transit = economy.Trades.Where(x => x.Status == BarterStatus.Reserved).Aggregate(new Goods(), (sum, trade) => sum
+                .Add(trade.ResourceA, householdSites.GetValueOrDefault(trade.HouseholdA, 1) == siteId && trade.PickedA && !trade.DeliveredA ? trade.QuantityA : 0)
+                .Add(trade.ResourceB, householdSites.GetValueOrDefault(trade.HouseholdB, 1) == siteId && trade.PickedB && !trade.DeliveredB ? trade.QuantityB : 0));
+            if (stored.Total + transit.Total > capacity ||
+                stored.Wood + stored.Stone + transit.Wood + transit.Stone > capacity - dedicatedFoodCapacity)
+                throw new ArgumentException("Owned storage exceeds shared or dedicated site capacity.");
+        }
+    }
     private static HistoryState CloneHistoryState(HistoryState value) => new(value.HistoryStartMinute, value.HistoryStartEventId, value.PeriodStartMinute, value.BirthsSinceSample, value.DeathsSinceSample, value.FoodProducedSinceSample, value.FoodConsumedSinceSample, value.ActiveFoodShortage, value.PopulationMilestoneWatermark);
     private static void RequireOrder<T>(IReadOnlyList<T> actual, IEnumerable<T> ordered, string name)
     {
@@ -437,8 +486,10 @@ public sealed record SimulationPersistenceSnapshot
     {
         HistoricalEventType.WorldCreated or HistoricalEventType.SettlementFounded => HistoricalImportance.Historic,
         HistoricalEventType.CitizenBorn or HistoricalEventType.CitizenDied or HistoricalEventType.PartnershipFormed or HistoricalEventType.StructureCompleted or HistoricalEventType.ResourceShortageStarted or HistoricalEventType.ResourceShortageEnded => HistoricalImportance.Notable,
+        HistoricalEventType.ExpeditionDeparted or HistoricalEventType.ExpeditionReturned or HistoricalEventType.ExpeditionLost or HistoricalEventType.HouseholdRelocated => HistoricalImportance.Notable,
+        HistoricalEventType.DaughterSettlementFounded => HistoricalImportance.Historic,
         HistoricalEventType.PopulationMilestone => HistoricalImportance.Major,
-        HistoricalEventType.FriendshipFormed or HistoricalEventType.RivalryFormed or HistoricalEventType.HouseholdCreated or HistoricalEventType.StructureStarted or HistoricalEventType.CitizenSpecializationChanged => HistoricalImportance.Personal,
+        HistoricalEventType.FriendshipFormed or HistoricalEventType.RivalryFormed or HistoricalEventType.HouseholdCreated or HistoricalEventType.StructureStarted or HistoricalEventType.CitizenSpecializationChanged or HistoricalEventType.FamilyVisitDeparted or HistoricalEventType.FamilyVisitReturned => HistoricalImportance.Personal,
         HistoricalEventType.SeasonStarted => HistoricalImportance.Routine,
         _ => throw new ArgumentException("Historical event type is unsupported.", nameof(eventType))
     };
@@ -449,6 +500,11 @@ public sealed record SimulationPersistenceSnapshot
         IReadOnlyList<Household> households, WorldMap world, HistoryState state, string rulesVersion,
         IReadOnlyList<HistoricalEventCitizenLink> allCitizenLinks)
     {
+        if ((historicalEvent.EventType is HistoricalEventType.ExpeditionDeparted or HistoricalEventType.ExpeditionReturned or
+                HistoricalEventType.ExpeditionLost or HistoricalEventType.DaughterSettlementFounded or
+                HistoricalEventType.HouseholdRelocated or HistoricalEventType.FamilyVisitDeparted or
+                HistoricalEventType.FamilyVisitReturned) && rulesVersion != SimulationEngine.MigrationSimulationRulesVersion)
+            throw new ArgumentException("M14 historical events require M14 simulation rules.", nameof(historicalEvent));
         if (historicalEvent.Importance != CanonicalImportance(historicalEvent.EventType)) throw new ArgumentException("Historical event importance is not canonical for its event type.", nameof(historicalEvent));
         using var payloadDocument = System.Text.Json.JsonDocument.Parse(historicalEvent.PayloadJson);
         var payload = payloadDocument.RootElement;
@@ -549,6 +605,16 @@ public sealed record SimulationPersistenceSnapshot
             case HistoricalEventType.SeasonStarted:
                 var calendar = new WorldMinute(historicalEvent.WorldMinute).ToCalendar();
                 if (historicalEvent.WorldMinute % NeedsProjection.MinutesPerSeason != 0 || payload.GetProperty("season").GetString() != calendar.Season.ToString() || payload.GetProperty("year").GetInt64() != calendar.Year) throw new ArgumentException("SeasonStarted does not match the canonical calendar boundary.");
+                break;
+            case HistoricalEventType.ExpeditionDeparted:
+            case HistoricalEventType.ExpeditionReturned:
+            case HistoricalEventType.ExpeditionLost:
+            case HistoricalEventType.DaughterSettlementFounded:
+            case HistoricalEventType.HouseholdRelocated:
+            case HistoricalEventType.FamilyVisitDeparted:
+            case HistoricalEventType.FamilyVisitReturned:
+                // Their canonical payload and link contracts are checked before this
+                // method; completed migration parties are not retained in live state.
                 break;
         }
     }
@@ -728,7 +794,7 @@ public sealed record SimulationPersistenceSnapshot
         if (reserved.Any(x => !TryReadEventCitizenId(x, out var eventId) || !citizenIds.Contains(eventId) || x.Order.EntitySortKey != eventId)) throw new ArgumentException("M4 reserved event references an unknown citizen.", nameof(events));
     }
 
-    private static void ValidateM4SettlementInvariants(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, IReadOnlyList<ResourceState> resources, SettlementState? settlement, IReadOnlyList<Structure> structures, IReadOnlyList<StructureContribution> contributions, DeterministicCountersSnapshot counters, WorldMap? world, WorldMinute minute, bool requireFounderRoster)
+    private static void ValidateM4SettlementInvariants(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, IReadOnlyList<ResourceState> resources, SettlementState? settlement, IReadOnlyList<Structure> structures, IReadOnlyList<StructureContribution> contributions, DeterministicCountersSnapshot counters, WorldMap? world, WorldMinute minute, bool requireFounderRoster, IReadOnlyList<MigrationEntityResidence>? migrationStructureOwners = null)
     {
         if (world is null || settlement is null) throw new ArgumentException("M4 snapshots require world and settlement state.");
         settlement.Validate();
@@ -736,7 +802,14 @@ public sealed record SimulationPersistenceSnapshot
         if (settlement.BaseStorageCapacity < CitizenSimulationRules.BaseStorageCapacity || settlement.DemandUpdatedMinute > minute.Value || settlement.ExposureConsequencesStartMinute > latestExposureConsequencesStartMinute) throw new ArgumentException("M4 settlement boundaries are invalid.", nameof(settlement));
         if ((requireFounderRoster && citizens.Count != CitizenSimulationRules.FounderCount) || citizens.Select(x => x.Id.Value).Distinct().Count() != citizens.Count || resources.Count != world.Resources.Count || resources.Select(x => x.ResourceNodeId.Value).Distinct().Count() != resources.Count) throw new ArgumentException("M4 canonical roster or resources are invalid.");
         foreach (var state in resources) state.Validate(world.Resources.SingleOrDefault(x => x.Id == state.ResourceNodeId) ?? throw new ArgumentException("M4 resource state references an unknown node.", nameof(resources)));
-        if (structures.Select(x => x.Id.Value).Distinct().Count() != structures.Count || structures.Select(x => x.Location).Distinct().Count() != structures.Count || structures.Count(x => x.Status == StructureStatus.UnderConstruction) > 1) throw new ArgumentException("M4 structures must have unique IDs, locations, and at most one active project.", nameof(structures));
+        var activeProjects = structures.Where(x => x.Status == StructureStatus.UnderConstruction);
+        var hasTooManyActiveProjects = migrationStructureOwners is null
+            ? activeProjects.Count() > 1
+            : activeProjects.GroupBy(x => migrationStructureOwners.FirstOrDefault(owner => owner.EntityId == x.Id.Value)?.SettlementId ?? 1).Any(site => site.Count() > 1);
+        var activeProjectLimit = migrationStructureOwners is null
+            ? "at most one active project"
+            : "at most one active project per settlement";
+        if (structures.Select(x => x.Id.Value).Distinct().Count() != structures.Count || structures.Select(x => x.Location).Distinct().Count() != structures.Count || hasTooManyActiveProjects) throw new ArgumentException($"M4 structures must have unique IDs and locations, and {activeProjectLimit}.", nameof(structures));
         var structureIds = structures.Select(x => x.Id.Value).ToHashSet(); var citizenIds = citizens.Select(x => x.Id.Value).ToHashSet();
         if (structureIds.Overlaps(citizenIds) || counters.NextEntityId <= structures.Select(x => x.Id.Value).Concat(citizens.Select(x => x.Id.Value)).DefaultIfEmpty(0).Max()) throw new ArgumentException("M4 entity IDs and next entity counter are invalid.", nameof(counters));
         foreach (var structure in structures)
@@ -786,9 +859,9 @@ public sealed record SimulationPersistenceSnapshot
         return (CitizenEventNames.MoveStep, CitizenEventNames.MovementPriority, expectedDue);
     }
 
-    private static void ValidateM5State(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, IReadOnlyList<ResourceState> resourceStates, SettlementState? settlement, IReadOnlyList<Structure> structures, IReadOnlyList<StructureContribution> contributions, IReadOnlyList<RelationshipState> relationships, IReadOnlyList<Household> households, DeterministicCountersSnapshot counters, WorldMap? world, WorldMinute minute, bool growthEnabled = false)
+    private static void ValidateM5State(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, IReadOnlyList<ResourceState> resourceStates, SettlementState? settlement, IReadOnlyList<Structure> structures, IReadOnlyList<StructureContribution> contributions, IReadOnlyList<RelationshipState> relationships, IReadOnlyList<Household> households, DeterministicCountersSnapshot counters, WorldMap? world, WorldMinute minute, bool growthEnabled = false, MigrationWorldState? migrationState = null)
     {
-        ValidateM4SettlementInvariants(citizens, events, resourceStates, settlement, structures, contributions, counters, world, minute, requireFounderRoster: false);
+        ValidateM4SettlementInvariants(citizens, events, resourceStates, settlement, structures, contributions, counters, world, minute, requireFounderRoster: false, migrationStructureOwners: migrationState?.StructureOwners);
         if (world is null || settlement is null) throw new ArgumentException("M5 requires complete M4 state.");
         if (resourceStates.Count != world.Resources.Count || resourceStates.Select(x => x.ResourceNodeId).Distinct().Count() != resourceStates.Count) throw new ArgumentException("M5 requires exactly one resource state per world resource.", nameof(resourceStates));
         foreach (var resourceState in resourceStates) resourceState.Validate(world.Resources.SingleOrDefault(x => x.Id == resourceState.ResourceNodeId) ?? throw new ArgumentException("M5 resource state references an unknown resource.", nameof(resourceStates)));
@@ -984,10 +1057,11 @@ public sealed partial class SimulationEngine
     public const string AgricultureSimulationRulesVersion = "m10-rng1-agriculture1";
     public const string BarterSimulationRulesVersion = "m11-rng1-barter1";
     public const string SpacedSimulationRulesVersion = "m12-rng1-spaced1";
-    public const string CurrentSimulationRulesVersion = UnifiedSimulationRulesVersion;
+    public const string CurrentSimulationRulesVersion = MigrationSimulationRulesVersion;
     public const string LivingSimulationRulesVersion = "v02-rng1-living1";
     public const string Living2SimulationRulesVersion = "v02-rng1-living2";
     public const string UnifiedSimulationRulesVersion = "m13-rng1-unified1";
+    public const string MigrationSimulationRulesVersion = "m14-rng1-migration1";
     private const int UnifiedMaximumPartnershipAgeGapYears = 20;
     // Retained source-compatibility alias for M2-only callers; new code must use the explicit names.
     public const int CitizenGenerationVersion = 1;
@@ -996,14 +1070,16 @@ public sealed partial class SimulationEngine
     public const int SocialVersion = 1;
     public const int HistoryVersion = 1;
     public const int HistoricalEventSchemaVersion = 1;
-    public static bool LivingSystemsEnabled(string rulesVersion) => rulesVersion is LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion;
-    public static bool SocialSystemsEnabled(string rulesVersion) => rulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion;
-    public static bool HistorySystemsEnabled(string rulesVersion) => rulesVersion is M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion;
+    public static bool UnifiedSimulationRulesEnabled(string rulesVersion) => rulesVersion is UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion;
+    public static bool MigrationSystemsEnabled(string rulesVersion) => rulesVersion == MigrationSimulationRulesVersion;
+    public static bool LivingSystemsEnabled(string rulesVersion) => rulesVersion is LivingSimulationRulesVersion or Living2SimulationRulesVersion || UnifiedSimulationRulesEnabled(rulesVersion);
+    public static bool SocialSystemsEnabled(string rulesVersion) => rulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion || UnifiedSimulationRulesEnabled(rulesVersion);
+    public static bool HistorySystemsEnabled(string rulesVersion) => rulesVersion is M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion || UnifiedSimulationRulesEnabled(rulesVersion);
     public static bool IsHistoryRulesVersion(string rulesVersion) => HistorySystemsEnabled(rulesVersion);
     public static int FoodShortageRecoveryMultiplier(string rulesVersion) => rulesVersion switch
     {
         M6SimulationRulesVersion => 20,
-        M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion => 20,
+        M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion => 20,
         _ => throw new ArgumentException($"Rules '{rulesVersion}' do not define history shortage thresholds.", nameof(rulesVersion))
     };
     private sealed record PendingEvent(ScheduledEventId Id, ScheduledEventOrder Order, string Name, string PayloadJson);
@@ -1029,13 +1105,14 @@ public sealed partial class SimulationEngine
     private const int PathCacheCapacity = 512;
     private const int TravelCostCacheCapacity = 128;
     private int _processedEventCount;
+    private MigrationWorldState? _migrationState;
     // Keep the construction default at the explicit M4 compatibility boundary; new
     // persisted worlds reach M5 through the upgrade chain and M5 callers opt in by version.
     public SimulationEngine(WorldSeed seed, WorldMinute initialMinute = default, string worldSchemaVersion = CurrentWorldSchemaVersion, string simulationRulesVersion = M4SimulationRulesVersion, string applicationVersion = "0.1.0", string worldConfiguration = "{}", bool captureFamilyCheckDiagnostics = false)
-    { if (initialMinute.Value < 0) throw new ArgumentOutOfRangeException(nameof(initialMinute)); if (HistorySystemsEnabled(simulationRulesVersion) && initialMinute.Value != 0) throw new ArgumentException("A fresh history simulation must start at minute 0.", nameof(initialMinute)); Seed = seed; CurrentMinute = initialMinute; WorldSchemaVersion = worldSchemaVersion; SimulationRulesVersion = simulationRulesVersion; ApplicationVersion = applicationVersion; _captureFamilyCheckDiagnostics = captureFamilyCheckDiagnostics; _counters = new DeterministicCounters(); World = CreateWorld(seed, worldConfiguration ?? throw new ArgumentNullException(nameof(worldConfiguration))); WorldConfiguration = World.Configuration.CanonicalJson; var socialEnabled = SocialSystemsEnabled(simulationRulesVersion); var historyEnabled = HistorySystemsEnabled(simulationRulesVersion); var survivalEnabled = simulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion; var settlementEnabled = simulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or M4SimulationRulesVersion; Settlement = settlementEnabled ? new SettlementState(400, 0, 0, EconomySystemsEnabled(simulationRulesVersion) ? EconomyRules.FoundingStorageCapacity : CitizenSimulationRules.BaseStorageCapacity, CurrentMinute.Value, CurrentMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value) : survivalEnabled ? new SettlementState() : new SettlementState(0, 0, 0); if (survivalEnabled) foreach (var node in World.Resources) _resourceStates[node.Id.Value] = new ResourceState(node.Id, node.InitialQuantity); if (survivalEnabled || simulationRulesVersion == M2SimulationRulesVersion) GenerateFounders(); if (survivalEnabled) { foreach (var citizen in _citizens.Values) { citizen.NeedsUpdatedMinute = CurrentMinute.Value; citizen.HealthUpdatedMinute = CurrentMinute.Value; } InitializeSurvivalEvents(); if (settlementEnabled) ScheduleSettlementDemand(); if (socialEnabled) { ScheduleFamilyCheck(); ScheduleLifecycleCheck(); } if (historyEnabled) InitializeHistory(); if (GrowthSystemsEnabled(SimulationRulesVersion)) EnsureIndependentHouseholds(); InitializeEconomy(); } if (LivingEnabled) InitializeLiving(); }
+    { if (initialMinute.Value < 0) throw new ArgumentOutOfRangeException(nameof(initialMinute)); if (HistorySystemsEnabled(simulationRulesVersion) && initialMinute.Value != 0) throw new ArgumentException("A fresh history simulation must start at minute 0.", nameof(initialMinute)); Seed = seed; CurrentMinute = initialMinute; WorldSchemaVersion = worldSchemaVersion; SimulationRulesVersion = simulationRulesVersion; ApplicationVersion = applicationVersion; _captureFamilyCheckDiagnostics = captureFamilyCheckDiagnostics; _counters = new DeterministicCounters(); World = CreateWorld(seed, worldConfiguration ?? throw new ArgumentNullException(nameof(worldConfiguration))); WorldConfiguration = World.Configuration.CanonicalJson; var socialEnabled = SocialSystemsEnabled(simulationRulesVersion); var historyEnabled = HistorySystemsEnabled(simulationRulesVersion); var survivalEnabled = simulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion; var settlementEnabled = simulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or M4SimulationRulesVersion; Settlement = settlementEnabled ? new SettlementState(400, 0, 0, EconomySystemsEnabled(simulationRulesVersion) ? EconomyRules.FoundingStorageCapacity : CitizenSimulationRules.BaseStorageCapacity, CurrentMinute.Value, CurrentMinute.Add(CitizenSimulationRules.ExposureGraceDurationMinutes).Value) : survivalEnabled ? new SettlementState() : new SettlementState(0, 0, 0); if (survivalEnabled) foreach (var node in World.Resources) _resourceStates[node.Id.Value] = new ResourceState(node.Id, node.InitialQuantity); if (survivalEnabled || simulationRulesVersion == M2SimulationRulesVersion) GenerateFounders(); if (survivalEnabled) { foreach (var citizen in _citizens.Values) { citizen.NeedsUpdatedMinute = CurrentMinute.Value; citizen.HealthUpdatedMinute = CurrentMinute.Value; } InitializeSurvivalEvents(); if (settlementEnabled) ScheduleSettlementDemand(); if (socialEnabled) { ScheduleFamilyCheck(); ScheduleLifecycleCheck(); } if (historyEnabled) InitializeHistory(); if (GrowthSystemsEnabled(SimulationRulesVersion)) EnsureIndependentHouseholds(); InitializeEconomy(); } if (LivingEnabled) InitializeLiving(); if (MigrationSystemsEnabled(simulationRulesVersion)) _migrationState = CaptureMigrationState(); }
     public SimulationEngine(SimulationPersistenceSnapshot snapshot)
-    { ArgumentNullException.ThrowIfNull(snapshot); ValidatePersistenceSnapshotCompatibility(snapshot); Seed = snapshot.Seed; CurrentMinute = snapshot.WorldMinute; WorldSchemaVersion = snapshot.WorldSchemaVersion; SimulationRulesVersion = snapshot.SimulationRulesVersion; ApplicationVersion = snapshot.ApplicationVersion; WorldConfiguration = snapshot.WorldConfiguration; _captureFamilyCheckDiagnostics = false; _counters = new DeterministicCounters(snapshot.Counters); World = snapshot.World ?? CreateWorld(snapshot.Seed, snapshot.WorldConfiguration); Settlement = snapshot.Settlement is null ? new SettlementState(0, 0, 0) : CloneSettlement(snapshot.Settlement); if (snapshot.SurvivalVersion == SurvivalVersion) foreach (var node in World.Resources) _resourceStates[node.Id.Value] = new ResourceState(node.Id, node.InitialQuantity); foreach (var state in snapshot.ResourceStates) { state.Validate(World.Resources.Single(x => x.Id == state.ResourceNodeId)); _resourceStates[state.ResourceNodeId.Value] = new ResourceState(state.ResourceNodeId, state.CurrentQuantity); } foreach (var citizen in snapshot.Citizens) _citizens.Add(citizen.Id.Value, CloneCitizen(citizen)); foreach (var structure in snapshot.Structures) _structures.Add(structure.Id.Value, CloneStructure(structure)); foreach (var household in snapshot.Households) _households.Add(household.Id.Value, CloneHousehold(household)); foreach (var relationship in snapshot.Relationships) _relationships.Add((relationship.CitizenAId.Value, relationship.CitizenBId.Value), relationship); foreach (var contribution in snapshot.StructureContributions) _structureContributions.Add((contribution.StructureId.Value, contribution.CitizenId.Value), CloneContribution(contribution)); foreach (var item in snapshot.ScheduledEvents) { if (item.Order.DueWorldMinute < CurrentMinute) { if (snapshot.SettlementVersion == 0 && item.Name == CitizenEventNames.SettlementEvaluateDemand) continue; throw new ArgumentException("A restored scheduled event cannot be due in the past.", nameof(snapshot)); } AddPending(item.Id, item.Order, item.Name, item.PayloadJson); } if (snapshot.CitizenGenerationVersion == CitizenGenerationVersion && _citizens.Count == 0) throw new InvalidDataException("An M2 snapshot must contain citizens."); if (snapshot.HistoryVersion == HistoryVersion) LoadHistory(snapshot); LoadAgriculture(snapshot.Agriculture); LoadEconomy(snapshot.Economy); if (snapshot.LivingStateJson is { } livingJson) _living = LivingWorldCodec.Deserialize(livingJson); }
-    public WorldSeed Seed { get; } public WorldMinute CurrentMinute { get; private set; } public string WorldSchemaVersion { get; } public string SimulationRulesVersion { get; } public string ApplicationVersion { get; } public string WorldConfiguration { get; } public WorldMap World { get; } public SettlementState Settlement { get; } public int PendingEventCount => _scheduledEvents.Count; public int ProcessedEventCount => _processedEventCount; internal WorldMinute? NextScheduledEventMinute => _scheduledEvents.Count == 0 ? null : _scheduledEvents.Min!.Order.DueWorldMinute; public DeterministicCountersSnapshot CounterSnapshot => _counters.Snapshot; public IReadOnlyList<FamilyCheckDiagnostic> FamilyCheckDiagnostics => Array.AsReadOnly(_familyCheckDiagnostics.ToArray()); public int Population => SimulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion ? LivingPopulation : TotalCitizenCount; public int LivingPopulation => _citizens.Values.Count(x => x.IsAlive); public int DeadPopulation => _citizens.Values.Count(x => !x.IsAlive); public int TotalCitizenCount => _citizens.Count; public IReadOnlyList<Citizen> Citizens => Array.AsReadOnly(_citizens.Values.OrderBy(x => x.Id.Value).Select(CloneCitizen).ToArray()); public IReadOnlyList<ResourceState> ResourceStates => Array.AsReadOnly(_resourceStates.Values.OrderBy(x => x.ResourceNodeId.Value).Select(x => new ResourceState(x.ResourceNodeId, x.CurrentQuantity)).ToArray()); public IReadOnlyList<Structure> Structures => Array.AsReadOnly(_structures.Values.OrderBy(x => x.Id.Value).Select(CloneStructure).ToArray()); public IReadOnlyList<RelationshipState> Relationships => Array.AsReadOnly(_relationships.Values.OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray()); public IReadOnlyList<Household> Households => Array.AsReadOnly(_households.Values.OrderBy(x => x.Id.Value).Select(CloneHousehold).ToArray()); public IReadOnlyList<StructureContribution> StructureContributions => Array.AsReadOnly(_structureContributions.Values.OrderBy(x => x.StructureId.Value).ThenBy(x => x.CitizenId.Value).Select(CloneContribution).ToArray()); public int StorageCapacity => checked(Settlement.BaseStorageCapacity + _structures.Values.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Stockpile) * CitizenSimulationRules.StockpileStorageBonus + GranaryCapacity); public int ShelterCapacity => checked(_structures.Values.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter) * CitizenSimulationRules.ShelterCapacityPerBuilding); public Structure? ActiveConstructionProject => _structures.Values.Where(x => x.Status == StructureStatus.UnderConstruction).OrderBy(x => x.Id.Value).Select(CloneStructure).SingleOrDefault(); public ResourceState? GetResourceState(ResourceNodeId id) => _resourceStates.TryGetValue(id.Value, out var state) ? new ResourceState(state.ResourceNodeId, state.CurrentQuantity) : null; public Citizen? GetCitizen(CitizenId id) => _citizens.TryGetValue(id.Value, out var citizen) ? CloneCitizen(citizen) : null; public Structure? GetStructure(StructureId id) => _structures.TryGetValue(id.Value, out var structure) ? CloneStructure(structure) : null;
+    { ArgumentNullException.ThrowIfNull(snapshot); ValidatePersistenceSnapshotCompatibility(snapshot); Seed = snapshot.Seed; CurrentMinute = snapshot.WorldMinute; WorldSchemaVersion = snapshot.WorldSchemaVersion; SimulationRulesVersion = snapshot.SimulationRulesVersion; ApplicationVersion = snapshot.ApplicationVersion; WorldConfiguration = snapshot.WorldConfiguration; _captureFamilyCheckDiagnostics = false; _counters = new DeterministicCounters(snapshot.Counters); World = snapshot.World ?? CreateWorld(snapshot.Seed, snapshot.WorldConfiguration); Settlement = snapshot.Settlement is null ? new SettlementState(0, 0, 0) : CloneSettlement(snapshot.Settlement); if (snapshot.SurvivalVersion == SurvivalVersion) foreach (var node in World.Resources) _resourceStates[node.Id.Value] = new ResourceState(node.Id, node.InitialQuantity); foreach (var state in snapshot.ResourceStates) { state.Validate(World.Resources.Single(x => x.Id == state.ResourceNodeId)); _resourceStates[state.ResourceNodeId.Value] = new ResourceState(state.ResourceNodeId, state.CurrentQuantity); } foreach (var citizen in snapshot.Citizens) _citizens.Add(citizen.Id.Value, CloneCitizen(citizen)); foreach (var structure in snapshot.Structures) _structures.Add(structure.Id.Value, CloneStructure(structure)); foreach (var household in snapshot.Households) _households.Add(household.Id.Value, CloneHousehold(household)); foreach (var relationship in snapshot.Relationships) _relationships.Add((relationship.CitizenAId.Value, relationship.CitizenBId.Value), relationship); foreach (var contribution in snapshot.StructureContributions) _structureContributions.Add((contribution.StructureId.Value, contribution.CitizenId.Value), CloneContribution(contribution)); foreach (var item in snapshot.ScheduledEvents) { if (item.Order.DueWorldMinute < CurrentMinute) { if (snapshot.SettlementVersion == 0 && item.Name == CitizenEventNames.SettlementEvaluateDemand) continue; throw new ArgumentException("A restored scheduled event cannot be due in the past.", nameof(snapshot)); } AddPending(item.Id, item.Order, item.Name, item.PayloadJson); } if (snapshot.CitizenGenerationVersion == CitizenGenerationVersion && _citizens.Count == 0) throw new InvalidDataException("An M2 snapshot must contain citizens."); if (snapshot.HistoryVersion == HistoryVersion) LoadHistory(snapshot); LoadAgriculture(snapshot.Agriculture); LoadEconomy(snapshot.Economy); if (snapshot.LivingStateJson is { } livingJson) _living = LivingWorldCodec.Deserialize(livingJson); _migrationState = snapshot.MigrationState; InitializeMigrationRuntime(); }
+    public WorldSeed Seed { get; } public WorldMinute CurrentMinute { get; private set; } public string WorldSchemaVersion { get; } public string SimulationRulesVersion { get; } public string ApplicationVersion { get; } public string WorldConfiguration { get; } public WorldMap World { get; } public SettlementState Settlement { get; } public int PendingEventCount => _scheduledEvents.Count; public int ProcessedEventCount => _processedEventCount; internal WorldMinute? NextScheduledEventMinute => _scheduledEvents.Count == 0 ? null : _scheduledEvents.Min!.Order.DueWorldMinute; public DeterministicCountersSnapshot CounterSnapshot => _counters.Snapshot; public IReadOnlyList<FamilyCheckDiagnostic> FamilyCheckDiagnostics => Array.AsReadOnly(_familyCheckDiagnostics.ToArray()); public int Population => SimulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion ? LivingPopulation : TotalCitizenCount; public int LivingPopulation => _citizens.Values.Count(x => x.IsAlive); public int DeadPopulation => _citizens.Values.Count(x => !x.IsAlive); public int TotalCitizenCount => _citizens.Count; public IReadOnlyList<Citizen> Citizens => Array.AsReadOnly(_citizens.Values.OrderBy(x => x.Id.Value).Select(CloneCitizen).ToArray()); public IReadOnlyList<ResourceState> ResourceStates => Array.AsReadOnly(_resourceStates.Values.OrderBy(x => x.ResourceNodeId.Value).Select(x => new ResourceState(x.ResourceNodeId, x.CurrentQuantity)).ToArray()); public IReadOnlyList<Structure> Structures => Array.AsReadOnly(_structures.Values.OrderBy(x => x.Id.Value).Select(CloneStructure).ToArray()); public IReadOnlyList<RelationshipState> Relationships => Array.AsReadOnly(_relationships.Values.OrderBy(x => x.CitizenAId.Value).ThenBy(x => x.CitizenBId.Value).ToArray()); public IReadOnlyList<Household> Households => Array.AsReadOnly(_households.Values.OrderBy(x => x.Id.Value).Select(CloneHousehold).ToArray()); public IReadOnlyList<StructureContribution> StructureContributions => Array.AsReadOnly(_structureContributions.Values.OrderBy(x => x.StructureId.Value).ThenBy(x => x.CitizenId.Value).Select(CloneContribution).ToArray()); public int StorageCapacity => checked(Settlement.BaseStorageCapacity + _structures.Values.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Stockpile) * CitizenSimulationRules.StockpileStorageBonus + GranaryCapacity); public int ShelterCapacity => checked(_structures.Values.Count(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter) * CitizenSimulationRules.ShelterCapacityPerBuilding); public Structure? ActiveConstructionProject => MigrationSystemsEnabled(SimulationRulesVersion) ? _structures.Values.Where(x => x.Status == StructureStatus.UnderConstruction).OrderBy(x => x.Id.Value).Select(CloneStructure).FirstOrDefault() : _structures.Values.Where(x => x.Status == StructureStatus.UnderConstruction).OrderBy(x => x.Id.Value).Select(CloneStructure).SingleOrDefault(); public ResourceState? GetResourceState(ResourceNodeId id) => _resourceStates.TryGetValue(id.Value, out var state) ? new ResourceState(state.ResourceNodeId, state.CurrentQuantity) : null; public Citizen? GetCitizen(CitizenId id) => _citizens.TryGetValue(id.Value, out var citizen) ? CloneCitizen(citizen) : null; public Structure? GetStructure(StructureId id) => _structures.TryGetValue(id.Value, out var structure) ? CloneStructure(structure) : null;
     public FamilyCheckDiagnostic CaptureFamilyCheckCounterfactualDiagnostic()
     {
         var diagnostics = new FamilyCheckDiagnosticBuilder(CurrentMinute, _households.Values.Count(x => x.DissolvedMinute is null));
@@ -1098,7 +1175,17 @@ public sealed partial class SimulationEngine
         Add(CitizenAction.Idle, CitizenSimulationRules.IdleBaseUtility, 0, (10000 - citizen.Traits.Industriousness) / 20, 8);
         return result;
         void AddGather(CitizenAction action, ResourceType type, int need, ulong purpose)
-        { if ((SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) && Settlement.StorageUsed >= StorageCapacity) return; var target = SelectResourceTarget(citizen, type); if (target is null || !travelCosts.TryGetValue(target.Coordinate, out var travelCost)) return; var travel = (int)Math.Min(int.MaxValue, travelCost); var stock = type == ResourceType.Food ? food : type == ResourceType.Wood ? Settlement.WoodStored : Settlement.StoneStored; var targetValue = type == ResourceType.Food ? CitizenSimulationRules.FoodTarget : type == ResourceType.Wood ? CitizenSimulationRules.WoodTarget : CitizenSimulationRules.StoneTarget; var stockContribution = stock < targetValue ? 1800 : 500; if (type == ResourceType.Food) stockContribution = checked(stockContribution + FoodSecurityGatherContribution()); Add(action, 0, need * (type == ResourceType.Food ? 3 : 1), citizen.Traits.Industriousness / 20, purpose, travel / 10, RelevantSkill(action, citizen) / 1000, stockContribution); }
+        {
+            if ((SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) && Settlement.StorageUsed >= StorageCapacity) return;
+            var target = SelectResourceTarget(citizen, type);
+            if (target is null || !travelCosts.TryGetValue(target.Coordinate, out var travelCost)) return;
+            var travel = (int)Math.Min(int.MaxValue, travelCost);
+            var stock = type == ResourceType.Food ? food : type == ResourceType.Wood ? Settlement.WoodStored : Settlement.StoneStored;
+            var targetValue = type == ResourceType.Food ? CitizenSimulationRules.FoodTarget : type == ResourceType.Wood ? CitizenSimulationRules.WoodTarget : CitizenSimulationRules.StoneTarget;
+            var stockContribution = stock < targetValue ? 1800 : 500;
+            if (type == ResourceType.Food) stockContribution = checked(stockContribution + FoodSecurityGatherContribution());
+            Add(action, 0, need * (type == ResourceType.Food ? 3 : 1), citizen.Traits.Industriousness / 20, purpose, travel / 10, RelevantSkill(action, citizen) / 1000, stockContribution);
+        }
     }
     public ScheduledEventId ScheduleSyntheticEvent(WorldMinute dueWorldMinute, int priority, long entitySortKey, string name) => ScheduleSyntheticEvent(dueWorldMinute, priority, entitySortKey, name, "{}");
     public ScheduledEventId ScheduleSyntheticEvent(WorldMinute dueWorldMinute, int priority, long entitySortKey, string name, string payloadJson)
@@ -1133,13 +1220,13 @@ public sealed partial class SimulationEngine
         static string I<T>(T value) => Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
         static void Add(IncrementalHash hash, string value) { var bytes = Encoding.UTF8.GetBytes(value); hash.AppendData(Encoding.UTF8.GetBytes(bytes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":")); hash.AppendData(bytes); }
         var counters = _counters.Snapshot;
-        var citizenGeneration = SimulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion or M2SimulationRulesVersion ? CitizenGenerationVersion : 0;
-        var survival = SimulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion ? SurvivalVersion : 0;
+        var citizenGeneration = SimulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion or M2SimulationRulesVersion ? CitizenGenerationVersion : 0;
+        var survival = SimulationRulesVersion is M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion ? SurvivalVersion : 0;
         Add(hash, $"seed={I(Seed.Value)}"); Add(hash, $"minute={I(CurrentMinute.Value)}"); Add(hash, $"world-schema={WorldSchemaVersion}"); Add(hash, $"world={World.Fingerprint}"); Add(hash, $"world-configuration={WorldConfiguration}"); Add(hash, $"rules={SimulationRulesVersion}"); Add(hash, $"citizen-generation={I(citizenGeneration)}"); Add(hash, $"survival={I(survival)}"); Add(hash, $"settlement-food={I(Settlement.FoodStored)}"); Add(hash, $"settlement-wood={I(Settlement.WoodStored)}"); Add(hash, $"settlement-stone={I(Settlement.StoneStored)}"); Add(hash, $"counter-next-entity={I(counters.NextEntityId)}"); Add(hash, $"counter-next-historical-event={I(counters.NextHistoricalEventId)}"); Add(hash, $"counter-next-scheduled={I(counters.NextScheduledEventSequence)}");
         foreach (var state in ResourceStates) Add(hash, $"resource={I(state.ResourceNodeId.Value)}:{I(state.CurrentQuantity)}");
         foreach (var citizen in _citizens.Values.OrderBy(x => x.Id.Value))
         {
-            Add(hash, $"citizen-id={I(citizen.Id.Value)}"); Add(hash, $"citizen-ordinal={I(citizen.FounderOrdinal)}"); Add(hash, $"citizen-given={citizen.GivenName}"); Add(hash, $"citizen-family={citizen.FamilyName}"); Add(hash, $"citizen-birth={I(citizen.BirthMinute)}"); Add(hash, $"citizen-parent-a={citizen.ParentAId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-parent-b={citizen.ParentBId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-partner={citizen.PartnerId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-household={citizen.HouseholdId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-home={citizen.HomeStructureId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-location={I(citizen.Location.X)},{I(citizen.Location.Y)}"); Add(hash, $"citizen-health={I(citizen.Health)}"); Add(hash, $"citizen-death-minute={citizen.DeathMinute?.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-death-cause={citizen.DeathCause ?? "null"}"); Add(hash, $"citizen-needs={I(citizen.Needs.Hunger)},{I(citizen.Needs.Rest)},{I(citizen.Needs.Shelter)},{I(citizen.Needs.Social)}"); Add(hash, $"citizen-needs-updated={I(citizen.NeedsUpdatedMinute)}"); Add(hash, $"citizen-health-updated={I(citizen.HealthUpdatedMinute)}"); Add(hash, $"citizen-traits={I(citizen.Traits.Industriousness)},{I(citizen.Traits.Sociability)},{I(citizen.Traits.Curiosity)},{I(citizen.Traits.Cooperativeness)},{I(citizen.Traits.RiskTolerance)},{I(citizen.Traits.Resilience)}"); Add(hash, $"citizen-skills={I(citizen.Skills.Foraging)},{I(citizen.Skills.Woodcutting)},{I(citizen.Skills.Stoneworking)},{I(citizen.Skills.Construction)},{I(citizen.Skills.Hauling)},{I(citizen.Skills.Domestic)}"); Add(hash, $"citizen-action={I(CitizenActionCodec.ToCanonicalValue(citizen.CurrentAction, SimulationRulesVersion == UnifiedSimulationRulesVersion))}"); Add(hash, $"citizen-phase={I((int)citizen.ActionPhase)}"); Add(hash, $"citizen-sequence={I(citizen.ActionSequence)}"); Add(hash, $"citizen-action-started={citizen.ActionStartedMinute?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-action-completes={citizen.ActionCompletesMinute?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-action-target={(citizen.ActionTarget is { } target ? $"{I(target.X)},{I(target.Y)}" : "null")}"); Add(hash, $"citizen-resource-target={citizen.TargetResourceNodeId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-carried-type={(citizen.CarriedResourceType is { } carriedType ? I((int)carriedType) : "null")}"); Add(hash, $"citizen-carried-quantity={I(citizen.CarriedResourceQuantity)}"); Add(hash, $"citizen-movement={I(citizen.LifetimeMovementSteps)},{I(citizen.LifetimeMovementCost)}");
+            Add(hash, $"citizen-id={I(citizen.Id.Value)}"); Add(hash, $"citizen-ordinal={I(citizen.FounderOrdinal)}"); Add(hash, $"citizen-given={citizen.GivenName}"); Add(hash, $"citizen-family={citizen.FamilyName}"); Add(hash, $"citizen-birth={I(citizen.BirthMinute)}"); Add(hash, $"citizen-parent-a={citizen.ParentAId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-parent-b={citizen.ParentBId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-partner={citizen.PartnerId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-household={citizen.HouseholdId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-home={citizen.HomeStructureId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-location={I(citizen.Location.X)},{I(citizen.Location.Y)}"); Add(hash, $"citizen-health={I(citizen.Health)}"); Add(hash, $"citizen-death-minute={citizen.DeathMinute?.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-death-cause={citizen.DeathCause ?? "null"}"); Add(hash, $"citizen-needs={I(citizen.Needs.Hunger)},{I(citizen.Needs.Rest)},{I(citizen.Needs.Shelter)},{I(citizen.Needs.Social)}"); Add(hash, $"citizen-needs-updated={I(citizen.NeedsUpdatedMinute)}"); Add(hash, $"citizen-health-updated={I(citizen.HealthUpdatedMinute)}"); Add(hash, $"citizen-traits={I(citizen.Traits.Industriousness)},{I(citizen.Traits.Sociability)},{I(citizen.Traits.Curiosity)},{I(citizen.Traits.Cooperativeness)},{I(citizen.Traits.RiskTolerance)},{I(citizen.Traits.Resilience)}"); Add(hash, $"citizen-skills={I(citizen.Skills.Foraging)},{I(citizen.Skills.Woodcutting)},{I(citizen.Skills.Stoneworking)},{I(citizen.Skills.Construction)},{I(citizen.Skills.Hauling)},{I(citizen.Skills.Domestic)}"); Add(hash, $"citizen-action={I(CitizenActionCodec.ToCanonicalValue(citizen.CurrentAction, UnifiedSimulationRulesEnabled(SimulationRulesVersion)))}"); Add(hash, $"citizen-phase={I((int)citizen.ActionPhase)}"); Add(hash, $"citizen-sequence={I(citizen.ActionSequence)}"); Add(hash, $"citizen-action-started={citizen.ActionStartedMinute?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-action-completes={citizen.ActionCompletesMinute?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-action-target={(citizen.ActionTarget is { } target ? $"{I(target.X)},{I(target.Y)}" : "null")}"); Add(hash, $"citizen-resource-target={citizen.TargetResourceNodeId?.Value.ToString(CultureInfo.InvariantCulture) ?? "null"}"); Add(hash, $"citizen-carried-type={(citizen.CarriedResourceType is { } carriedType ? I((int)carriedType) : "null")}"); Add(hash, $"citizen-carried-quantity={I(citizen.CarriedResourceQuantity)}"); Add(hash, $"citizen-movement={I(citizen.LifetimeMovementSteps)},{I(citizen.LifetimeMovementCost)}");
         }
         foreach (var item in _scheduledEvents) Add(hash, $"event-id={I(item.Id.Value)};due={I(item.Order.DueWorldMinute.Value)};priority={I(item.Order.Priority)};entity={I(item.Order.EntitySortKey)};sequence={I(item.Order.Sequence)};name={item.Name};payload={item.PayloadJson}");
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
@@ -1178,9 +1265,23 @@ public sealed partial class SimulationEngine
     }
     public string SocialFingerprint => ComputeSocialFingerprint();
     public SimulationStatusSnapshot CreateStatusSnapshot() => CreateReadSnapshot();
-    public SimulationPersistenceSnapshot CreatePersistenceSnapshot() => new(Seed, CurrentMinute, WorldSchemaVersion, SimulationRulesVersion, ApplicationVersion, WorldConfiguration, _counters.Snapshot, _scheduledEvents.Select(x => new ScheduledEventSnapshot(x.Id, x.Order, x.Name, x.PayloadJson)).ToArray(), World, _citizens.Values.Select(CloneCitizen).ToArray(), SimulationRulesVersion is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or AgricultureSimulationRulesVersion or GrowthSimulationRulesVersion or M8SimulationRulesVersion or M6SimulationRulesVersion or M5SimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion or M2SimulationRulesVersion ? CitizenGenerationVersion : 0, ResourceStates, CloneSettlement(Settlement), SimulationRulesVersion is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or AgricultureSimulationRulesVersion or GrowthSimulationRulesVersion or M8SimulationRulesVersion or M6SimulationRulesVersion or M5SimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion ? SurvivalVersion : 0, SimulationRulesVersion is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or AgricultureSimulationRulesVersion or GrowthSimulationRulesVersion or M8SimulationRulesVersion or M6SimulationRulesVersion or M5SimulationRulesVersion or M4SimulationRulesVersion ? SettlementVersion : 0, Structures, StructureContributions, SocialSystemsEnabled(SimulationRulesVersion) ? SocialVersion : 0, Relationships, Households, HistorySystemsEnabled(SimulationRulesVersion) ? HistoryVersion : 0, HistoryState, HistoricalEvents, HistoricalEventCitizens, HistoricalEventStructures, StatisticsSamples, Memories, CaptureAgriculture(), CaptureEconomy(), LivingStateJson);
+    public SimulationPersistenceSnapshot CreatePersistenceSnapshot()
+    {
+        var migration = CaptureMigrationState();
+        return new SimulationPersistenceSnapshot(Seed, CurrentMinute, WorldSchemaVersion, SimulationRulesVersion, ApplicationVersion,
+            WorldConfiguration, _counters.Snapshot, _scheduledEvents.Select(x => new ScheduledEventSnapshot(x.Id, x.Order, x.Name, x.PayloadJson)).ToArray(),
+            World, _citizens.Values.Select(CloneCitizen).ToArray(),
+            SimulationRulesVersion is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or AgricultureSimulationRulesVersion or GrowthSimulationRulesVersion or M8SimulationRulesVersion or M6SimulationRulesVersion or M5SimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion or M2SimulationRulesVersion ? CitizenGenerationVersion : 0,
+            ResourceStates, CloneSettlement(Settlement),
+            SimulationRulesVersion is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or AgricultureSimulationRulesVersion or GrowthSimulationRulesVersion or M8SimulationRulesVersion or M6SimulationRulesVersion or M5SimulationRulesVersion or M4SimulationRulesVersion or M3SimulationRulesVersion ? SurvivalVersion : 0,
+            SimulationRulesVersion is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion or AgricultureSimulationRulesVersion or GrowthSimulationRulesVersion or M8SimulationRulesVersion or M6SimulationRulesVersion or M5SimulationRulesVersion or M4SimulationRulesVersion ? SettlementVersion : 0,
+            Structures, StructureContributions, SocialSystemsEnabled(SimulationRulesVersion) ? SocialVersion : 0, Relationships, Households,
+            HistorySystemsEnabled(SimulationRulesVersion) ? HistoryVersion : 0, HistoryState, HistoricalEvents, HistoricalEventCitizens,
+            HistoricalEventStructures, StatisticsSamples, Memories, CaptureAgriculture(), CaptureEconomy(), LivingStateJson,
+            migration?.ToCanonicalJson());
+    }
     public static SimulationEngine FromPersistenceSnapshot(SimulationPersistenceSnapshot snapshot) => new(snapshot);
-    public static void ValidatePersistenceSnapshotCompatibility(SimulationPersistenceSnapshot snapshot) { if (snapshot.WorldSchemaVersion != CurrentWorldSchemaVersion) throw new NotSupportedException($"World schema version '{snapshot.WorldSchemaVersion}' is not supported; expected '{CurrentWorldSchemaVersion}'."); if (snapshot.SimulationRulesVersion is not ("m0-rng1" or M2SimulationRulesVersion or M3SimulationRulesVersion or M4SimulationRulesVersion or M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion)) throw new NotSupportedException($"Simulation rules version '{snapshot.SimulationRulesVersion}' is not supported."); if (snapshot.CitizenGenerationVersion == CitizenGenerationVersion && snapshot.SimulationRulesVersion == "m0-rng1") throw new NotSupportedException("M2 citizens require the M2 simulation rules version."); }
+    public static void ValidatePersistenceSnapshotCompatibility(SimulationPersistenceSnapshot snapshot) { if (snapshot.WorldSchemaVersion != CurrentWorldSchemaVersion) throw new NotSupportedException($"World schema version '{snapshot.WorldSchemaVersion}' is not supported; expected '{CurrentWorldSchemaVersion}'."); if (snapshot.SimulationRulesVersion is not ("m0-rng1" or M2SimulationRulesVersion or M3SimulationRulesVersion or M4SimulationRulesVersion or M5SimulationRulesVersion or M6SimulationRulesVersion or M8SimulationRulesVersion or GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion or UnifiedSimulationRulesVersion or MigrationSimulationRulesVersion)) throw new NotSupportedException($"Simulation rules version '{snapshot.SimulationRulesVersion}' is not supported."); if (snapshot.CitizenGenerationVersion == CitizenGenerationVersion && snapshot.SimulationRulesVersion == "m0-rng1") throw new NotSupportedException("M2 citizens require the M2 simulation rules version."); }
     private void GenerateFounders() { foreach (var citizen in CitizenGenerator.Generate(Seed, World, _counters, CurrentMinute)) _citizens.Add(citizen.Id.Value, citizen); foreach (var citizen in _citizens.Values) ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority); }
     private void InitializeSurvivalEvents() { foreach (var citizen in _citizens.Values.Where(c => c.IsAlive)) ScheduleSurvival(citizen); ScheduleResourceRegeneration(); }
     private void ScheduleSettlementDemand() { var due = Settlement.DemandUpdatedMinute == CurrentMinute.Value ? CurrentMinute.Add(CitizenSimulationRules.SettlementDemandIntervalMinutes) : new WorldMinute(checked(Settlement.DemandUpdatedMinute + CitizenSimulationRules.SettlementDemandIntervalMinutes)); var seq = _counters.AllocateScheduledEventSequence(); AddPending(new ScheduledEventId(seq), new ScheduledEventOrder(due, CitizenEventNames.SettlementDemandPriority, 0, seq), CitizenEventNames.SettlementEvaluateDemand, "{\"version\":1}"); }
@@ -1193,9 +1294,91 @@ public sealed partial class SimulationEngine
         AddPending(new ScheduledEventId(sequence), new ScheduledEventOrder(due, priority, 0, sequence), name, "{\"version\":1}");
     }
     private void DispatchCitizenEvent(PendingEvent item)
-    { using var doc = JsonDocument.Parse(item.PayloadJson); var root = doc.RootElement; if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("citizenId", out var idElement) || idElement.ValueKind != JsonValueKind.String || !long.TryParse(idElement.GetString(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var id) || id <= 0 || id.ToString(System.Globalization.CultureInfo.InvariantCulture) != idElement.GetString() || !_citizens.TryGetValue(id, out var citizen)) throw new InvalidDataException("Citizen event references an unknown citizen."); if (item.Name == CitizenEventNames.SurvivalCheck) { ApplySurvival(citizen); return; } if (!root.TryGetProperty("actionSequence", out var seqElement) || !seqElement.TryGetInt64(out var sequence) || sequence < 0) throw new InvalidDataException("Citizen event has no action sequence."); if (item.Order.EntitySortKey != id || sequence != citizen.ActionSequence) throw new InvalidDataException($"Citizen event identity or action sequence is stale: {item.Name} id={id} payload={sequence} state={citizen.ActionSequence} action={citizen.CurrentAction} phase={citizen.ActionPhase}."); if (item.Name == CitizenEventNames.Decision) { if (citizen.CurrentAction != CitizenAction.None) throw new InvalidDataException("A decision event requires a citizen at a decision boundary."); Decide(citizen); } else if (item.Name == CitizenEventNames.ActionComplete) { if (citizen.CurrentAction is not (CitizenAction.Idle or CitizenAction.Rest or CitizenAction.Eat or CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone or CitizenAction.Build or CitizenAction.Socialize or CitizenAction.WorkFarm or CitizenAction.HaulHarvest or CitizenAction.LivingWork) || citizen.ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.Perform or CitizenActionPhase.WaitingForStorage)) throw new InvalidDataException("An action-complete event does not match citizen state."); if (citizen.CurrentAction == CitizenAction.LivingWork) { CompleteLivingShift(citizen); return; } if (citizen.ActionPhase == CitizenActionPhase.WaitingForStorage) { Deposit(citizen); if (citizen.ActionPhase != CitizenActionPhase.WaitingForStorage) CompleteAction(citizen, gatheringAlreadyDeposited: true); } else CompleteAction(citizen); } else if (item.Name == CitizenEventNames.MoveStep && InterruptUnifiedLivingWorkForFood(citizen)) return; else MoveStep(citizen); }
+    {
+        using var doc = JsonDocument.Parse(item.PayloadJson);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("citizenId", out var idElement) || idElement.ValueKind != JsonValueKind.String ||
+            !long.TryParse(idElement.GetString(), System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var id) || id <= 0 ||
+            id.ToString(System.Globalization.CultureInfo.InvariantCulture) != idElement.GetString() ||
+            !_citizens.TryGetValue(id, out var citizen))
+            throw new InvalidDataException("Citizen event references an unknown citizen.");
+
+        if (item.Name == CitizenEventNames.SurvivalCheck)
+        {
+            if (MigrationSystemsEnabled(SimulationRulesVersion)) TryPauseMigrationVisitForMeal(citizen);
+            ApplySurvival(citizen);
+            return;
+        }
+
+        if (!root.TryGetProperty("actionSequence", out var seqElement) ||
+            !seqElement.TryGetInt64(out var sequence) || sequence < 0)
+            throw new InvalidDataException("Citizen event has no action sequence.");
+        if (item.Order.EntitySortKey != id || sequence != citizen.ActionSequence)
+            throw new InvalidDataException($"Citizen event identity or action sequence is stale: {item.Name} id={id} payload={sequence} state={citizen.ActionSequence} action={citizen.CurrentAction} phase={citizen.ActionPhase}.");
+        if (item.Name == CitizenEventNames.Decision)
+        {
+            if (citizen.CurrentAction != CitizenAction.None)
+                throw new InvalidDataException("A decision event requires a citizen at a decision boundary.");
+            Decide(citizen);
+        }
+        else if (item.Name == CitizenEventNames.ActionComplete)
+        {
+            if (MigrationSystemsEnabled(SimulationRulesVersion) && TryCompleteMigrationVisitDwell(citizen)) return;
+            if (citizen.CurrentAction is not (CitizenAction.Idle or CitizenAction.Rest or CitizenAction.Eat or
+                CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone or CitizenAction.Build or
+                CitizenAction.Socialize or CitizenAction.WorkFarm or CitizenAction.HaulHarvest or CitizenAction.LivingWork) ||
+                citizen.ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.Perform or
+                    CitizenActionPhase.WaitingForStorage))
+                throw new InvalidDataException("An action-complete event does not match citizen state.");
+            if (citizen.CurrentAction == CitizenAction.LivingWork)
+            {
+                CompleteLivingShift(citizen);
+                return;
+            }
+            if (citizen.ActionPhase == CitizenActionPhase.WaitingForStorage)
+            {
+                if (SimulationRulesVersion == MigrationSimulationRulesVersion &&
+                    ShouldInterruptM14StorageWait(citizen))
+                {
+                    FinishAction(citizen);
+                    ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute,
+                        CitizenEventNames.DecisionPriority);
+                    return;
+                }
+                Deposit(citizen);
+                if (citizen.ActionPhase != CitizenActionPhase.WaitingForStorage)
+                    CompleteAction(citizen, gatheringAlreadyDeposited: true);
+            }
+            else CompleteAction(citizen);
+        }
+        else if (item.Name == CitizenEventNames.MoveStep && InterruptUnifiedLivingWorkForFood(citizen)) return;
+        else MoveStep(citizen);
+    }
+    private bool ShouldInterruptM14StorageWait(Citizen citizen)
+    {
+        if (citizen.CurrentAction is not (CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone))
+            return false;
+
+        var needs = citizen.GetProjectedNeeds(CurrentMinute);
+        if (needs.Hunger < CitizenSimulationRules.StarvationThreshold &&
+            needs.Rest < CitizenSimulationRules.ExhaustionThreshold)
+            return false;
+
+        var selected = SelectDecision(EvaluateDecision(citizen));
+        return selected is CitizenAction.Eat or CitizenAction.Rest;
+    }
     private void Decide(Citizen citizen)
     {
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && FoundingPartyForCitizen(citizen.Id.Value) is { } party)
+        {
+            if (party.JourneyKind is MigrationJourneyKind.Founding or MigrationJourneyKind.Relocation &&
+                (TryPauseFoundingTravelForMeal(citizen) || TryPauseFoundingTravelForRest(citizen))) return;
+            ResumeFoundingTravel(citizen);
+            return;
+        }
+        var settlementId = SiteIdForCitizen(citizen);
         ClearCarriedState(citizen);
         citizen.TargetResourceNodeId = null;
         citizen.TargetStructureId = null;
@@ -1205,7 +1388,7 @@ public sealed partial class SimulationEngine
         citizen.ActionSequence = checked(citizen.ActionSequence + 1);
         var evaluations = EvaluateDecision(citizen);
         var action = SelectDecision(evaluations);
-        if (LivingEnabled && !(SimulationRulesVersion == UnifiedSimulationRulesVersion && action == CitizenAction.GatherFood)
+        if (LivingEnabled && !(UnifiedSimulationRulesEnabled(SimulationRulesVersion) && action == CitizenAction.GatherFood)
             && TryStartLivingWork(citizen, evaluations.Max(x => x.FinalScore))) return;
         if (action == CitizenAction.TradeDelivery && TradeFor(citizen) is { } trade) { BeginTrade(citizen, trade); return; }
         var random = new DeterministicRandom(Seed);
@@ -1243,24 +1426,24 @@ public sealed partial class SimulationEngine
             if (node is not null) { BeginTravel(citizen, action, node.Coordinate, node.Id); return; }
             action = CitizenAction.Idle;
         }
-        if (action == CitizenAction.HaulConstruction && ActiveConstructionProject is { } haulingProject)
+        if (action == CitizenAction.HaulConstruction && (MigrationSystemsEnabled(SimulationRulesVersion) ? ActiveConstructionProjectFor(settlementId) : ActiveConstructionProject) is { } haulingProject)
         {
             ReservePublicWork(citizen);
-            BeginTravel(citizen, action, World.StartingSite, null, CitizenActionPhase.TravelToStockpile, haulingProject.Id);
+            BeginTravel(citizen, action, SiteLocation(settlementId), null, CitizenActionPhase.TravelToStockpile, haulingProject.Id);
             return;
         }
-        if (action == CitizenAction.Build && ActiveConstructionProject is { } buildingProject)
+        if (action == CitizenAction.Build && (MigrationSystemsEnabled(SimulationRulesVersion) ? ActiveConstructionProjectFor(settlementId) : ActiveConstructionProject) is { } buildingProject)
         {
             ReservePublicWork(citizen);
             BeginTravel(citizen, action, buildingProject.Location, null, CitizenActionPhase.TravelToTarget, buildingProject.Id);
             return;
         }
-        if (action == CitizenAction.Rest && citizen.HomeStructureId is { } homeId && _structures.TryGetValue(homeId.Value, out var home) && home.Status == StructureStatus.Complete && home.Type == StructureType.Shelter && citizen.Location != home.Location)
+        if (action == CitizenAction.Rest && citizen.HomeStructureId is { } homeId && _structures.TryGetValue(homeId.Value, out var home) && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForStructure(home.Id.Value) == settlementId) && home.Status == StructureStatus.Complete && home.Type == StructureType.Shelter && citizen.Location != home.Location)
         {
             BeginTravel(citizen, action, home.Location, null, CitizenActionPhase.TravelToTarget, home.Id);
             return;
         }
-        if (action == CitizenAction.Eat && citizen.Location != World.StartingSite) { BeginTravel(citizen, action, World.StartingSite, null); return; }
+        if (action == CitizenAction.Eat && citizen.Location != SiteLocation(settlementId)) { BeginTravel(citizen, action, SiteLocation(settlementId), null); return; }
         citizen.CurrentAction = action;
         citizen.ActionPhase = CitizenActionPhase.Perform;
         citizen.ActionTarget = null;
@@ -1306,6 +1489,8 @@ public sealed partial class SimulationEngine
     private void MoveStep(Citizen citizen)
     {
         if (citizen.ActionTarget is not { } target || citizen.ActionPhase is not (CitizenActionPhase.None or CitizenActionPhase.TravelToTarget or CitizenActionPhase.ReturnToStockpile or CitizenActionPhase.TravelToStockpile or CitizenActionPhase.TransportToConstruction)) throw new InvalidDataException("Movement event does not match citizen action phase.");
+        if (MigrationSystemsEnabled(SimulationRulesVersion) &&
+            (TryPauseFoundingTravelForMeal(citizen) || TryPauseFoundingTravelForRest(citizen))) return;
         var key = (citizen.Id.Value, citizen.ActionSequence);
         if (!_activePaths.TryGetValue(key, out var path))
         {
@@ -1332,6 +1517,7 @@ public sealed partial class SimulationEngine
         citizen.Location = next;
         citizen.LifetimeMovementSteps = checked(citizen.LifetimeMovementSteps + 1);
         citizen.LifetimeMovementCost = checked(citizen.LifetimeMovementCost + stepCost);
+        if (MigrationSystemsEnabled(SimulationRulesVersion)) UpdateFoundingPartyPosition(citizen);
         if (next == target)
         {
             _activePaths.Remove(key);
@@ -1346,6 +1532,7 @@ public sealed partial class SimulationEngine
     }
     private void ArriveAtTarget(Citizen citizen)
     {
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && HandleFoundingPartyArrival(citizen)) return;
         if (citizen.CurrentAction == CitizenAction.TradeDelivery) { ArriveTrade(citizen); return; }
         if (citizen.CurrentAction == CitizenAction.LivingWork) { ArriveLiving(citizen); return; }
         if (citizen.ActionPhase == CitizenActionPhase.ReturnToStockpile)
@@ -1423,7 +1610,7 @@ public sealed partial class SimulationEngine
     private Citizen? SelectSocialTarget(Citizen citizen)
     {
         var random = new DeterministicRandom(Seed);
-        var candidates = _citizens.Values.Where(other => other.IsAlive && other.Id != citizen.Id && ChebyshevDistance(citizen.Location, other.Location) <= CitizenSimulationRules.SocialRadius)
+        var candidates = _citizens.Values.Where(other => other.IsAlive && other.Id != citizen.Id && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForCitizen(other) == SiteIdForCitizen(citizen)) && ChebyshevDistance(citizen.Location, other.Location) <= CitizenSimulationRules.SocialRadius)
             .Select(other =>
             {
                 var relationship = GetRelationship(citizen.Id, other.Id);
@@ -1451,7 +1638,9 @@ public sealed partial class SimulationEngine
     }
     private void CompleteSocialize(Citizen initiator)
     {
-        if (initiator.TargetCitizenId is not { } targetId || !_citizens.TryGetValue(targetId.Value, out var target) || !target.IsAlive || ChebyshevDistance(initiator.Location, target.Location) > CitizenSimulationRules.SocialRadius) return;
+        if (initiator.TargetCitizenId is not { } targetId || !_citizens.TryGetValue(targetId.Value, out var target) || !target.IsAlive ||
+            MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForCitizen(initiator) != SiteIdForCitizen(target) ||
+            ChebyshevDistance(initiator.Location, target.Location) > CitizenSimulationRules.SocialRadius) return;
         var pair = RelationshipState.Normalize(initiator.Id, target.Id);
         var previous = _relationships.GetValueOrDefault((pair.A.Value, pair.B.Value));
         var count = checked((previous?.InteractionCount ?? 0) + 1);
@@ -1500,9 +1689,12 @@ public sealed partial class SimulationEngine
     }
     private void TryFormPartnership(Citizen first, Citizen second, RelationshipState relationship)
     {
+        if (MigrationSystemsEnabled(SimulationRulesVersion) &&
+            (SiteIdForCitizen(first) != SiteIdForCitizen(second) ||
+             FoundingPartyForCitizen(first.Id.Value) is not null || FoundingPartyForCitizen(second.Id.Value) is not null)) return;
         var firstAge = first.AgeYears(CurrentMinute);
         var secondAge = second.AgeYears(CurrentMinute);
-        var unifiedAgeGapTooWide = SimulationRulesVersion == UnifiedSimulationRulesVersion && Math.Abs(firstAge - secondAge) > UnifiedMaximumPartnershipAgeGapYears;
+        var unifiedAgeGapTooWide = UnifiedSimulationRulesEnabled(SimulationRulesVersion) && Math.Abs(firstAge - secondAge) > UnifiedMaximumPartnershipAgeGapYears;
         if (!first.IsAlive || !second.IsAlive || first.PartnerId is not null || second.PartnerId is not null || firstAge < 18 || secondAge < 18 || unifiedAgeGapTooWide || (GrowthSystemsEnabled(SimulationRulesVersion) ? GrowthKinship.AreCloseKin(first.Id, second.Id, _citizens) : IsFamily(first.Id, second.Id)) || relationship.Familiarity < 5000 || relationship.Affinity < 4500 || relationship.Trust < 3500 || relationship.Conflict > 1500) return;
         if (GrowthSystemsEnabled(SimulationRulesVersion) && GrowthPartnershipMembers(first, second).Length > CitizenSimulationRules.MaximumHouseholdSize) return;
         var pair = RelationshipState.Normalize(first.Id, second.Id);
@@ -1510,6 +1702,7 @@ public sealed partial class SimulationEngine
         if (relationship.Familiarity + relationship.Affinity + relationship.Trust - relationship.Conflict + variation < 13000) return;
         var household = new Household(_counters.AllocateHouseholdId(), CurrentMinute.Value);
         _households.Add(household.Id.Value, household);
+        RecordMigrationOwner(MigrationEntityKind.Household, household.Id.Value, SiteIdForCitizen(first));
         if (GrowthSystemsEnabled(SimulationRulesVersion))
             foreach (var member in GrowthPartnershipMembers(first, second)) member.HouseholdId = household.Id;
         first.PartnerId = second.Id; second.PartnerId = first.Id; first.HouseholdId = household.Id; second.HouseholdId = household.Id;
@@ -1517,6 +1710,7 @@ public sealed partial class SimulationEngine
     }
     private void RunFamilyCheck()
     {
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && _migrationState is { InTransitParties.Count: > 0 }) return;
         if (GrowthSystemsEnabled(SimulationRulesVersion)) EnsureIndependentHouseholds();
         ReconcileHouseholdsAndHousing();
         var diagnostics = _captureFamilyCheckDiagnostics ? new FamilyCheckDiagnosticBuilder(CurrentMinute, _households.Values.Count(x => x.DissolvedMinute is null)) : null;
@@ -1557,17 +1751,22 @@ public sealed partial class SimulationEngine
     }
     private ReproductionReadiness EvaluateReproductionReadiness(Household household)
     {
-        var pair = _citizens.Values.Where(x => x.IsAlive && x.HouseholdId == household.Id && x.PartnerId is not null).OrderBy(x => x.Id.Value).Take(2).ToArray();
+        var siteId = SiteIdForHousehold(household.Id.Value);
+        var siteCitizens = CitizensAt(siteId).ToArray();
+        var sitePopulation = siteCitizens.Count(x => x.IsAlive);
+        var settlement = SettlementFor(siteId);
+        var pair = siteCitizens.Where(x => x.IsAlive && x.HouseholdId == household.Id && x.PartnerId is not null).OrderBy(x => x.Id.Value).Take(2).ToArray();
         var pairValid = household.DissolvedMinute is null && pair.Length == 2 && pair[0].PartnerId == pair[1].Id;
         var agesValid = pairValid && pair.All(x => x.AgeYears(CurrentMinute) is >= 18 and <= 45);
         var healthAndHungerValid = agesValid && pair.All(x => x.Health >= 7000 && x.GetProjectedNeeds(CurrentMinute).Hunger < 8000);
-        var foodValid = healthAndHungerValid && (EconomyEnabled ? FoodAvailableTo(pair[0]) >= _citizens.Values.Count(c => c.IsAlive && c.HouseholdId == household.Id) * 20 : Settlement.FoodStored >= checked(LivingPopulation * 10));
-        var populationValid = LivingPopulation < CitizenSimulationRules.MaximumPopulation;
-        var householdSizeValid = _citizens.Values.Count(x => x.IsAlive && x.HouseholdId == household.Id) < CitizenSimulationRules.MaximumHouseholdSize;
+        var foodValid = healthAndHungerValid && (EconomyEnabled ? FoodAvailableTo(pair[0]) >= siteCitizens.Count(c => c.IsAlive && c.HouseholdId == household.Id) * 20 : settlement.FoodStored >= checked(sitePopulation * 10));
+        var populationValid = sitePopulation < CitizenSimulationRules.MaximumPopulation;
+        var householdSizeValid = siteCitizens.Count(x => x.IsAlive && x.HouseholdId == household.Id) < CitizenSimulationRules.MaximumHouseholdSize;
         var cooldownValid = pairValid && !_citizens.Values.Any(c => c.ParentAId == pair.ElementAtOrDefault(0)?.Id && c.ParentBId == pair.ElementAtOrDefault(1)?.Id && CurrentMinute.Value - c.BirthMinute < CitizenSimulationRules.BirthCooldownMinutes);
         var relationship = pairValid && agesValid && healthAndHungerValid && populationValid && householdSizeValid && cooldownValid ? GetRelationship(pair[0].Id, pair[1].Id) : null;
         var readyIgnoringHousing = foodValid && populationValid && householdSizeValid && cooldownValid && relationship is not null;
-        var hasDwellingCapacityIgnoringFood = household.DwellingStructureId is { } dwelling && _citizens.Values.Count(x => x.IsAlive && x.HomeStructureId == dwelling) < CitizenSimulationRules.ShelterCapacityPerBuilding;
+        var hasDwellingCapacityIgnoringFood = household.DwellingStructureId is { } dwelling &&
+            SiteIdForStructure(dwelling.Value) == siteId && siteCitizens.Count(x => x.IsAlive && x.HomeStructureId == dwelling) < CitizenSimulationRules.ShelterCapacityPerBuilding;
         var readyExceptFood = !foodValid && populationValid && householdSizeValid && cooldownValid && relationship is not null;
         var hasDwellingCapacity = readyIgnoringHousing && hasDwellingCapacityIgnoringFood;
         return new ReproductionReadiness(pair, relationship, readyIgnoringHousing, hasDwellingCapacity, readyExceptFood, hasDwellingCapacityIgnoringFood, !agesValid && pairValid, !healthAndHungerValid && agesValid, !foodValid && healthAndHungerValid, !cooldownValid && householdSizeValid);
@@ -1689,6 +1888,7 @@ public sealed partial class SimulationEngine
             new CitizenTraits(Trait(1, parentA.Traits.Industriousness, parentB.Traits.Industriousness), Trait(2, parentA.Traits.Sociability, parentB.Traits.Sociability), Trait(3, parentA.Traits.Curiosity, parentB.Traits.Curiosity), Trait(4, parentA.Traits.Cooperativeness, parentB.Traits.Cooperativeness), Trait(5, parentA.Traits.RiskTolerance, parentB.Traits.RiskTolerance), Trait(6, parentA.Traits.Resilience, parentB.Traits.Resilience)), new CitizenSkills(0, 0, 0, 0, 0, 0))
         { ParentAId = parentA.Id, ParentBId = parentB.Id, HouseholdId = household.Id, HomeStructureId = household.DwellingStructureId, NeedsUpdatedMinute = CurrentMinute.Value, HealthUpdatedMinute = CurrentMinute.Value };
         _citizens.Add(id.Value, child);
+        RecordMigrationOwner(MigrationEntityKind.Citizen, id.Value, SiteIdForHousehold(household.Id.Value));
         foreach (var parent in new[] { parentA, parentB }) SetRelationship(child.Id, parent.Id, 8000, 8000, 7000, 0);
         foreach (var sibling in _citizens.Values.Where(c => c.IsAlive && c.Id != child.Id && c.ParentAId == parentA.Id && c.ParentBId == parentB.Id).OrderBy(c => c.Id.Value)) if (GetRelationship(child.Id, sibling.Id) is null) SetRelationship(child.Id, sibling.Id, 6000, 6000, 5000, 0);
         ScheduleCitizen(child, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority); ScheduleSurvival(child);
@@ -1723,6 +1923,7 @@ public sealed partial class SimulationEngine
         CancelSocialActionsTargeting(citizen.Id);
         RecordDeathHistory(citizen);
         ReconcileM5Death(citizen);
+        if (MigrationSystemsEnabled(SimulationRulesVersion)) CheckFoundingPartyAfterSurvival(citizen);
     }
     private void CancelSocialActionsTargeting(CitizenId targetId)
     {
@@ -1760,6 +1961,11 @@ public sealed partial class SimulationEngine
             if (members.Length == 0) { household.DissolvedMinute ??= CurrentMinute.Value; household.DwellingStructureId = null; }
         }
         ReconcileEconomicHouseholds();
+        if (MigrationSystemsEnabled(SimulationRulesVersion))
+        {
+            ReconcileMigrationHouseholdsAndHousing();
+            return;
+        }
         if (!SocialSystemsEnabled(SimulationRulesVersion)) { ReconcileShelterAssignments(); return; }
         var shelters = _structures.Values.Where(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter).OrderBy(x => x.Id.Value).ToArray();
         var shelterIds = shelters.Select(x => x.Id.Value).ToHashSet();
@@ -1800,6 +2006,56 @@ public sealed partial class SimulationEngine
             SetHomeStructure(citizen, shelter.Id); usage[shelter.Id.Value]++;
         }
     }
+    private void ReconcileMigrationHouseholdsAndHousing()
+    {
+        foreach (var settlementId in MigrationSettlementIds)
+        {
+            var citizens = CitizensAt(settlementId).ToArray();
+            var shelters = StructuresAt(settlementId).Where(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter)
+                .OrderBy(x => x.Id.Value).ToArray();
+            var shelterIds = shelters.Select(x => x.Id.Value).ToHashSet();
+            var usage = shelters.ToDictionary(x => x.Id.Value, _ => 0);
+            var activeHouseholds = HouseholdsAt(settlementId).Where(x => x.DissolvedMinute is null)
+                .Select(x => (Household: x, Members: citizens.Where(c => c.IsAlive && c.HouseholdId == x.Id).OrderBy(c => c.Id.Value).ToArray()))
+                .OrderBy(x => x.Household.Id.Value).ToArray();
+
+            foreach (var group in activeHouseholds)
+            {
+                if (group.Household.DwellingStructureId is not { } dwelling || !shelterIds.Contains(dwelling.Value) ||
+                    group.Members.Length == 0 || group.Members.Any(c => c.HomeStructureId != dwelling) ||
+                    usage[dwelling.Value] + group.Members.Length > CitizenSimulationRules.ShelterCapacityPerBuilding)
+                {
+                    group.Household.DwellingStructureId = null;
+                    foreach (var member in group.Members) SetHomeStructure(member, null);
+                    continue;
+                }
+                usage[dwelling.Value] += group.Members.Length;
+            }
+            foreach (var citizen in citizens.Where(x => x.IsAlive && x.HouseholdId is null).OrderBy(x => x.Id.Value))
+            {
+                if (citizen.HomeStructureId is not { } home || !shelterIds.Contains(home.Value) || usage[home.Value] >= CitizenSimulationRules.ShelterCapacityPerBuilding)
+                { SetHomeStructure(citizen, null); continue; }
+                usage[home.Value]++;
+            }
+            foreach (var group in activeHouseholds.Where(x => x.Household.DwellingStructureId is null)
+                         .OrderByDescending(x => x.Members.Length).ThenBy(x => x.Household.Id.Value))
+            {
+                var dwelling = shelters.Where(x => CitizenSimulationRules.ShelterCapacityPerBuilding - usage[x.Id.Value] >= group.Members.Length)
+                    .OrderBy(x => usage[x.Id.Value]).ThenBy(x => x.Id.Value).FirstOrDefault();
+                group.Household.DwellingStructureId = dwelling?.Id;
+                if (dwelling is null) continue;
+                foreach (var member in group.Members) SetHomeStructure(member, dwelling.Id);
+                usage[dwelling.Id.Value] += group.Members.Length;
+            }
+            foreach (var citizen in citizens.Where(x => x.IsAlive && x.HouseholdId is null && x.HomeStructureId is null).OrderBy(x => x.Id.Value))
+            {
+                var shelter = shelters.Where(x => usage[x.Id.Value] < CitizenSimulationRules.ShelterCapacityPerBuilding)
+                    .OrderBy(x => usage[x.Id.Value]).ThenBy(x => x.Id.Value).FirstOrDefault();
+                if (shelter is null) break;
+                SetHomeStructure(citizen, shelter.Id); usage[shelter.Id.Value]++;
+            }
+        }
+    }
     private void Eat(Citizen citizen)
     {
         var portion = LivingEnabled ? Math.Min(CitizenSimulationRules.MealFoodUnits, (citizen.Needs.Hunger + 499) / 500) : CitizenSimulationRules.MealFoodUnits;
@@ -1812,6 +2068,7 @@ public sealed partial class SimulationEngine
     {
         if (citizen.TargetResourceNodeId is not { } id || !_resourceStates.TryGetValue(id.Value, out var state)) { FinishAction(citizen); return; }
         var node = World.Resources.Single(x => x.Id == id);
+        var settlementId = SiteIdForCitizen(citizen);
         var skill = RelevantSkill(citizen.CurrentAction, citizen);
         var baseYield = citizen.CurrentAction == CitizenAction.GatherFood ? CitizenSimulationRules.FoodBaseYield : citizen.CurrentAction == CitizenAction.GatherWood ? CitizenSimulationRules.WoodBaseYield : CitizenSimulationRules.StoneBaseYield;
         var calculated = checked(baseYield + skill / 1000);
@@ -1821,7 +2078,13 @@ public sealed partial class SimulationEngine
             calculated = productivity == 0 ? 0 : Math.Max(1, checked(calculated * productivity / 10000));
         }
         var actual = Math.Min(calculated, state.CurrentQuantity);
-        if (SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) actual = Math.Min(actual, AvailableStorage(node.Type));
+        if (SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion)
+        {
+            var availableStorage = AvailableStorage(node.Type, settlementId);
+            if (MigrationSystemsEnabled(SimulationRulesVersion))
+                availableStorage = checked((int)Math.Max(0L, (long)availableStorage - M12CitizenCargoAt(settlementId)));
+            actual = Math.Min(actual, availableStorage);
+        }
         state.CurrentQuantity -= actual;
         RecordProduction(citizen, node.Type, actual);
         if (actual == 0)
@@ -1836,9 +2099,9 @@ public sealed partial class SimulationEngine
         AddWorkMinutes(citizen, citizen.CurrentAction, duration);
         AddSkill(citizen, citizen.CurrentAction, CitizenSimulationRules.GatherExperienceGain);
         citizen.ActionPhase = CitizenActionPhase.ReturnToStockpile;
-        citizen.ActionTarget = World.StartingSite;
+        citizen.ActionTarget = SiteLocation(settlementId);
         citizen.ActionStartedMinute = CurrentMinute;
-        var path = FindPathCached(citizen.Location, World.StartingSite);
+        var path = FindPathCached(citizen.Location, SiteLocation(settlementId));
         if (path is null || path.Count < 2)
         {
             Deposit(citizen);
@@ -1852,19 +2115,20 @@ public sealed partial class SimulationEngine
     private void PickUpConstructionMaterial(Citizen citizen)
     {
         if (citizen.TargetStructureId is not { } id || !_structures.TryGetValue(id.Value, out var structure) || structure.Status != StructureStatus.UnderConstruction) { FinishAction(citizen); if (EconomyEnabled) StartIdleAfterFailure(citizen); else ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority); return; }
+        var settlement = SettlementFor(citizen);
         var woodMissing = ConstructionMissing(structure, ResourceType.Wood);
         var stoneMissing = ConstructionMissing(structure, ResourceType.Stone);
-        if (woodMissing > 0 && Settlement.WoodStored == 0) ProcurePublicMaterial(citizen, ResourceType.Wood, woodMissing);
-        if (stoneMissing > 0 && Settlement.StoneStored == 0) ProcurePublicMaterial(citizen, ResourceType.Stone, stoneMissing);
-        var type = woodMissing > 0 && Settlement.WoodStored > 0 ? ResourceType.Wood : stoneMissing > 0 && Settlement.StoneStored > 0 ? ResourceType.Stone : (ResourceType?)null;
+        if (woodMissing > 0 && settlement.WoodStored == 0) ProcurePublicMaterial(citizen, ResourceType.Wood, woodMissing);
+        if (stoneMissing > 0 && settlement.StoneStored == 0) ProcurePublicMaterial(citizen, ResourceType.Stone, stoneMissing);
+        var type = woodMissing > 0 && settlement.WoodStored > 0 ? ResourceType.Wood : stoneMissing > 0 && settlement.StoneStored > 0 ? ResourceType.Stone : (ResourceType?)null;
         if (type is null) { FinishAction(citizen); if (EconomyEnabled) StartIdleAfterFailure(citizen); else ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority); return; }
-        var stock = type == ResourceType.Wood ? Settlement.WoodStored : Settlement.StoneStored;
+        var stock = type == ResourceType.Wood ? settlement.WoodStored : settlement.StoneStored;
         var capacity = CitizenSimulationRules.BaseConstructionCarryCapacity + Math.Min(CitizenSimulationRules.MaximumConstructionCarrySkillBonus, citizen.Skills.Hauling / 1000);
         if (SocialSystemsEnabled(SimulationRulesVersion)) capacity = Math.Max(1, checked(capacity * LifeStages.ProductivityBasisPoints(citizen.AgeYears(CurrentMinute)) / 10000));
         var available = type == ResourceType.Wood ? woodMissing : stoneMissing;
         var amount = Math.Min(capacity, Math.Min(stock, available));
         if (amount <= 0) { FinishAction(citizen); if (EconomyEnabled) StartIdleAfterFailure(citizen); else ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority); return; }
-        if (type == ResourceType.Wood) Settlement.WoodStored -= amount; else Settlement.StoneStored -= amount;
+        if (type == ResourceType.Wood) settlement.WoodStored -= amount; else settlement.StoneStored -= amount;
         citizen.CarriedResourceType = type;
         citizen.CarriedResourceQuantity = amount;
         BeginConstructionTransport(citizen, structure);
@@ -1873,7 +2137,8 @@ public sealed partial class SimulationEngine
     {
         var delivered = type == ResourceType.Wood ? structure.DeliveredWood : structure.DeliveredStone;
         var required = type == ResourceType.Wood ? structure.RequiredWood : structure.RequiredStone;
-        var inTransit = _citizens.Values.Where(c => c.IsAlive && c.CurrentAction == CitizenAction.HaulConstruction && c.TargetStructureId == structure.Id && c.ActionPhase == CitizenActionPhase.TransportToConstruction && c.CarriedResourceType == type).Sum(c => c.CarriedResourceQuantity);
+        var structureSite = SiteIdForStructure(structure.Id.Value);
+        var inTransit = _citizens.Values.Where(c => c.IsAlive && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForCitizen(c) == structureSite) && c.CurrentAction == CitizenAction.HaulConstruction && c.TargetStructureId == structure.Id && c.ActionPhase == CitizenActionPhase.TransportToConstruction && c.CarriedResourceType == type).Sum(c => c.CarriedResourceQuantity);
         return Math.Max(0, checked(required - delivered - inTransit));
     }
     private void BeginConstructionTransport(Citizen citizen, Structure structure)
@@ -1891,6 +2156,19 @@ public sealed partial class SimulationEngine
     private void DeliverConstructionMaterial(Citizen citizen)
     {
         if (citizen.TargetStructureId is not { } id || !_structures.TryGetValue(id.Value, out var structure) || structure.Status != StructureStatus.UnderConstruction || citizen.CarriedResourceType is not { } type || citizen.CarriedResourceQuantity <= 0) { FinishAction(citizen); ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority); return; }
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForCitizen(citizen) != SiteIdForStructure(structure.Id.Value))
+        {
+            if (citizen.CarriedResourceType is { } returnedType)
+            {
+                var settlement = SettlementFor(citizen);
+                if (returnedType == ResourceType.Wood) settlement.WoodStored = checked(settlement.WoodStored + citizen.CarriedResourceQuantity);
+                else settlement.StoneStored = checked(settlement.StoneStored + citizen.CarriedResourceQuantity);
+            }
+            ClearCarriedState(citizen);
+            FinishAction(citizen);
+            ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute, CitizenEventNames.DecisionPriority);
+            return;
+        }
         var remaining = type == ResourceType.Wood ? structure.RequiredWood - structure.DeliveredWood : structure.RequiredStone - structure.DeliveredStone;
         var applied = Math.Min(remaining, citizen.CarriedResourceQuantity);
         if (type == ResourceType.Wood) structure.DeliveredWood += applied; else structure.DeliveredStone += applied;
@@ -1907,7 +2185,7 @@ public sealed partial class SimulationEngine
         if (citizen.TargetStructureId is not { } id || !_structures.TryGetValue(id.Value, out var structure) || structure.Status != StructureStatus.UnderConstruction || structure.DeliveredWood < structure.RequiredWood || structure.DeliveredStone < structure.RequiredStone) return;
         var baseWork = checked(CitizenSimulationRules.BaseConstructionWorkPerShift + citizen.Skills.Construction / 1000);
         if (SocialSystemsEnabled(SimulationRulesVersion)) baseWork = checked(baseWork * LifeStages.ProductivityBasisPoints(citizen.AgeYears(CurrentMinute)) / 10000);
-        if (_structures.Values.Any(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Workshop)) baseWork = checked(baseWork * CitizenSimulationRules.WorkshopConstructionMultiplierBasisPoints / 10000);
+        if (StructuresAt(SiteIdForCitizen(citizen)).Any(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Workshop)) baseWork = checked(baseWork * CitizenSimulationRules.WorkshopConstructionMultiplierBasisPoints / 10000);
         var applied = Math.Min(baseWork, structure.RequiredWork - structure.CompletedWork);
         if (applied <= 0) return;
         structure.CompletedWork += applied;
@@ -1975,23 +2253,24 @@ public sealed partial class SimulationEngine
     }
     private void Deposit(Citizen citizen)
     {
+        var settlementId = SiteIdForCitizen(citizen);
         if (citizen.CarriedResourceQuantity <= 0 || citizen.CarriedResourceType is not { } type)
         {
             ClearCarriedState(citizen);
-            if (SimulationRulesVersion == UnifiedSimulationRulesVersion && citizen.CurrentAction == CitizenAction.HaulHarvest && citizen.Location == World.StartingSite)
+            if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && citizen.CurrentAction == CitizenAction.HaulHarvest && citizen.Location == SiteLocation(settlementId))
                 DepositUnifiedFarmGrain(citizen);
             return;
         }
-        var accepted = SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion ? Math.Min(citizen.CarriedResourceQuantity, AvailableStorage(type)) : citizen.CarriedResourceQuantity;
+        var accepted = SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion ? Math.Min(citizen.CarriedResourceQuantity, AvailableStorage(type, settlementId)) : citizen.CarriedResourceQuantity;
         if (EconomyEnabled) DepositOwnedProduction(citizen, type, accepted);
-        else if (type == ResourceType.Food) Settlement.FoodStored = checked(Settlement.FoodStored + accepted);
-        else if (type == ResourceType.Wood) Settlement.WoodStored = checked(Settlement.WoodStored + accepted);
-        else Settlement.StoneStored = checked(Settlement.StoneStored + accepted);
+        else if (type == ResourceType.Food) SettlementFor(settlementId).FoodStored = checked(SettlementFor(settlementId).FoodStored + accepted);
+        else if (type == ResourceType.Wood) SettlementFor(settlementId).WoodStored = checked(SettlementFor(settlementId).WoodStored + accepted);
+        else SettlementFor(settlementId).StoneStored = checked(SettlementFor(settlementId).StoneStored + accepted);
         citizen.CarriedResourceQuantity -= accepted;
         if (citizen.CarriedResourceQuantity == 0)
         {
             ClearCarriedState(citizen);
-            if (SimulationRulesVersion == UnifiedSimulationRulesVersion && citizen.CurrentAction == CitizenAction.HaulHarvest && citizen.Location == World.StartingSite && type == ResourceType.Food)
+            if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && citizen.CurrentAction == CitizenAction.HaulHarvest && citizen.Location == SiteLocation(settlementId) && type == ResourceType.Food)
                 DepositUnifiedFarmGrain(citizen);
             if (AgricultureSystemsEnabled(SimulationRulesVersion) || (LivingEnabled && citizen.ActionPhase == CitizenActionPhase.WaitingForStorage)) citizen.ActionPhase = CitizenActionPhase.Perform;
             return;
@@ -2008,7 +2287,7 @@ public sealed partial class SimulationEngine
         if (order is null) return;
         if (order.Kind != LivingWorkKind.Harvest || !order.Produced || !order.CargoInTransit || order.Cargo.Count != 1 || order.Cargo[0].Good != LivingGood.Grain)
             throw new InvalidOperationException("Unified harvest carrier has invalid communal grain cargo.");
-        ChangeGood(LivingGood.Grain, order.Cargo[0].Quantity);
+        ChangeGoodAt(SiteIdForOrder(order), LivingGood.Grain, order.Cargo[0].Quantity);
         order.Cargo.Clear();
         _living!.CompletedOrders++;
         _living.Orders.Remove(order);
@@ -2028,7 +2307,17 @@ public sealed partial class SimulationEngine
         RecordSpecializationHistory(citizen, previousOccupation);
     }
     private ResourceNode? SelectResourceTarget(Citizen citizen, ResourceType type)
-    { var costs = GetTravelCostsCached(citizen.Location); if (LivingEnabled) return SelectLivingResourceTarget(type, costs); return World.Resources.Where(n => n.Type == type && _resourceStates.TryGetValue(n.Id.Value, out var state) && state.CurrentQuantity > 0).Select(n => (Node: n, Reachable: costs.TryGetValue(n.Coordinate, out var cost), Cost: costs.GetValueOrDefault(n.Coordinate))).Where(x => x.Reachable).OrderBy(x => x.Cost).ThenByDescending(x => _resourceStates[x.Node.Id.Value].CurrentQuantity).ThenBy(x => x.Node.Id.Value).Select(x => x.Node).FirstOrDefault(); }
+    {
+        var costs = GetTravelCostsCached(citizen.Location);
+        var siteId = SiteIdForCitizen(citizen);
+        var localSite = MigrationSystemsEnabled(SimulationRulesVersion) ? siteId : (long?)null;
+        if (LivingEnabled) return SelectLivingResourceTarget(type, costs, localSite);
+        return World.Resources.Where(n => n.Type == type && (localSite is null || SiteIdForResource(n) == localSite) &&
+                _resourceStates.TryGetValue(n.Id.Value, out var state) && state.CurrentQuantity > 0)
+            .Select(n => (Node: n, Reachable: costs.TryGetValue(n.Coordinate, out var cost), Cost: costs.GetValueOrDefault(n.Coordinate)))
+            .Where(x => x.Reachable).OrderBy(x => x.Cost).ThenByDescending(x => _resourceStates[x.Node.Id.Value].CurrentQuantity)
+            .ThenBy(x => x.Node.Id.Value).Select(x => x.Node).FirstOrDefault();
+    }
     private IReadOnlyList<TileCoordinate>? FindPathCached(TileCoordinate start, TileCoordinate destination)
     {
         var key = (start, destination);
@@ -2078,6 +2367,26 @@ public sealed partial class SimulationEngine
     { var season = CurrentMinute.ToCalendar().Season; var foodBasis = season switch { WorldSeason.Spring => CitizenSimulationRules.FoodSpringBasisPoints, WorldSeason.Summer => CitizenSimulationRules.FoodSummerBasisPoints, WorldSeason.Autumn => CitizenSimulationRules.FoodAutumnBasisPoints, _ => CitizenSimulationRules.FoodWinterBasisPoints }; foreach (var node in World.Resources.OrderBy(x => x.Id.Value)) { var state = _resourceStates[node.Id.Value]; var amount = node.Type switch { ResourceType.Food => checked((node.RegenerationPotential * foodBasis) / 10000), ResourceType.Wood => checked(node.RegenerationPotential / CitizenSimulationRules.WoodRegenerationDivisor), _ => 0 }; state.CurrentQuantity = Math.Min(node.MaximumQuantity, checked(state.CurrentQuantity + amount)); } }
     private void EvaluateSettlementDemand()
     {
+        if (MigrationSystemsEnabled(SimulationRulesVersion))
+        {
+            if (AgricultureSystemsEnabled(SimulationRulesVersion)) AdvanceAgricultureSeason();
+            UpdateEconomy();
+            foreach (var settlementId in MigrationSettlementIds)
+            {
+                var settlement = SettlementFor(settlementId);
+                settlement.DemandUpdatedMinute = CurrentMinute.Value;
+                if (ActiveConstructionProjectFor(settlementId) is not null || SelectSettlementDemand(settlementId) is not { } localType) continue;
+                var localSite = localType == StructureType.Farm ? SelectFarmSite(settlementId) : SelectConstructionSite(settlementId);
+                if (localSite is { } location) CreateStructure(localType, location);
+            }
+            ReconcileHouseholdsAndHousing();
+            ObserveMigrationFoundingPressure();
+            EvaluateMigrationFounding();
+            EvaluateMigrationRelocation();
+            EvaluateMigrationVisits();
+            ScheduleSettlementDemand();
+            return;
+        }
         Settlement.DemandUpdatedMinute = CurrentMinute.Value;
         if (AgricultureSystemsEnabled(SimulationRulesVersion)) AdvanceAgricultureSeason();
         UpdateEconomy();
@@ -2097,13 +2406,52 @@ public sealed partial class SimulationEngine
         if ((Settlement.StorageUsed + LivingStoredQuantity + (EconomyEnabled ? OwnedStoredGoods.Total : 0)) * 100 >= StorageCapacity * 80L) return StructureType.Stockpile;
         return !_structures.Values.Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete) && _structures.Values.Count(x => x.Status == StructureStatus.Complete) >= 3 ? StructureType.Workshop : null;
     }
+    private StructureType? SelectSettlementDemand(long settlementId)
+    {
+        var population = PopulationAt(settlementId);
+        var shelterCapacity = ShelterCapacityAt(settlementId);
+        if (shelterCapacity < population) return StructureType.Shelter;
+        if (SocialSystemsEnabled(SimulationRulesVersion) && shelterCapacity - population < CitizenSimulationRules.DesiredSpareShelterSlots && HasReproductionReadyHouseholdIgnoringHousing(settlementId)) return StructureType.Shelter;
+        var structures = StructuresAt(settlementId).ToArray();
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && settlementId == MigrationDaughterSettlementState.SettlementId &&
+            population > 0 && !structures.Any(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete) &&
+            SelectFarmSite(settlementId) is not null) return StructureType.Farm;
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && settlementId == MigrationDaughterSettlementState.SettlementId &&
+            structures.Any(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete) &&
+            !structures.Any(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) &&
+            AgricultureSystemsEnabled(SimulationRulesVersion) &&
+            SelectAgricultureDemand(settlementId) == StructureType.Granary) return StructureType.Granary;
+        if (EconomyEnabled && !structures.Any(s => s.Type == StructureType.Marketplace)) return StructureType.Marketplace;
+        if (AgricultureSystemsEnabled(SimulationRulesVersion) && SelectAgricultureDemand(settlementId) is { } agricultureDemand) return agricultureDemand;
+        var settlement = SettlementFor(settlementId);
+        if ((settlement.StorageUsed + LivingStoredQuantityAt(settlementId) + (EconomyEnabled ? OwnedStoredGoodsAt(settlementId).Total : 0)) * 100L >= StorageCapacityAt(settlementId) * 80L) return StructureType.Stockpile;
+        return !structures.Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete) && structures.Count(x => x.Status == StructureStatus.Complete) >= 3 ? StructureType.Workshop : null;
+    }
     private bool HasReproductionReadyHouseholdIgnoringHousing() => _households.Values.Where(x => x.DissolvedMinute is null).OrderBy(x => x.Id.Value).Any(household => IsReproductionReady(household, requireDwellingCapacity: false, out _, out _));
+    private bool HasReproductionReadyHouseholdIgnoringHousing(long settlementId) => HouseholdsAt(settlementId).Where(x => x.DissolvedMinute is null).OrderBy(x => x.Id.Value).Any(household => IsReproductionReady(household, requireDwellingCapacity: false, out _, out _));
     private TileCoordinate? SelectConstructionSite()
     {
         var occupied = _structures.Values.Select(x => x.Location).Concat(_living?.Fields.Select(x => x.Location) ?? []).Concat(_living?.Facilities.Select(x => x.Location) ?? []).Concat(_living?.Orders.Where(x => x.Kind is LivingWorkKind.EstablishField or LivingWorkKind.BuildHearth or LivingWorkKind.BuildLoom or LivingWorkKind.BuildCareHouse).Select(x => x.Location) ?? []).ToHashSet(); var resources = World.Resources.Select(x => x.Coordinate).ToHashSet(); var costs = GetTravelCostsCached(World.StartingSite);
         var candidates = World.Tiles.Where(x => x.Walkable && x.Buildable && x.Terrain != TerrainType.Freshwater && x.Coordinate != World.StartingSite && !occupied.Contains(x.Coordinate) && !resources.Contains(x.Coordinate) && costs.ContainsKey(x.Coordinate)).Select(x => (x.Coordinate, Cost: costs[x.Coordinate], Distance: Math.Abs(x.Coordinate.X - World.StartingSite.X) + Math.Abs(x.Coordinate.Y - World.StartingSite.Y))).OrderBy(x => x.Cost).ThenBy(x => x.Distance).ThenBy(x => x.Coordinate.Y).ThenBy(x => x.Coordinate.X);
-        if (SimulationRulesVersion is not (SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion)) return candidates.Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
+        if (SimulationRulesVersion != SpacedSimulationRulesVersion && !UnifiedSimulationRulesEnabled(SimulationRulesVersion)) return candidates.Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
         var excluded = SpacedConstructionExclusions();
+        return candidates.Where(x => !excluded.Contains(x.Coordinate)).Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault()
+            ?? candidates.Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
+    }
+    private TileCoordinate? SelectConstructionSite(long settlementId)
+    {
+        var occupied = _structures.Values.Select(x => x.Location)
+            .Concat(_living?.Facilities.Select(x => x.Location) ?? [])
+            .Concat((_living?.Orders ?? []).Where(x => x.Kind is LivingWorkKind.EstablishField or LivingWorkKind.BuildHearth or LivingWorkKind.BuildLoom or LivingWorkKind.BuildCareHouse).Select(x => x.Location))
+            .Concat(_living?.Fields.Select(x => x.Location) ?? []).ToHashSet();
+        var resources = World.Resources.Select(x => x.Coordinate).ToHashSet();
+        var site = SiteLocation(settlementId);
+        var costs = GetTravelCostsCached(site);
+        var candidates = World.Tiles.Where(x => x.Walkable && x.Buildable && x.Terrain != TerrainType.Freshwater && x.Coordinate != site &&
+                !occupied.Contains(x.Coordinate) && !resources.Contains(x.Coordinate) && costs.ContainsKey(x.Coordinate) && SiteIdForLocation(x.Coordinate) == settlementId)
+            .Select(x => (x.Coordinate, Cost: costs[x.Coordinate], Distance: Math.Abs(x.Coordinate.X - site.X) + Math.Abs(x.Coordinate.Y - site.Y)))
+            .OrderBy(x => x.Cost).ThenBy(x => x.Distance).ThenBy(x => x.Coordinate.Y).ThenBy(x => x.Coordinate.X);
+        var excluded = SpacedConstructionExclusions(settlementId);
         return candidates.Where(x => !excluded.Contains(x.Coordinate)).Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault()
             ?? candidates.Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
     }
@@ -2117,15 +2465,46 @@ public sealed partial class SimulationEngine
                         excluded.Add(new TileCoordinate(center.X + dx, center.Y + dy));
         return excluded;
     }
+    private HashSet<TileCoordinate> SpacedConstructionExclusions(long settlementId)
+    {
+        var excluded = new HashSet<TileCoordinate>();
+        foreach (var center in _structures.Values.Select(x => x.Location).Append(SiteLocation(settlementId)))
+            for (var dy = -1; dy <= 1; dy++)
+                for (var dx = -1; dx <= 1; dx++)
+                    if (center.X + dx >= 0 && center.X + dx < World.Width && center.Y + dy >= 0 && center.Y + dy < World.Height)
+                        excluded.Add(new TileCoordinate(center.X + dx, center.Y + dy));
+        return excluded;
+    }
     private void CreateStructure(StructureType type, TileCoordinate location)
     {
         var costs = type switch { StructureType.Marketplace => (EconomyRules.MarketWood, EconomyRules.MarketStone, EconomyRules.MarketWork), StructureType.Shelter => (CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork), StructureType.Stockpile => (CitizenSimulationRules.StockpileRequiredWood, CitizenSimulationRules.StockpileRequiredStone, CitizenSimulationRules.StockpileRequiredWork), StructureType.Workshop => (CitizenSimulationRules.WorkshopRequiredWood, CitizenSimulationRules.WorkshopRequiredStone, CitizenSimulationRules.WorkshopRequiredWork), StructureType.Farm => (AgricultureRules.FarmWood, AgricultureRules.FarmStone, AgricultureRules.FarmWork), StructureType.Granary => (AgricultureRules.GranaryWood, AgricultureRules.GranaryStone, AgricultureRules.GranaryWork), _ => throw new ArgumentOutOfRangeException(nameof(type)) };
         var structure = new Structure(_counters.AllocateStructureId(), type, location, CurrentMinute.Value, costs.Item1, costs.Item2, costs.Item3); _structures.Add(structure.Id.Value, structure);
+        RecordMigrationOwner(MigrationEntityKind.Structure, structure.Id.Value, SiteIdForLocation(location));
         if (type == StructureType.Farm) _farms.Add(structure.Id.Value, new FarmCrop(structure.Id.Value, CurrentMinute.ToCalendar().Year, CropStage.Fallow, 0, 0, 0, 0, 0));
         RecordStructureStartedHistory(structure);
     }
     private void ReconcileShelterAssignments()
     {
+        if (MigrationSystemsEnabled(SimulationRulesVersion))
+        {
+            foreach (var settlementId in MigrationSettlementIds)
+            {
+                var sheltersAtSite = StructuresAt(settlementId).Where(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter).OrderBy(x => x.Id.Value).ToArray();
+                var usageAtSite = sheltersAtSite.ToDictionary(x => x.Id.Value, _ => 0);
+                foreach (var citizen in CitizensAt(settlementId).Where(x => x.IsAlive).OrderBy(x => x.Id.Value))
+                    if (citizen.HomeStructureId is { } home && usageAtSite.TryGetValue(home.Value, out var used) && used < CitizenSimulationRules.ShelterCapacityPerBuilding)
+                        usageAtSite[home.Value] = used + 1;
+                    else SetHomeStructure(citizen, null);
+                foreach (var citizen in CitizensAt(settlementId).Where(x => x.IsAlive && x.HomeStructureId is null).OrderBy(x => x.Id.Value))
+                {
+                    var shelter = sheltersAtSite.FirstOrDefault(x => usageAtSite[x.Id.Value] < CitizenSimulationRules.ShelterCapacityPerBuilding);
+                    if (shelter is null) break;
+                    SetHomeStructure(citizen, shelter.Id);
+                    usageAtSite[shelter.Id.Value]++;
+                }
+            }
+            return;
+        }
         var shelters = _structures.Values.Where(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter).OrderBy(x => x.Id.Value).ToArray(); var usage = shelters.ToDictionary(x => x.Id.Value, _ => 0);
         foreach (var citizen in _citizens.Values.Where(x => x.IsAlive).OrderBy(x => x.Id.Value)) if (citizen.HomeStructureId is { } home && usage.TryGetValue(home.Value, out var used) && used < CitizenSimulationRules.ShelterCapacityPerBuilding) usage[home.Value] = used + 1; else SetHomeStructure(citizen, null);
         foreach (var citizen in _citizens.Values.Where(x => x.IsAlive && x.HomeStructureId is null).OrderBy(x => x.Id.Value)) { var shelter = shelters.FirstOrDefault(x => usage[x.Id.Value] < CitizenSimulationRules.ShelterCapacityPerBuilding); if (shelter is null) break; SetHomeStructure(citizen, shelter.Id); usage[shelter.Id.Value]++; }
@@ -2133,12 +2512,25 @@ public sealed partial class SimulationEngine
     private void ApplySurvival(Citizen citizen)
     {
         if (SimulationRulesVersion == M3SimulationRulesVersion) { ApplyM3Survival(citizen); return; }
-        if (!citizen.IsAlive) return; if (CurrentMinute.Value < citizen.HealthUpdatedMinute) throw new InvalidDataException("Survival checks cannot precede the health update boundary."); var needs = citizen.GetProjectedNeeds(CurrentMinute); citizen.Needs = needs; citizen.NeedsUpdatedMinute = CurrentMinute.Value;
-        var hunger = needs.Hunger >= CitizenSimulationRules.StarvationThreshold; var rest = needs.Rest >= CitizenSimulationRules.ExhaustionThreshold; var exposure = (SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) && CurrentMinute.Value >= Settlement.ExposureConsequencesStartMinute && needs.Shelter >= CitizenSimulationRules.ShelterCriticalThreshold;
+        if (!citizen.IsAlive) return;
+        if (CurrentMinute.Value < citizen.HealthUpdatedMinute) throw new InvalidDataException("Survival checks cannot precede the health update boundary.");
+        var needs = citizen.GetProjectedNeeds(CurrentMinute);
+        citizen.Needs = needs;
+        citizen.NeedsUpdatedMinute = CurrentMinute.Value;
+        var settlement = SettlementFor(citizen);
+        var hunger = needs.Hunger >= CitizenSimulationRules.StarvationThreshold; var rest = needs.Rest >= CitizenSimulationRules.ExhaustionThreshold; var exposure = (SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) && CurrentMinute.Value >= settlement.ExposureConsequencesStartMinute && needs.Shelter >= CitizenSimulationRules.ShelterCriticalThreshold;
         var damage = (hunger ? CitizenSimulationRules.StarvationDamagePerCheck : 0) + (rest ? CitizenSimulationRules.ExhaustionDamagePerCheck : 0) + (exposure ? CurrentMinute.ToCalendar().Season == WorldSeason.Winter ? CitizenSimulationRules.WinterExposureDamagePerCheck : CitizenSimulationRules.ExposureDamagePerCheck : 0);
         damage = checked(damage * (10000 - citizen.Traits.Resilience / 4) / 10000);
-        if (damage > 0) citizen.Health = Math.Max(0, citizen.Health - damage); else if (needs.Hunger < CitizenSimulationRules.RecoveryHungerThreshold && needs.Rest < CitizenSimulationRules.RecoveryRestThreshold && (!(SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) || CurrentMinute.Value < Settlement.ExposureConsequencesStartMinute || needs.Shelter < CitizenSimulationRules.RecoveryShelterThreshold)) citizen.Health = Math.Min(10000, checked(citizen.Health + CitizenSimulationRules.HealthRecoveryPerCheck + citizen.Traits.Resilience / 1000));
-        citizen.HealthUpdatedMinute = CurrentMinute.Value; if (citizen.Health == 0) Kill(citizen, hunger, rest, exposure); else ScheduleSurvival(citizen);
+        if (damage > 0) citizen.Health = Math.Max(0, citizen.Health - damage);
+        else if (needs.Hunger < CitizenSimulationRules.RecoveryHungerThreshold && needs.Rest < CitizenSimulationRules.RecoveryRestThreshold && (!(SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) || CurrentMinute.Value < settlement.ExposureConsequencesStartMinute || needs.Shelter < CitizenSimulationRules.RecoveryShelterThreshold))
+            citizen.Health = Math.Min(10000, checked(citizen.Health + CitizenSimulationRules.HealthRecoveryPerCheck + citizen.Traits.Resilience / 1000));
+        citizen.HealthUpdatedMinute = CurrentMinute.Value;
+        if (citizen.Health == 0)
+        {
+            Kill(citizen, hunger, rest, exposure);
+            if (MigrationSystemsEnabled(SimulationRulesVersion)) CheckFoundingPartyAfterSurvival(citizen);
+        }
+        else ScheduleSurvival(citizen);
     }
     private void ApplyM3Survival(Citizen citizen)
     {

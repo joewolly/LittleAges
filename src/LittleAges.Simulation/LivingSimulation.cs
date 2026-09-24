@@ -11,15 +11,27 @@ public sealed partial class SimulationEngine
     public string? LivingStateJson => _living is null ? null : LivingWorldCodec.Serialize(_living);
     public System.Text.Json.JsonElement? CreateLivingObservation() => _living is null ? null : LivingWorldCodec.Observe(_living, CurrentMinute.Value, SimulationRulesVersion);
     private int LivingStoredQuantity => _living is null ? 0 : checked(_living.Stock.Sum(x => x.Quantity) + _living.Orders.Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
+    private int LivingStoredQuantityAt(long settlementId) => checked(LivingGoodsFor(settlementId).Sum(x => x.Quantity) + OrdersAt(settlementId)
+        .Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
     private int LivingFreeStorage => checked((int)Math.Max(0L, (long)StorageCapacity - Settlement.StorageUsed - LivingStoredQuantity - (EconomyEnabled ? OwnedStoredGoods.Total + TradeCargoReserved : 0L)));
+    private long M12CitizenCargoAt(long settlementId) => MigrationSystemsEnabled(SimulationRulesVersion)
+        ? _citizens.Values.Where(citizen => citizen.IsAlive && citizen.CarriedResourceType is not null &&
+                SiteIdForCitizen(citizen) == settlementId)
+            .Sum(citizen => (long)citizen.CarriedResourceQuantity)
+        : 0L;
+    private int LivingFreeStorageAt(long settlementId)
+    {
+        return checked((int)Math.Max(0L, (long)StorageCapacityAt(settlementId) -
+            SettlementFor(settlementId).StorageUsed - LivingStoredQuantityAt(settlementId) -
+            (EconomyEnabled ? OwnedStoredGoodsAt(settlementId).Total + TradeCargoReservedAt(settlementId) : 0L) -
+            M12CitizenCargoAt(settlementId)));
+    }
     private LivingPerson LivingPerson(Citizen citizen) => _living!.People.Single(x => x.CitizenId == citizen.Id.Value);
     private int Good(LivingGood good) => _living!.Stock.Single(x => x.Good == good).Quantity;
+    private int Good(long settlementId, LivingGood good) => GoodAt(settlementId, good);
     private void ChangeGood(LivingGood good, int quantity)
     {
-        var index = _living!.Stock.FindIndex(x => x.Good == good);
-        var value = checked(_living.Stock[index].Quantity + quantity);
-        if (value < 0) throw new InvalidOperationException("Living goods cannot become negative.");
-        _living.Stock[index] = new(good, value);
+        ChangeGoodAt(1, good, quantity);
     }
     private void InitializeLiving()
     {
@@ -78,18 +90,23 @@ public sealed partial class SimulationEngine
     private LivingWorkOrder? OrderFor(Citizen citizen) => _living!.Orders.FirstOrDefault(x => x.CitizenId == citizen.Id.Value);
     private bool Knows(Citizen citizen, LivingTechnique technique) => LivingPerson(citizen).Knowledge.Contains(technique);
     private bool SettlementKnows(LivingTechnique technique) => _living!.People.Any(x => !x.DeathObserved && x.Knowledge.Contains(technique));
+    private bool SettlementKnows(long settlementId, LivingTechnique technique) => !MigrationSystemsEnabled(SimulationRulesVersion)
+        ? SettlementKnows(technique)
+        : CitizensAt(settlementId).Any(c => _living!.People.Any(p => p.CitizenId == c.Id.Value && !p.DeathObserved && p.Knowledge.Contains(technique)));
 
     private bool TryStartLivingWork(Citizen citizen, int ordinaryScore)
     {
         var needs = citizen.Needs;
+        var siteId = SiteIdForCitizen(citizen);
+        var settlement = SettlementFor(siteId);
         var person = LivingPerson(citizen);
         // M13 retains M12's meal candidate and food ownership. Do not replace an
         // available M12 meal with discretionary Living work at the same hunger
         // threshold where Growth first offers Eat.
-        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && needs.Hunger >= 3500 && FoodAvailableTo(citizen) > 0) return false;
-        if (needs.Hunger >= 8500 && Settlement.FoodStored > 0 || needs.Rest >= 7500 || person.Injury >= 7000 || person.Illness >= 7000 || citizen.AgeYears(CurrentMinute) < 6) return false;
-        var choices = _living!.Orders.Where(x => x.CitizenId is null && CanWork(citizen, x))
-            .Where(x => needs.Hunger < 4000 && needs.Rest < 5000 || IsEmergencyFoodWork(x.Kind) && Settlement.FoodStored == 0 && needs.Rest < 6000)
+        if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && needs.Hunger >= 3500 && FoodAvailableTo(citizen) > 0) return false;
+        if (needs.Hunger >= 8500 && settlement.FoodStored > 0 || needs.Rest >= 7500 || person.Injury >= 7000 || person.Illness >= 7000 || citizen.AgeYears(CurrentMinute) < 6) return false;
+        var choices = OrdersAt(siteId).Where(x => x.CitizenId is null && CanWork(citizen, x))
+            .Where(x => needs.Hunger < 4000 && needs.Rest < 5000 || IsEmergencyFoodWork(x.Kind) && settlement.FoodStored == 0 && needs.Rest < 6000)
             .Select(x => (Order: x, Score: WorkScore(citizen, x))).Where(x => x.Score > ordinaryScore)
             .OrderByDescending(x => x.Score).ThenBy(x => x.Order.Id).ToArray();
         foreach (var choice in choices)
@@ -109,17 +126,20 @@ public sealed partial class SimulationEngine
     private bool CanWork(Citizen citizen, LivingWorkOrder order)
     {
         var age = citizen.AgeYears(CurrentMinute);
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForCitizen(citizen) != SiteIdForOrder(order)) return false;
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && order.SubjectId is { } subjectId && _citizens.TryGetValue(subjectId, out var targetCitizen) && SiteIdForCitizen(targetCitizen) != SiteIdForOrder(order)) return false;
         if (order.Kind is LivingWorkKind.Recreate or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing && order.SubjectId != citizen.Id.Value) return false;
         if (age < 13 && order.Kind is not (LivingWorkKind.Recreate or LivingWorkKind.EquipClothing)) return false;
         if (order.Kind == LivingWorkKind.Teach && (order.SubjectId == citizen.Id.Value || order.Technique is not { } taught || !Knows(citizen, taught))) return false;
         if (order.Kind is LivingWorkKind.Care or LivingWorkKind.RepairRelationship && order.SubjectId == citizen.Id.Value) return false;
         if (order.Kind == LivingWorkKind.Experiment && (order.Technique is not { } discovery || Knows(citizen, discovery))) return false;
         if (!order.Produced && RequiredTechnique(order.Kind) is { } technique && !Knows(citizen, technique)) return false;
-        if (!order.Produced && order.Kind == LivingWorkKind.MakeTool && !_structures.Values.Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete)) return false;
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForOrder(order) != SiteIdForCitizen(citizen)) return false;
+        if (!order.Produced && order.Kind == LivingWorkKind.MakeTool && !StructuresAt(SiteIdForOrder(order)).Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete)) return false;
         if (order.Kind == LivingWorkKind.Care && order.Ingredients.Any(x => x.Resource == "Medicine") && !Knows(citizen, LivingTechnique.Care)) return false;
         if (!GetTravelCostsCached(citizen.Location).ContainsKey(order.Location) || !GetTravelCostsCached(citizen.Location).ContainsKey(order.SupplyLocation)) return false;
         if (!HasOutputSpace(order)) return false;
-        return order.Reserved || order.Ingredients.All(x => AvailableIngredient(x.Resource) >= x.Quantity);
+        return order.Reserved || order.Ingredients.All(x => AvailableIngredient(SiteIdForOrder(order), x.Resource) >= x.Quantity);
     }
     private int WorkScore(Citizen citizen, LivingWorkOrder order)
     {
@@ -143,17 +163,20 @@ public sealed partial class SimulationEngine
         var relationship = order.SubjectId is { } subject && subject != citizen.Id.Value && _citizens.ContainsKey(subject)
             && order.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.RepairRelationship ? GetRelationship(citizen.Id, new CitizenId(subject)) : null;
         var emergency = 0;
-        if (Settlement.FoodStored < LivingPopulation * 10)
+        var siteId = SiteIdForCitizen(citizen);
+        if (SettlementFor(siteId).FoodStored < PopulationAt(siteId) * 10)
         {
             emergency = order.Kind switch
             {
                 LivingWorkKind.Cook => 60000,
-                LivingWorkKind.CutFuel when Good(LivingGood.Fuel) == 0 => 60000,
-                LivingWorkKind.Harvest when Good(LivingGood.Grain) < 20 => 60000,
+                LivingWorkKind.CutFuel when Good(siteId, LivingGood.Fuel) == 0 => 60000,
+                LivingWorkKind.Harvest when Good(siteId, LivingGood.Grain) < 20 => 60000,
                 _ => 0
             };
         }
-        var preparation = LivingNeedsSeasonalReserves && order.Kind is LivingWorkKind.Harvest or LivingWorkKind.Preserve or LivingWorkKind.Sow or LivingWorkKind.Tend ? 8000 : 0;
+        var preparation = (MigrationSystemsEnabled(SimulationRulesVersion)
+            ? Good(siteId, LivingGood.PreservedFood) < PopulationAt(siteId) * 1000
+            : LivingNeedsSeasonalReserves) && order.Kind is LivingWorkKind.Harvest or LivingWorkKind.Preserve or LivingWorkKind.Sow or LivingWorkKind.Tend ? 8000 : 0;
         return 6500 + emergency + preparation + order.Priority + preference + experience + (relationship?.Affinity ?? 0) / 10 + citizen.Traits.Industriousness / 5 + citizen.Traits.Cooperativeness / 8
             + Math.Min(1500, citizen.Skills.Domestic / 100) + (related ? 2500 : 0) + (order.Kind == LivingWorkKind.Recreate ? person.Stress : 0)
             - person.Injury / 2 - person.Illness / 2 - person.Stress / 5 - Distance(citizen.Location, order.Location) * 60;
@@ -168,25 +191,29 @@ public sealed partial class SimulationEngine
         LivingWorkKind.PrepareMedicine or LivingWorkKind.BuildCareHouse => LivingTechnique.Care,
         _ => null
     };
-    private int AvailableIngredient(string resource) => resource switch
+    private int AvailableIngredient(string resource) => AvailableIngredient(1, resource);
+    private int AvailableIngredient(long settlementId, string resource) => resource switch
     {
-        "Food" => Settlement.FoodStored, "Wood" => Settlement.WoodStored, "Stone" => Settlement.StoneStored,
-        _ => Good(Enum.Parse<LivingGood>(resource))
+        "Food" => SettlementFor(settlementId).FoodStored, "Wood" => SettlementFor(settlementId).WoodStored, "Stone" => SettlementFor(settlementId).StoneStored,
+        _ => Good(settlementId, Enum.Parse<LivingGood>(resource))
     };
     private void ChangeIngredient(string resource, int delta)
+        => ChangeIngredient(1, resource, delta);
+    private void ChangeIngredient(long settlementId, string resource, int delta)
     {
         switch (resource)
         {
-            case "Food": Settlement.FoodStored = checked(Settlement.FoodStored + delta); break;
-            case "Wood": Settlement.WoodStored = checked(Settlement.WoodStored + delta); break;
-            case "Stone": Settlement.StoneStored = checked(Settlement.StoneStored + delta); break;
-            default: ChangeGood(Enum.Parse<LivingGood>(resource), delta); break;
+            case "Food": SettlementFor(settlementId).FoodStored = checked(SettlementFor(settlementId).FoodStored + delta); break;
+            case "Wood": SettlementFor(settlementId).WoodStored = checked(SettlementFor(settlementId).WoodStored + delta); break;
+            case "Stone": SettlementFor(settlementId).StoneStored = checked(SettlementFor(settlementId).StoneStored + delta); break;
+            default: ChangeGoodAt(settlementId, Enum.Parse<LivingGood>(resource), delta); break;
         }
     }
     private bool Reserve(LivingWorkOrder order)
     {
-        if (order.Ingredients.Any(x => AvailableIngredient(x.Resource) < x.Quantity)) return false;
-        foreach (var ingredient in order.Ingredients) ChangeIngredient(ingredient.Resource, -ingredient.Quantity);
+        var siteId = SiteIdForOrder(order);
+        if (order.Ingredients.Any(x => AvailableIngredient(siteId, x.Resource) < x.Quantity)) return false;
+        foreach (var ingredient in order.Ingredients) ChangeIngredient(siteId, ingredient.Resource, -ingredient.Quantity);
         order.Reserved = true;
         return true;
     }
@@ -198,7 +225,7 @@ public sealed partial class SimulationEngine
             if (!order.CargoInTransit)
             {
                 order.CargoInTransit = true;
-                BeginTravel(citizen, CitizenAction.LivingWork, World.StartingSite, null);
+                BeginTravel(citizen, CitizenAction.LivingWork, SiteLocation(SiteIdForOrder(order)), null);
                 return;
             }
             DepositLiving(citizen, order);
@@ -226,7 +253,7 @@ public sealed partial class SimulationEngine
     }
     private bool InterruptUnifiedLivingWorkForFood(Citizen citizen)
     {
-        if (SimulationRulesVersion != UnifiedSimulationRulesVersion || citizen.CurrentAction != CitizenAction.LivingWork) return false;
+        if (!UnifiedSimulationRulesEnabled(SimulationRulesVersion) || citizen.CurrentAction != CitizenAction.LivingWork) return false;
         var needs = citizen.GetProjectedNeeds(CurrentMinute);
         if (needs.Hunger < 3500 || FoodAvailableTo(citizen) <= 0) return false;
         citizen.Needs = needs;
@@ -253,26 +280,27 @@ public sealed partial class SimulationEngine
             ProduceLiving(citizen, order);
             order.Produced = true;
             order.Phase = LivingWorkPhase.Deliver;
-            if (order.Cargo.Count > 0) { order.CargoInTransit = true; BeginTravel(citizen, CitizenAction.LivingWork, World.StartingSite, null); return; }
+            if (order.Cargo.Count > 0) { order.CargoInTransit = true; BeginTravel(citizen, CitizenAction.LivingWork, SiteLocation(SiteIdForOrder(order)), null); return; }
             FinishLivingOrder(citizen, order);
             return;
         }
-        var unifiedMealAvailable = SimulationRulesVersion == UnifiedSimulationRulesVersion && citizen.Needs.Hunger >= 3500 && FoodAvailableTo(citizen) > 0;
+        var unifiedMealAvailable = UnifiedSimulationRulesEnabled(SimulationRulesVersion) && citizen.Needs.Hunger >= 3500 && FoodAvailableTo(citizen) > 0;
         if (unifiedMealAvailable || citizen.Needs.Hunger >= 6000 || citizen.Needs.Rest >= 6000 || person.Injury >= 7000) { EndLivingAction(citizen); return; }
         ScheduleLivingShift(citizen, 120);
     }
     private void DepositLiving(Citizen citizen, LivingWorkOrder order)
     {
-        if (citizen.Location != World.StartingSite) throw new InvalidOperationException("Production cargo must reach communal storage before deposit.");
+        var siteId = SiteIdForOrder(order);
+        if (citizen.Location != SiteLocation(siteId)) throw new InvalidOperationException("Production cargo must reach its local communal storage before deposit.");
         // Cargo already owns storage capacity while in transit; depositing is a transfer.
         foreach (var item in order.Cargo)
         {
             if (item.Good == LivingGood.Meal)
             {
-                if (SimulationRulesVersion == UnifiedSimulationRulesVersion) RecordCommunalFoodProduction(item.Quantity);
-                Settlement.FoodStored = checked(Settlement.FoodStored + item.Quantity);
+                if (UnifiedSimulationRulesEnabled(SimulationRulesVersion)) RecordCommunalFoodProduction(item.Quantity);
+                SettlementFor(siteId).FoodStored = checked(SettlementFor(siteId).FoodStored + item.Quantity);
             }
-            else ChangeGood(item.Good, item.Quantity);
+            else ChangeGoodAt(siteId, item.Good, item.Quantity);
         }
         order.Cargo.Clear();
         FinishLivingOrder(citizen, order);
@@ -293,7 +321,7 @@ public sealed partial class SimulationEngine
     {
         var order = OrderFor(citizen);
         if (order is null) return;
-        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && order.Kind == LivingWorkKind.Harvest && order.Produced && order.CargoInTransit && citizen.CurrentAction == CitizenAction.HaulHarvest)
+        if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && order.Kind == LivingWorkKind.Harvest && order.Produced && order.CargoInTransit && citizen.CurrentAction == CitizenAction.HaulHarvest)
             order.SupplyLocation = citizen.Location;
         else if (citizen.ActionPhase == CitizenActionPhase.TravelToTarget && (order.CargoInTransit || !order.SuppliesDelivered && order.Phase == LivingWorkPhase.Travel))
             order.SupplyLocation = citizen.Location;
@@ -303,15 +331,16 @@ public sealed partial class SimulationEngine
     }
     private void CancelLivingOrder(LivingWorkOrder order)
     {
-        if (order.Reserved && !order.Produced) foreach (var ingredient in order.Ingredients) ChangeIngredient(ingredient.Resource, ingredient.Quantity);
+        var siteId = SiteIdForOrder(order);
+        if (order.Reserved && !order.Produced) foreach (var ingredient in order.Ingredients) ChangeIngredient(siteId, ingredient.Resource, ingredient.Quantity);
         foreach (var cargo in order.Cargo)
         {
             if (cargo.Good == LivingGood.Meal)
             {
-                if (SimulationRulesVersion == UnifiedSimulationRulesVersion) RecordCommunalFoodProduction(cargo.Quantity);
-                Settlement.FoodStored = checked(Settlement.FoodStored + cargo.Quantity);
+                if (UnifiedSimulationRulesEnabled(SimulationRulesVersion)) RecordCommunalFoodProduction(cargo.Quantity);
+                SettlementFor(siteId).FoodStored = checked(SettlementFor(siteId).FoodStored + cargo.Quantity);
             }
-            else ChangeGood(cargo.Good, cargo.Quantity);
+            else ChangeGoodAt(siteId, cargo.Good, cargo.Quantity);
         }
         _living!.Orders.Remove(order);
     }
@@ -322,26 +351,29 @@ public sealed partial class SimulationEngine
             if (order.CitizenId is { } workerId)
             {
                 var worker = _citizens[workerId];
-                var unifiedFarmCarrier = SimulationRulesVersion == UnifiedSimulationRulesVersion && order.Kind == LivingWorkKind.Harvest && order.Produced && worker.IsAlive && worker.CurrentAction == CitizenAction.HaulHarvest;
+                var unifiedFarmCarrier = UnifiedSimulationRulesEnabled(SimulationRulesVersion) && order.Kind == LivingWorkKind.Harvest && order.Produced && worker.IsAlive && worker.CurrentAction == CitizenAction.HaulHarvest;
                 if (!worker.IsAlive || worker.CurrentAction != CitizenAction.LivingWork && !unifiedFarmCarrier) ReleaseLivingClaim(worker);
             }
             if (order.CitizenId is not null) continue;
             if (!OrderStillUseful(order)) { CancelLivingOrder(order); continue; }
-            var missing = order.Reserved ? [] : order.Ingredients.Where(x => AvailableIngredient(x.Resource) < x.Quantity).Select(x => x.Resource).ToArray();
+            var siteId = SiteIdForOrder(order);
+            var missing = order.Reserved ? [] : order.Ingredients.Where(x => AvailableIngredient(siteId, x.Resource) < x.Quantity).Select(x => x.Resource).ToArray();
             order.BlockedReason = missing.Length > 0 ? "Waiting for " + string.Join(", ", missing)
                 : !HasOutputSpace(order) ? "Waiting for storage capacity"
-                : order.Kind == LivingWorkKind.MakeTool && !_structures.Values.Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete) ? "Needs a completed workshop"
-                : RequiredTechnique(order.Kind) is { } required && !SettlementKnows(required) ? $"Needs {required} knowledge"
+                : order.Kind == LivingWorkKind.MakeTool && !StructuresAt(siteId).Any(x => x.Type == StructureType.Workshop && x.Status == StructureStatus.Complete) ? "Needs a completed workshop"
+                : RequiredTechnique(order.Kind) is { } required && !SettlementKnows(siteId, required) ? $"Needs {required} knowledge"
                 : "Waiting for an available qualified worker";
         }
     }
     private bool OrderStillUseful(LivingWorkOrder order)
     {
         if (order.Produced) return true;
-        if (order.Kind == LivingWorkKind.Experiment) return order.Technique is { } technique && !SettlementKnows(technique);
+        var siteId = SiteIdForOrder(order);
+        if (order.Kind == LivingWorkKind.Experiment) return order.Technique is { } technique && !SettlementKnows(siteId, technique);
         if (order.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.Recreate or LivingWorkKind.RepairRelationship or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing)
         {
-            if (order.SubjectId is not { } citizen || !_citizens.TryGetValue(citizen, out var target) || !target.IsAlive) return false;
+            if (order.SubjectId is not { } citizen || !_citizens.TryGetValue(citizen, out var target) || !target.IsAlive ||
+                MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForCitizen(target) != siteId) return false;
             var person = LivingPerson(target);
             return order.Kind switch
             {
@@ -354,10 +386,10 @@ public sealed partial class SimulationEngine
                 _ => true
             };
         }
-        if (order.Kind == LivingWorkKind.Hunt) return _living!.Animals.Any(x => x.Id == order.SubjectId);
+        if (order.Kind == LivingWorkKind.Hunt) return _living!.Animals.Any(x => x.Id == order.SubjectId && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForLocation(x.Location) == siteId));
         if (order.Kind is LivingWorkKind.Sow or LivingWorkKind.Tend or LivingWorkKind.Harvest)
         {
-            var field = _living!.Fields.SingleOrDefault(x => x.Id == order.SubjectId);
+            var field = _living!.Fields.SingleOrDefault(x => x.Id == order.SubjectId && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForLocation(x.Location) == siteId));
             return field is not null && (order.Kind != LivingWorkKind.Harvest || field.YieldRemaining > 0) && (order.Kind != LivingWorkKind.Sow || field.SownMinute < 0);
         }
         return true;

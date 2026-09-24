@@ -1,14 +1,15 @@
 # Windows Service deployment and operation
 
-The supported v0.1 deployment is a self-contained `win-x64` directory plus a
-Windows Service. The release ZIP contains the application, static site,
-installer, uninstaller, and this workflow's equivalent package contents. The
+The supported Windows deployment is a self-contained `win-x64` directory plus
+a Windows Service. The latest published release ZIP contains the application,
+static site, installer, and uninstaller. `package-version.txt` is included in
+packages starting with the v0.3.0 candidate, which has not been published. The
 target host does not need Git, Node.js, the .NET SDK, or a .NET runtime.
 
 ## Recommended release installation
 
-Download and extract `LittleAges-v0.1.0-win-x64.zip`, open an Administrator
-PowerShell in the extracted folder, and run:
+Download and extract the Windows ZIP from the latest published GitHub Release,
+open an Administrator PowerShell in the extracted folder, and run:
 
 ```powershell
 .\install.ps1 -EnableLan
@@ -93,11 +94,12 @@ explicitly return to loopback.
 
 Growing Settlement and Living Settlement saves retain their own rules during
 upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`,
-`v02-rng1-living1`, and `v02-rng1-living2`; installing it does not convert one
-civilization or Living Settlement rules version into another. New worlds keep
-the configured `NewWorldRules`, with M12 as the application default. Living2 is
-an opt-in rule for newly created worlds; existing living1 worlds continue under
-their saved living1 rules.
+`m13-rng1-unified1`, `m14-rng1-migration1`, `v02-rng1-living1`, and
+`v02-rng1-living2`; installing it does not convert one civilization or Living
+Settlement rules version into another. New worlds keep the configured
+`NewWorldRules`, with M14 as the application default. M12 remains a historical
+rules boundary for existing worlds. Living2 is an opt-in rule for newly created
+worlds; existing living1 worlds continue under their saved living1 rules.
 
 Both branches originally persisted citizen action 13 with different meanings.
 The checkpoint reader interprets it using the saved rules, while checkpoint
@@ -130,8 +132,8 @@ Useful supported installer parameters are:
 ```
 
 The installer does not expose simulation rules as an option. Fresh worlds use
-the current `m12-rng1-spaced1` rules boundary; earlier rules remain compatibility
-boundaries for existing persisted worlds.
+the current `m14-rng1-migration1` rules boundary; earlier rules remain
+compatibility boundaries for existing persisted worlds.
 
 ## Uninstall
 
@@ -161,32 +163,34 @@ The uninstaller rejects `-DeleteWorldData` without the second confirmation.
 
 ## Build and package a candidate
 
-The build machine needs .NET SDK `10.0.100`, Node.js 22, and npm. From the
-repository root, build the exact release shape with:
+The v0.3.0 package for PR #15 is a candidate and has not been published. The
+build machine needs .NET SDK `10.0.100`, Node.js 22, and npm. From the
+repository root, build that candidate package with:
 
 ```powershell
-.\scripts\package-windows.ps1 -Version 0.1.0
+.\scripts\package-windows.ps1 -Version 0.3.0
 ```
 
 This invokes the shared publish script, runs the frontend build, publishes a
 self-contained `win-x64` directory (without single-file, trimming, or
-NativeAOT), adds `install.ps1`, `uninstall.ps1`, and `README-install.txt`, and
-writes:
+NativeAOT), adds `install.ps1`, `uninstall.ps1`, `README-install.txt`, and
+`package-version.txt`, and writes:
 
 ```text
-artifacts\LittleAges-v0.1.0-win-x64.zip
+artifacts\LittleAges-v0.3.0-win-x64.zip
 ```
 
 The ZIP has this root layout:
 
 ```text
-LittleAges-v0.1.0-win-x64\
+LittleAges-v0.3.0-win-x64\
 ├── LittleAges.Server.exe
 ├── required self-contained runtime/application files
 ├── wwwroot\
 ├── install.ps1
 ├── uninstall.ps1
-└── README-install.txt
+├── README-install.txt
+└── package-version.txt   # generated from -Version and displayed by installer
 ```
 
 The manual `workflow_dispatch` workflow `.github/workflows/windows-package.yml`

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildHistoryQuery, buildStatisticsQuery, changeSimulationSpeed, DEFAULT_OPERATIONAL_SPEED, fetchBiography, fetchHistory, fetchStatistics, OPERATIONAL_SPEED_OPTIONS, parseBiography, parseCitizens, parseHealth, parseHistory, parseHistoricalEvent, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseStatistics, parseStatus, parseStructures, pauseSimulation, resumeSimulation } from './api'
+import { buildHistoryQuery, buildStatisticsQuery, changeSimulationSpeed, DEFAULT_OPERATIONAL_SPEED, fetchBiography, fetchHistory, fetchSettlementDetails, fetchSettlementSites, fetchStatistics, HISTORICAL_EVENT_TYPES, OPERATIONAL_SPEED_OPTIONS, parseBiography, parseCitizens, parseHealth, parseHistory, parseHistoricalEvent, parseHousehold, parseHouseholds, parseMap, parseRelationships, parseSettlement, parseSettlementDetails, parseSettlementSites, parseStatistics, parseStatus, parseStructures, pauseSimulation, resumeSimulation } from './api'
 
 const citizen = {
   citizenId: '9223372036854775807',
@@ -229,6 +229,37 @@ describe('API response parsing', () => {
     expect(parsed).toMatchObject({ householdCount: 2, activeHouseholdCount: 1, partnershipCount: 1, relationshipCount: 2, friendCount: 1, rivalCount: 1, adultCount: 3 })
   })
 
+  it('parses settlement sites in numeric ID order and validates local summaries', () => {
+    const parsed = parseSettlementSites([
+      { settlementId: '2', site: { x: 6, y: 8 }, livingPopulation: 7, foodStored: 70, woodStored: 8, stoneStored: 9 },
+      { settlementId: '10', site: { x: 18, y: 20 }, livingPopulation: 11, foodStored: 110, woodStored: 12, stoneStored: 13 },
+    ])
+    expect(parsed.map(site => site.settlementId)).toEqual(['2', '10'])
+    expect(parseSettlementDetails({ settlementId: '10', site: { x: 18, y: 20 }, foodStored: 110, woodStored: 12, stoneStored: 13, livingPopulation: 11, deadPopulation: 1, totalPopulation: 12 })).toMatchObject({ settlementId: '10', site: { x: 18, y: 20 }, livingPopulation: 11, totalPopulation: 12 })
+    expect(() => parseSettlementSites([{ settlementId: '10', site: { x: 0, y: 0 }, livingPopulation: 0, foodStored: 0, woodStored: 0, stoneStored: 0 }, { settlementId: '2', site: { x: 1, y: 1 }, livingPopulation: 0, foodStored: 0, woodStored: 0, stoneStored: 0 }])).toThrow(/numeric ID order/)
+    expect(() => parseSettlementSites([{ settlementId: '01', site: { x: 0, y: 0 }, livingPopulation: 0, foodStored: 0, woodStored: 0, stoneStored: 0 }])).toThrow()
+    expect(() => parseSettlementSites([{ settlementId: '1', site: { x: -1, y: 0 }, livingPopulation: 0, foodStored: 0, woodStored: 0, stoneStored: 0 }])).toThrow()
+    expect(() => parseSettlementDetails({ settlementId: '1', site: { x: 0, y: 0 }, foodStored: 0, woodStored: 0, stoneStored: 0, livingPopulation: 0, deadPopulation: 0, totalPopulation: 0 })).not.toThrow()
+  })
+
+  it('falls back from the sites route to the legacy settlement and starting site', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/settlements')) return new Response('missing', { status: 404 })
+      if (path.endsWith('/settlements/2')) return new Response(JSON.stringify({ settlementId: '2', site: { x: 1, y: 2 }, foodStored: 10, woodStored: 4, stoneStored: 2, livingPopulation: 3, deadPopulation: 0, totalPopulation: 3 }))
+      if (path.endsWith('/settlement')) return new Response(JSON.stringify({ foodStored: 40, woodStored: 5, stoneStored: 3, livingPopulation: 8, deadPopulation: 1, totalPopulation: 9 }))
+      if (path.endsWith('/map')) return new Response(JSON.stringify({ width: 4, height: 4, terrain: Array.from({ length: 16 }, () => 1), startingSite: { x: 2, y: 3 } }))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    try {
+      await expect(fetchSettlementSites()).resolves.toEqual([{ settlementId: '1', site: { x: 2, y: 3 }, livingPopulation: 8, foodStored: 40, woodStored: 5, stoneStored: 3 }])
+      await expect(fetchSettlementDetails('2')).resolves.toMatchObject({ settlementId: '2', site: { x: 1, y: 2 }, livingPopulation: 3 })
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(['/api/v1/settlements', '/api/v1/settlement', '/api/v1/map', '/api/v1/settlements/2'])
+    } finally {
+      fetchMock.mockRestore()
+    }
+  })
+
   it('parses canonical structures and a row-major terrain map', () => {
     expect(parseStructures([structure])[0].contributions[0].constructionWork).toBe(9)
     expect(parseMap({ width: 2, height: 2, terrain: [1, 2, 3, 4], startingSite: { x: 1, y: 1 } })).toEqual({ width: 2, height: 2, terrain: [1, 2, 3, 4], elevation: [0, 0, 0, 0], resources: [], startingSite: { x: 1, y: 1 } })
@@ -264,6 +295,12 @@ describe('API response parsing', () => {
     expect(parsed.eventId).toBe('9223372036854775806')
     expect(parsed.citizenLinks[0].citizenId).toBe(citizen.citizenId)
     expect(parsed.origin).toBe('Live')
+  })
+
+  it.each(HISTORICAL_EVENT_TYPES.slice(15))('accepts and filters M14 historical event type %s', eventType => {
+    const event = parseHistoricalEvent({ ...historicalEvent(), eventType, payloadJson: '{}' })
+    expect(event.eventType).toBe(eventType)
+    expect(new URLSearchParams(buildHistoryQuery({ eventType })).get('eventType')).toBe(eventType)
   })
 
   it.each([

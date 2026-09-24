@@ -15,14 +15,16 @@ public sealed partial class SimulationEngine
         foreach (var citizen in _citizens.Values.Where(x => x.IsAlive).OrderBy(x => x.Id.Value))
         {
             var person = LivingPerson(citizen);
+            var settlementId = SiteIdForCitizen(citizen);
+            var settlement = SettlementFor(settlementId);
             var needs = citizen.GetProjectedNeeds(CurrentMinute);
             person.Experiences.RemoveAll(x => CurrentMinute.Value - x.Minute > 30L * WorldCalendar.MinutesPerDay);
-            if (Settlement.FoodStored < LivingPopulation * 5) Experience(person, LivingExperienceKind.Scarcity);
+            if (settlement.FoodStored < PopulationAt(settlementId) * 5) Experience(person, LivingExperienceKind.Scarcity);
             var feelings = person.Experiences.Sum(x => x.Kind switch { LivingExperienceKind.Bereavement => -800, LivingExperienceKind.Scarcity => -300, LivingExperienceKind.Helped => 500, LivingExperienceKind.SharedWork => 150, LivingExperienceKind.Recreation => 400, LivingExperienceKind.Learned => 300, _ => 0 });
             person.Mood = Math.Clamp(6500 + feelings - (needs.Hunger + needs.Rest) / 5 - (person.Injury + person.Illness) / 4, 0, 10000);
             person.Stress = Math.Clamp(person.Stress + (5000 - person.Mood) / 5 - citizen.Traits.Resilience / 100, 0, 10000);
             person.ClothingCondition = Math.Max(0, person.ClothingCondition - 30);
-            var hasWarmth = _living!.Temperature >= 5 || person.ClothingCondition > 0 || Good(LivingGood.Fuel) > 0 && citizen.HomeStructureId is not null;
+            var hasWarmth = _living!.Temperature >= 5 || person.ClothingCondition > 0 || Good(settlementId, LivingGood.Fuel) > 0 && citizen.HomeStructureId is not null;
             if (!hasWarmth) person.Illness = Math.Min(10000, person.Illness + 300);
             else if (needs.Hunger < 6000) person.Illness = Math.Max(0, person.Illness - 100);
             if (person.Injury > 0 && needs.Hunger < 6000) person.Injury = Math.Max(0, person.Injury - 100);
@@ -74,23 +76,24 @@ public sealed partial class SimulationEngine
     {
         foreach (var citizen in _citizens.Values.Where(x => x.IsAlive).OrderBy(x => x.Id.Value))
         {
+            var settlementId = SiteIdForCitizen(citizen);
             var person = LivingPerson(citizen);
-            if (person.ToolCondition == 0 && citizen.AgeYears(CurrentMinute) >= 13 && Good(LivingGood.Tool) > 0)
-                RequestLiving(LivingWorkKind.EquipTool, World.StartingSite, 4000, citizen.Id.Value, ingredients: [new("Tool", 1)]);
-            if (person.ClothingCondition == 0 && citizen.AgeYears(CurrentMinute) >= 6 && Good(LivingGood.Clothing) > 0)
-                RequestLiving(LivingWorkKind.EquipClothing, World.StartingSite, 4500, citizen.Id.Value, ingredients: [new("Clothing", 1)]);
+            if (person.ToolCondition == 0 && citizen.AgeYears(CurrentMinute) >= 13 && Good(settlementId, LivingGood.Tool) > 0)
+                RequestLiving(LivingWorkKind.EquipTool, SiteLocation(settlementId), 4000, citizen.Id.Value, settlementId: settlementId, ingredients: [new("Tool", 1)]);
+            if (person.ClothingCondition == 0 && citizen.AgeYears(CurrentMinute) >= 6 && Good(settlementId, LivingGood.Clothing) > 0)
+                RequestLiving(LivingWorkKind.EquipClothing, SiteLocation(settlementId), 4500, citizen.Id.Value, settlementId: settlementId, ingredients: [new("Clothing", 1)]);
             if ((person.Injury > 0 || person.Illness > 500 || citizen.AgeYears(CurrentMinute) < 6) && CurrentMinute.Value - person.LastCareMinute >= WorldCalendar.MinutesPerDay)
             {
                 var supplies = new List<LivingIngredient>();
-                if (Good(LivingGood.Medicine) > 0 && SettlementKnows(LivingTechnique.Care)) supplies.Add(new("Medicine", 1));
-                if (citizen.AgeYears(CurrentMinute) < 6 && Settlement.FoodStored >= 2) supplies.Add(new("Food", 2));
-                RequestLiving(LivingWorkKind.Care, citizen.Location, 6500, citizen.Id.Value, ingredients: supplies.ToArray());
+                if (Good(settlementId, LivingGood.Medicine) > 0 && SettlementKnows(settlementId, LivingTechnique.Care)) supplies.Add(new("Medicine", 1));
+                if (citizen.AgeYears(CurrentMinute) < 6 && SettlementFor(settlementId).FoodStored >= 2) supplies.Add(new("Food", 2));
+                RequestLiving(LivingWorkKind.Care, citizen.Location, 6500, citizen.Id.Value, settlementId: settlementId, ingredients: supplies.ToArray());
             }
             if (citizen.AgeYears(CurrentMinute) >= 6 && (person.Stress > 2500 || CurrentMinute.Value - person.LastLeisureMinute >= 2L * WorldCalendar.MinutesPerDay))
-                RequestLiving(LivingWorkKind.Recreate, citizen.Location, 1500, citizen.Id.Value);
+                RequestLiving(LivingWorkKind.Recreate, citizen.Location, 1500, citizen.Id.Value, settlementId: settlementId);
             PlanLivingLearning(citizen, person);
             if (person.Stress > 3000)
-                RequestLiving(LivingWorkKind.RepairRelationship, citizen.Location, 1800, citizen.Id.Value);
+                RequestLiving(LivingWorkKind.RepairRelationship, citizen.Location, 1800, citizen.Id.Value, settlementId: settlementId);
         }
         foreach (var order in _living!.Orders.Where(x => x.CitizenId is null && x.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.Recreate or LivingWorkKind.RepairRelationship))
             if (order.SubjectId is { } id && _citizens.TryGetValue(id, out var person)) order.Location = person.Location;
@@ -118,7 +121,8 @@ public sealed partial class SimulationEngine
             case LivingWorkKind.Care:
             case LivingWorkKind.Teach:
             case LivingWorkKind.RepairRelationship:
-                if (order.SubjectId is not { } id || !_citizens.TryGetValue(id, out var target) || !target.IsAlive || Distance(citizen.Location, target.Location) > 3) break;
+                if (order.SubjectId is not { } id || !_citizens.TryGetValue(id, out var target) || !target.IsAlive ||
+                    MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForCitizen(citizen) != SiteIdForCitizen(target) || Distance(citizen.Location, target.Location) > 3) break;
                 var recipient = LivingPerson(target);
                 if (order.Kind == LivingWorkKind.Teach && order.Technique is { } taught && !recipient.Knowledge.Contains(taught))
                 {
@@ -130,7 +134,7 @@ public sealed partial class SimulationEngine
                     var before = recipient.Injury + recipient.Illness;
                     var medicine = order.Ingredients.Any(x => x.Resource == "Medicine");
                     var treatment = medicine ? 2500 : 900;
-                    if (_living!.Facilities.Any(x => x.Kind == LivingFacilityKind.CareHouse && Distance(x.Location, target.Location) <= 8)) treatment += 500;
+                    if (FacilitiesAt(SiteIdForCitizen(target)).Any(x => x.Kind == LivingFacilityKind.CareHouse && Distance(x.Location, target.Location) <= 8)) treatment += 500;
                     recipient.Injury = Math.Max(0, recipient.Injury - treatment);
                     recipient.Illness = Math.Max(0, recipient.Illness - treatment);
                     recipient.LastCareMinute = CurrentMinute.Value;

@@ -10,7 +10,7 @@ public static class LivingWorkDefinitions
         LivingWorkKind.Harvest => 65,
         LivingWorkKind.Cook => 30,
         LivingWorkKind.Preserve => 20,
-        LivingWorkKind.CutFuel => rulesVersion is SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion ? 30 : 10,
+        LivingWorkKind.CutFuel => rulesVersion is SimulationEngine.Living2SimulationRulesVersion || SimulationEngine.UnifiedSimulationRulesEnabled(rulesVersion) ? 30 : 10,
         LivingWorkKind.MakeTool or LivingWorkKind.Weave => 1,
         LivingWorkKind.PrepareMedicine => 5,
         LivingWorkKind.Hunt => 45,
@@ -49,7 +49,7 @@ public static class LivingWorkDefinitions
         if (!order.Produced) return order.Cargo.Count == 0;
         return order.Kind switch
         {
-            LivingWorkKind.Harvest => rulesVersion == SimulationEngine.UnifiedSimulationRulesVersion
+            LivingWorkKind.Harvest => SimulationEngine.UnifiedSimulationRulesEnabled(rulesVersion)
                 ? order.Cargo.Count == 1 && order.Cargo[0] is { Good: LivingGood.Grain, Quantity: > 0 and <= 4 }
                 : order.Cargo.Count == 2 && order.Cargo[0] is { Good: LivingGood.Grain, Quantity: > 0 and <= 60 } && order.Cargo[1] is { Good: LivingGood.Fiber, Quantity: 5 },
             LivingWorkKind.Hunt => order.Cargo.Count == 0 || order.Cargo.SequenceEqual([new LivingStock(LivingGood.Meal, 40), new LivingStock(LivingGood.Hide, 5)]),
@@ -57,7 +57,7 @@ public static class LivingWorkDefinitions
             LivingWorkKind.Preserve => Single(LivingGood.PreservedFood, 20),
             // Existing provisional living2 checkpoints may contain the prior ten-unit yield.
             LivingWorkKind.CutFuel => Single(LivingGood.Fuel, OutputQuantity(order.Kind, rulesVersion)) ||
-                (rulesVersion is SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion) && Single(LivingGood.Fuel, 10),
+                (rulesVersion is SimulationEngine.Living2SimulationRulesVersion or SimulationEngine.UnifiedSimulationRulesVersion or SimulationEngine.MigrationSimulationRulesVersion) && Single(LivingGood.Fuel, 10),
             LivingWorkKind.MakeTool => Single(LivingGood.Tool, 1),
             LivingWorkKind.Weave => Single(LivingGood.Clothing, 1),
             LivingWorkKind.PrepareMedicine => Single(LivingGood.Medicine, 5),
