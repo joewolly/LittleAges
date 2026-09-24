@@ -68,9 +68,11 @@ function Get-FunctionSource {
 
 $installerPath = Join-Path -Path $PSScriptRoot -ChildPath 'install-windows.ps1'
 $uninstallerPath = Join-Path -Path $PSScriptRoot -ChildPath 'uninstall-windows.ps1'
+$packageScriptPath = Join-Path -Path $PSScriptRoot -ChildPath 'package-windows.ps1'
 $workflowPath = Join-Path -Path $PSScriptRoot -ChildPath '..\.github\workflows\windows-package.yml'
 $installerText = Get-Content -LiteralPath $installerPath -Raw
 $uninstallerText = Get-Content -LiteralPath $uninstallerPath -Raw
+$packageScriptText = Get-Content -LiteralPath $packageScriptPath -Raw
 $workflowText = Get-Content -LiteralPath $workflowPath -Raw
 
 # Parse the complete installer first, then load only the pure/isolated helper
@@ -95,6 +97,7 @@ if ($uninstallerParseErrors.Count -gt 0) {
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-InstallDirectoryOwnership')))
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Move-DirectoryAtomically')))
 . ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-DeploymentLayoutState')))
+. ([scriptblock]::Create((Get-FunctionSource -Path $installerPath -Name 'Get-PackageVersion')))
 
 $script:InstallMarkerFileName = 'littleages-install.json'
 $script:InstallMarkerSchemaVersion = 1
@@ -109,6 +112,11 @@ if ($installerText -match '\$ServiceName\b' -or $uninstallerText -match '\$Servi
 }
 Assert-Contains -Text $installerText -Expected "`$script:ServiceName = 'Little Ages'" -Message 'Installer fixes the owned service name'
 Assert-Contains -Text $uninstallerText -Expected "`$script:ServiceName = 'Little Ages'" -Message 'Uninstaller fixes the owned service name'
+Assert-Contains -Text $installerText -Expected "Get-PackageVersion -PackageRoot `$packageSource" -Message 'Installer reads the package version metadata'
+Assert-Contains -Text $installerText -Expected "Write-Host ('Version:       {0}' -f `$packageVersion)" -Message 'Installer reports the validated package version'
+Assert-NotContains -Text $installerText -Unexpected 'v0.1.0 candidate' -Message 'Installer does not report a stale hardcoded package version'
+Assert-Contains -Text $packageScriptText -Expected "-ChildPath 'package-version.txt'" -Message 'Package script includes the version metadata file'
+Assert-Contains -Text $packageScriptText -Expected '-Value $Version -NoNewline -Encoding ASCII' -Message 'Package metadata comes from the validated Version argument'
 Assert-Contains -Text $installerText -Expected '[double] $SimulationMinutesPerSecond = 1.44' -Message 'Fresh installs use the 16:40 normal day pace'
 Assert-Contains -Text $installerText -Expected "`$PSBoundParameters.ContainsKey('SimulationMinutesPerSecond')" -Message 'Upgrades preserve or explicitly override the configured pace'
 
@@ -135,6 +143,26 @@ foreach ($case in $lanCases) {
 }
 Assert-Contains -Text $installerText -Expected "`$PSBoundParameters.ContainsKey('EnableLan')" -Message 'LAN tri-state checks parameter binding'
 Assert-Contains -Text $installerText -Expected '$effectiveEnableLan' -Message 'LAN effective state is used'
+
+$versionTestRoot = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ('LittleAges-version-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $versionTestRoot -Force | Out-Null
+try {
+    Assert-Equal -Expected 'Unknown (version metadata unavailable)' -Actual (Get-PackageVersion -PackageRoot $versionTestRoot) -Message 'Legacy or direct installer package reports unknown version'
+
+    $versionPath = Join-Path -Path $versionTestRoot -ChildPath 'package-version.txt'
+    Set-Content -LiteralPath $versionPath -Value '0.3.0' -NoNewline -Encoding ASCII
+    Assert-Equal -Expected 'v0.3.0' -Actual (Get-PackageVersion -PackageRoot $versionTestRoot) -Message 'Package version metadata is reported'
+
+    Set-Content -LiteralPath $versionPath -Value 'not-a-version' -NoNewline -Encoding ASCII
+    $invalidVersionRejected = $false
+    try { Get-PackageVersion -PackageRoot $versionTestRoot | Out-Null } catch { $invalidVersionRejected = $true }
+    Assert-Equal -Expected $true -Actual $invalidVersionRejected -Message 'Malformed package version metadata is rejected'
+}
+finally {
+    if (Test-Path -LiteralPath $versionTestRoot) {
+        Remove-Item -LiteralPath $versionTestRoot -Recurse -Force
+    }
+}
 
 # Ownership checks use only an isolated temporary directory. No Program Files,
 # service, firewall, or world-data path is touched by this fixture.

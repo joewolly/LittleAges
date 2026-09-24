@@ -607,6 +607,24 @@ function Get-PrivateIPv4Address {
     return $null
 }
 
+function Get-PackageVersion {
+    param([Parameter(Mandatory)] [string] $PackageRoot)
+
+    $versionPath = Join-Path -Path $PackageRoot -ChildPath 'package-version.txt'
+    if (-not (Test-Path -LiteralPath $versionPath)) {
+        return 'Unknown (version metadata unavailable)'
+    }
+    if (-not (Test-Path -LiteralPath $versionPath -PathType Leaf)) {
+        throw "The release package has invalid version metadata: $versionPath"
+    }
+
+    $version = (Get-Content -LiteralPath $versionPath -Raw).Trim()
+    if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+        throw "The release package has invalid version metadata: $versionPath"
+    }
+    return 'v{0}' -f $version
+}
+
 Assert-Administrator
 
 $packageSource = [System.IO.Path]::GetFullPath($PSScriptRoot)
@@ -618,6 +636,7 @@ if (-not (Test-Path -LiteralPath $packageExecutable -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $packageIndex -PathType Leaf)) {
     throw "The release package is incomplete: wwwroot\index.html was not found under $packageSource."
 }
+$packageVersion = Get-PackageVersion -PackageRoot $packageSource
 
 $installPath = Assert-SafeDirectoryPath -Path $InstallDirectory -Name 'InstallDirectory'
 $dataPath = Assert-SafeDirectoryPath -Path $DataDirectory -Name 'DataDirectory'
@@ -858,7 +877,7 @@ Write-Host 'Little Ages installed successfully.'
 Write-Host ''
 Write-Host ('Service:       {0}' -f (Get-Service -Name $script:ServiceName).Status)
 Write-Host 'Persistence:   Healthy'
-Write-Host 'Version:       v0.1.0 candidate'
+Write-Host ('Version:       {0}' -f $packageVersion)
 Write-Host ('World:         {0}' -f $activeWorldValue)
 Write-Host ''
 Write-Host ('Application:   {0}' -f $installPath)

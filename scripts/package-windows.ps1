@@ -60,6 +60,7 @@ try {
     Copy-Item -LiteralPath $installScript -Destination (Join-Path -Path $packageRoot -ChildPath 'install.ps1') -Force
     Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path -Path $packageRoot -ChildPath 'uninstall.ps1') -Force
     Copy-Item -LiteralPath $readmeSource -Destination (Join-Path -Path $packageRoot -ChildPath 'README-install.txt') -Force
+    Set-Content -LiteralPath (Join-Path -Path $packageRoot -ChildPath 'package-version.txt') -Value $Version -NoNewline -Encoding ASCII
 
     New-Item -ItemType Directory -Path $artifactPath -Force | Out-Null
     if (Test-Path -LiteralPath $artifactFile) { Remove-Item -LiteralPath $artifactFile -Force }
@@ -72,7 +73,7 @@ try {
     Write-Host ('Size:            {0} bytes' -f $archive.Length)
     Write-Host ('SHA-256:         {0}' -f $hash.Hash)
     Write-Host ('Package root:    LittleAges-v{0}-win-x64' -f $Version)
-    Write-Host 'Contents:        LittleAges.Server.exe, wwwroot\, install.ps1, uninstall.ps1, README-install.txt'
+    Write-Host 'Contents:        LittleAges.Server.exe, wwwroot\, install.ps1, uninstall.ps1, README-install.txt, package-version.txt'
 }
 finally {
     if (Test-Path -LiteralPath $publishPath) { Remove-Item -LiteralPath $publishPath -Recurse -Force -ErrorAction SilentlyContinue }
