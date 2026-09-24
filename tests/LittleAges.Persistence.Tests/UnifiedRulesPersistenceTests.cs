@@ -1,9 +1,8 @@
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
 
 namespace LittleAges.Persistence.Tests;
@@ -18,18 +17,15 @@ public sealed class UnifiedRulesPersistenceTests
         var root = Path.Combine(Path.GetTempPath(), "littleages-m13-schema-upgrade-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, "world.db");
-        var options = new DbContextOptionsBuilder<LittleAgesDbContext>()
-            .UseSqlite($"Data Source={path};Pooling=False", sqlite => sqlite.MigrationsAssembly(typeof(WorldDatabase).Assembly.GetName().Name))
-            .Options;
         try
         {
-            // Install a populated M12 checkpoint under the previous M11 schema,
-            // then exercise the new schema migration as an existing-world open.
-            await using (var context = new LittleAgesDbContext(options))
-            {
-                await context.Database.GetService<IMigrator>().MigrateAsync("20260920010000_M11Economy");
-                await new WorldCheckpointStore(context).CheckpointAsync(before);
-            }
+            // Checkpoint with the current M14 model, then restore the M12 citizen
+            // action constraint so the production open reruns the actual M13 rebuild.
+            await using (var seedDatabase = await WorldDatabase.OpenAsync(path))
+                await seedDatabase.CreateCheckpointStore().CheckpointAsync(before);
+
+            await PrepareM12CitizenActionSchemaForM13UpgradeAsync(path);
+            Assert.Equal(Enumerable.Range(0, 16), await ReadCitizenActionValuesAsync(path));
 
             await using var database = await WorldDatabase.OpenAsync(path);
             var loaded = await database.CreateCheckpointStore().LoadAsync();
@@ -37,12 +33,110 @@ public sealed class UnifiedRulesPersistenceTests
             Assert.Equal(engine.SurvivalFingerprint, SimulationEngine.FromPersistenceSnapshot(loaded).SurvivalFingerprint);
             Assert.Equal(before.Citizens.Select(x => x.Id).ToArray(), loaded.Citizens.Select(x => x.Id).ToArray());
             Assert.Contains("20260923010000_M13UnifiedCitizenAction", await database.Context.Database.GetAppliedMigrationsAsync());
+            Assert.Equal(Enumerable.Range(0, 17), await ReadCitizenActionValuesAsync(path));
         }
         finally
         {
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    private static async Task PrepareM12CitizenActionSchemaForM13UpgradeAsync(string path)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Pooling = false,
+            ForeignKeys = false
+        }.ToString();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        var createSql = await ReadCitizenCreateSqlAsync(connection);
+        Assert.Equal(Enumerable.Range(0, 17), ParseCitizenActionValues(createSql));
+        Assert.Equal(1, await ReadMigrationHistoryCountAsync(connection,
+            "20260923010000_M13UnifiedCitizenAction"));
+        var actionConstraintStart = createSql.IndexOf("CK_citizens_action", StringComparison.Ordinal);
+        var valuesMarker = createSql.IndexOf("IN (", actionConstraintStart, StringComparison.Ordinal);
+        Assert.True(valuesMarker >= 0, "The citizen action values were not found.");
+        var actionValuesStart = valuesMarker + "IN (".Length;
+        var actionValuesEnd = createSql.IndexOf(')', actionValuesStart);
+        var oldActionValues = string.Join(",", Enumerable.Range(0, 16));
+        var m12Sql = createSql[..actionValuesStart] + oldActionValues + createSql[actionValuesEnd..];
+        var schemaVersion = await ReadSchemaVersionAsync(connection);
+        await using (var command = connection.CreateCommand())
+        {
+            // SQLite cannot alter a CHECK constraint directly; restore this one
+            // historical definition and let M13 perform its real table rebuild.
+            command.CommandText = """
+                PRAGMA writable_schema=ON;
+                UPDATE sqlite_schema SET sql=$createSql WHERE type='table' AND name='citizens';
+                PRAGMA writable_schema=OFF;
+                DELETE FROM "__EFMigrationsHistory" WHERE "MigrationId"=$migrationId;
+                """;
+            command.Parameters.AddWithValue("$createSql", m12Sql);
+            command.Parameters.AddWithValue("$migrationId", "20260923010000_M13UnifiedCitizenAction");
+            await command.ExecuteNonQueryAsync();
+        }
+        Assert.Equal(0, await ReadMigrationHistoryCountAsync(connection,
+            "20260923010000_M13UnifiedCitizenAction"));
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = $"PRAGMA schema_version={checked(schemaVersion + 1)};";
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+
+    private static async Task<int[]> ReadCitizenActionValuesAsync(string path)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Pooling = false,
+            ForeignKeys = false
+        }.ToString();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync();
+        return ParseCitizenActionValues(await ReadCitizenCreateSqlAsync(connection));
+    }
+
+    private static async Task<string> ReadCitizenCreateSqlAsync(SqliteConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT sql FROM sqlite_schema WHERE type='table' AND name='citizens';";
+        var createSql = await command.ExecuteScalarAsync() as string;
+        Assert.NotNull(createSql);
+        return createSql!;
+    }
+
+    private static int[] ParseCitizenActionValues(string createSql)
+    {
+        var constraintStart = createSql.IndexOf("CK_citizens_action", StringComparison.Ordinal);
+        Assert.True(constraintStart >= 0, "The citizen action constraint was not found.");
+        var valuesMarker = createSql.IndexOf("IN (", constraintStart, StringComparison.Ordinal);
+        Assert.True(valuesMarker >= 0, "The citizen action values were not found.");
+        var valuesStart = valuesMarker + "IN (".Length;
+        var valuesEnd = createSql.IndexOf(')', valuesStart);
+        Assert.True(valuesEnd >= 0, "The citizen action values were not terminated.");
+        return createSql[valuesStart..valuesEnd]
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Select(value => int.Parse(value, System.Globalization.CultureInfo.InvariantCulture))
+            .ToArray();
+    }
+
+    private static async Task<int> ReadSchemaVersionAsync(SqliteConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA schema_version;";
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<int> ReadMigrationHistoryCountAsync(SqliteConnection connection, string migrationId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\"=$migrationId;";
+        command.Parameters.AddWithValue("$migrationId", migrationId);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     [Fact]

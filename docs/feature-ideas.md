@@ -42,8 +42,10 @@ from the simulation without inventing events.
 
 ## A larger, changing world
 
-- **Migration and second settlements.** People could leave for a better site,
-  found another community, and maintain family ties to the original one.
+- **Migration and second settlements.** Implemented in [M14](m14-migration.md),
+  with one autonomous daughter settlement, seasonal household migration, and
+  family visits. New worlds use M14 by default; existing saves keep their
+  recorded rules.
 - **Roads and trade routes.** Repeated travel could justify paths and exchange
   between settlements, making geography matter to prosperity and contact.
 - **Visitors and newcomers.** Travelers could bring skills, goods, and stories

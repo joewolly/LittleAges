@@ -77,6 +77,23 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
         .Plus(Trades.Where(t => t.Status == BarterStatus.Reserved).Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.DeliveredA ? t.QuantityA : 0).Add(t.ResourceB, t.DeliveredB ? t.QuantityB : 0)))
         .Add(ResourceType.Food, PublicWork.Sum(p => (long)p.Food));
 
+    public Goods StoredGoodsAt(SettlementState commons, MigrationWorldState migrationState, long settlementId)
+    {
+        ArgumentNullException.ThrowIfNull(commons);
+        ArgumentNullException.ThrowIfNull(migrationState);
+        if (settlementId is not (1 or MigrationDaughterSettlementState.SettlementId))
+            throw new ArgumentOutOfRangeException(nameof(settlementId));
+        var householdSites = migrationState.HouseholdResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
+        var citizenSites = migrationState.CitizenResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
+        var goods = Households.Where(h => householdSites.GetValueOrDefault(h.HouseholdId, 1) == settlementId)
+            .Aggregate(new Goods(commons.FoodStored, commons.WoodStored, commons.StoneStored), (sum, h) => sum.Plus(h.Holdings));
+        goods = Trades.Where(t => t.Status == BarterStatus.Reserved)
+            .Aggregate(goods, (sum, t) => sum
+                .Add(t.ResourceA, householdSites.GetValueOrDefault(t.HouseholdA, 1) == settlementId && t.DeliveredA ? t.QuantityA : 0)
+                .Add(t.ResourceB, householdSites.GetValueOrDefault(t.HouseholdB, 1) == settlementId && t.DeliveredB ? t.QuantityB : 0));
+        return goods.Add(ResourceType.Food, PublicWork.Where(x => citizenSites.GetValueOrDefault(x.CitizenId, 1) == settlementId).Sum(x => (long)x.Food));
+    }
+
     private sealed class TileCoordinateJsonConverter : JsonConverter<TileCoordinate>
     {
         public override TileCoordinate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -109,7 +126,8 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
     }
 
     public void Validate(IReadOnlyList<Citizen> citizens, IReadOnlyList<Household> households, IReadOnlyList<Structure> structures,
-        SettlementState commons, WorldMap world, long minute, int capacity, int dedicatedFoodCapacity, Goods? additionalAccounted = null)
+        SettlementState commons, WorldMap world, long minute, int capacity, int dedicatedFoodCapacity, Goods? additionalAccounted = null,
+        MigrationWorldState? migrationState = null)
     {
         if (Version != 1 || CommunalPercent != EconomyRules.CommunalPercent || FoodConsumed < 0 || EmergencyFoodConsumed < 0 || EmergencyFoodConsumed > FoodConsumed || PublicWorkPaid < 0)
             throw new ArgumentException("Unsupported economy version or accounting totals.");
@@ -155,8 +173,11 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
         foreach (var e in Events) { e.Goods.Validate(); if (e.WorldMinute < 0 || e.WorldMinute > minute || e.Kind is not ("Inheritance" or "HouseholdMerged" or "FirstTrade" or "EmergencyFoodAid") || !households.Any(h => h.Id.Value == e.HouseholdId) || e.RecipientHouseholdId is { } recipient && !households.Any(h => h.Id.Value == recipient) || e.Kind == "EmergencyFoodAid" && (e.HouseholdId == e.RecipientHouseholdId || e.RecipientHouseholdId is null || e.Goods.Food <= 0 || e.Goods.Wood != 0 || e.Goods.Stone != 0)) throw new ArgumentException("Invalid economic event."); }
         if (NextTradeId <= (Trades.Count == 0 ? 0 : Trades[^1].Id) || NextCacheId <= (Recoverable.Count == 0 ? 0 : Recoverable[^1].Id) || NextEventId <= (Events.Count == 0 ? 0 : Events[^1].Id)) throw new ArgumentException("Economic counters must exceed recorded identities.");
         var stored = StoredGoods(commons); stored.Validate();
-        var transit = Trades.Where(t => t.Status == BarterStatus.Reserved).Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.PickedA && !t.DeliveredA ? t.QuantityA : 0).Add(t.ResourceB, t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
-        if (stored.Total + transit.Total > capacity || stored.Wood + stored.Stone + transit.Wood + transit.Stone > capacity - dedicatedFoodCapacity) throw new ArgumentException("Owned storage exceeds shared or dedicated capacity.");
+        if (migrationState is null)
+        {
+            var transit = Trades.Where(t => t.Status == BarterStatus.Reserved).Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.PickedA && !t.DeliveredA ? t.QuantityA : 0).Add(t.ResourceB, t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
+            if (stored.Total + transit.Total > capacity || stored.Wood + stored.Stone + transit.Wood + transit.Stone > capacity - dedicatedFoodCapacity) throw new ArgumentException("Owned storage exceeds shared or dedicated capacity.");
+        }
         var accounted = citizens.Aggregate(stored, (sum, c) => c.CarriedResourceType is { } resource ? sum.Add(resource, c.CarriedResourceQuantity) : sum);
         accounted = Recoverable.Aggregate(accounted, (sum, g) => sum.Add(g.Resource, g.Quantity));
         accounted = accounted.Plus(new Goods(FoodConsumed, structures.Sum(s => (long)s.DeliveredWood), structures.Sum(s => (long)s.DeliveredStone)));
@@ -171,8 +192,12 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
             var c = citizens.SingleOrDefault(c => c.Id.Value == id);
             if (!carriers.Add(id) || c is null || !c.IsAlive || c.HouseholdId?.Value != owner || c.CurrentAction != CitizenAction.TradeDelivery || c.TargetStructureId?.Value != trade.MarketId ||
                 c.CarriedResourceQuantity != (picked ? quantity : 0) || picked && c.CarriedResourceType != resource || c.ActionPhase != (picked ? CitizenActionPhase.TransportToConstruction : CitizenActionPhase.TravelToStockpile) ||
-                c.ActionTarget != (picked ? structures.Single(s => s.Id.Value == trade.MarketId).Location : world.StartingSite)) throw new ArgumentException("Trade cargo and its carrier disagree.");
+                c.ActionTarget != (picked ? structures.Single(s => s.Id.Value == trade.MarketId).Location : TradeStockpile(owner))) throw new ArgumentException("Trade cargo and its carrier disagree.");
         }
+        TileCoordinate TradeStockpile(long owner) => migrationState?.DaughterSettlement is { } daughter &&
+            migrationState.HouseholdResidences.FirstOrDefault(x => x.EntityId == owner)?.SettlementId == MigrationDaughterSettlementState.SettlementId
+                ? daughter.Site
+                : world.StartingSite;
         static void Ordered(IEnumerable<long> values) { long prior = 0; foreach (var id in values) { if (id <= prior) throw new ArgumentException("Economic rows must have unique ascending positive identities."); prior = id; } }
     }
 }

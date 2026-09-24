@@ -227,6 +227,35 @@ app.MapGet("/api/v1/settlement", (SimulationHost simulationHost) =>
     var settlement = simulationHost.Observation.Settlement;
     return settlement is null ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable) : Results.Ok(settlement);
 });
+app.MapGet("/api/v1/settlements", (SimulationHost simulationHost) =>
+{
+    var settlements = simulationHost.Observation.Settlements;
+    return settlements.Count == 0
+        ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
+        : Results.Ok(settlements.Select(item => new
+        {
+            settlementId = item.SettlementId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            site = item.Site,
+            livingPopulation = item.Summary.LivingPopulation,
+            foodStored = item.Summary.FoodStored,
+            woodStored = item.Summary.WoodStored,
+            stoneStored = item.Summary.StoneStored
+        }).ToArray());
+});
+app.MapGet("/api/v1/settlements/{id}", (string id, SimulationHost simulationHost) =>
+{
+    if (!long.TryParse(id, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var value) || value <= 0 || value.ToString(System.Globalization.CultureInfo.InvariantCulture) != id) return Results.BadRequest();
+    var settlements = simulationHost.Observation.Settlements;
+    if (settlements.Count == 0) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    var settlement = settlements.FirstOrDefault(item => item.SettlementId == value);
+    return settlement is null
+        ? Results.NotFound()
+        : Results.Ok(settlement.Summary with
+        {
+            SettlementId = value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Site = settlement.Site
+        });
+});
 app.MapGet("/api/v1/structures", (SimulationHost simulationHost) =>
 {
     var observation = simulationHost.Observation;

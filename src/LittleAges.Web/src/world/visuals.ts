@@ -44,6 +44,10 @@ export function worldToScene(map: WorldMap, x: number, y: number, lift = 0): Sce
   }
 }
 
+export function settlementSiteScenePoint(map: WorldMap, site: WorldPoint): ScenePoint {
+  return worldToScene(map, site.x, site.y)
+}
+
 export function containMap(width: number, height: number, mapWidth: number, mapHeight: number): ContainedMapLayout {
   const shortestSide = Math.max(1, Math.min(width, height))
   const padding = Math.min(20, shortestSide * 0.04)

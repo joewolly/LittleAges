@@ -795,7 +795,8 @@ public sealed class M5SocialCoreTests
 
     private static Dictionary<long, Household> Households(SimulationEngine engine) => Assert.IsType<Dictionary<long, Household>>(typeof(SimulationEngine).GetField("_households", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(engine));
 
-    private static StructureType? SelectSettlementDemand(SimulationEngine engine) => (StructureType?)typeof(SimulationEngine).GetMethod("SelectSettlementDemand", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null);
+    private static StructureType? SelectSettlementDemand(SimulationEngine engine) => (StructureType?)typeof(SimulationEngine).GetMethod("SelectSettlementDemand", BindingFlags.Instance | BindingFlags.NonPublic,
+        binder: null, types: Type.EmptyTypes, modifiers: null)!.Invoke(engine, null);
 
     private static void EvaluateSettlementDemand(SimulationEngine engine) => typeof(SimulationEngine).GetMethod("EvaluateSettlementDemand", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(engine, null);
 

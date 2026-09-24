@@ -7,14 +7,28 @@ namespace LittleAges.Domain.Tests;
 public sealed class M6HistoryContractTests
 {
     private static readonly int[] HistoricalEventValues = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    private static readonly (HistoricalEventType Type, int Value)[] M14HistoricalEventValues =
+    [
+        (HistoricalEventType.ExpeditionDeparted, 16),
+        (HistoricalEventType.ExpeditionReturned, 17),
+        (HistoricalEventType.ExpeditionLost, 18),
+        (HistoricalEventType.DaughterSettlementFounded, 19),
+        (HistoricalEventType.HouseholdRelocated, 20),
+        (HistoricalEventType.FamilyVisitDeparted, 21),
+        (HistoricalEventType.FamilyVisitReturned, 22)
+    ];
     private static readonly int[] HistoricalImportanceValues = [0, 1, 2, 3, 4, 5];
     private static readonly int[] HistoricalOriginValues = [1, 2];
 
     [Fact]
     public void PersistedEnumsAndImportanceAreExplicitAndStable()
     {
-        Assert.Equal(HistoricalEventValues,
-            Enum.GetValues<HistoricalEventType>().Select(value => (int)value));
+        var historicalEventValues = Enum.GetValues<HistoricalEventType>().Select(value => (int)value).ToArray();
+        Assert.Equal(HistoricalEventValues, historicalEventValues.Take(HistoricalEventValues.Length));
+        Assert.Equal(M14HistoricalEventValues.Select(value => value.Value),
+            historicalEventValues.Skip(HistoricalEventValues.Length));
+        foreach (var (type, value) in M14HistoricalEventValues)
+            Assert.Equal(value, (int)type);
         Assert.Equal(HistoricalImportanceValues,
             Enum.GetValues<HistoricalImportance>().Select(value => (int)value));
         Assert.Equal(HistoricalOriginValues,

@@ -21,7 +21,7 @@ public sealed partial class SimulationEngine
     private long _foodConsumed, _emergencyFoodConsumed, _publicWorkPaid;
     private long _nextTradeId = 1, _nextCacheId = 1, _nextEconomicEventId = 1;
     private bool _economyInitialized;
-    public static bool EconomySystemsEnabled(string rules) => rules is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion;
+    public static bool EconomySystemsEnabled(string rules) => rules is BarterSimulationRulesVersion or SpacedSimulationRulesVersion || UnifiedSimulationRulesEnabled(rules);
     private bool EconomyEnabled => EconomySystemsEnabled(SimulationRulesVersion);
     private IEnumerable<BarterTrade> OpenTrades => _pendingTrades.Select(id => _barterTrades[id]);
 
@@ -58,25 +58,48 @@ public sealed partial class SimulationEngine
     private Goods OwnedStoredGoods => _householdStocks.Values.Aggregate(new Goods(), (sum, h) => sum.Plus(h.Holdings))
         .Plus(OpenTrades.Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.DeliveredA ? t.QuantityA : 0).Add(t.ResourceB, t.DeliveredB ? t.QuantityB : 0)))
         .Add(ResourceType.Food, _publicWork.Values.Sum(p => (long)p.Food));
+    private Goods OwnedStoredGoodsAt(long settlementId)
+    {
+        if (!MigrationSystemsEnabled(SimulationRulesVersion)) return OwnedStoredGoods;
+        return _householdStocks.Values.Where(h => SiteIdForHousehold(h.HouseholdId) == settlementId)
+            .Aggregate(new Goods(), (sum, h) => sum.Plus(h.Holdings))
+            .Plus(OpenTrades.Where(t => SiteIdForHousehold(t.HouseholdA) == settlementId)
+                .Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.DeliveredA ? t.QuantityA : 0)
+                    .Add(t.ResourceB, t.DeliveredB ? t.QuantityB : 0)))
+            .Add(ResourceType.Food, _publicWork.Values.Where(p => SiteIdForCitizen(p.CitizenId) == settlementId).Sum(p => (long)p.Food));
+    }
     public long TotalStoredFood => checked(Settlement.FoodStored + (EconomyEnabled ? OwnedStoredGoods.Food : 0));
     private long TradeCargoReserved => OpenTrades.Sum(t => (t.PickedA && !t.DeliveredA ? (long)t.QuantityA : 0) + (t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
     private long TradeNonFoodReserved => OpenTrades.Sum(t => (t.ResourceA != ResourceType.Food && t.PickedA && !t.DeliveredA ? (long)t.QuantityA : 0) + (t.ResourceB != ResourceType.Food && t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
+    private long TradeCargoReservedAt(long settlementId) => !MigrationSystemsEnabled(SimulationRulesVersion) ? TradeCargoReserved :
+        OpenTrades.Where(t => SiteIdForHousehold(t.HouseholdA) == settlementId)
+            .Sum(t => (t.PickedA && !t.DeliveredA ? (long)t.QuantityA : 0) + (t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
+    private long TradeNonFoodReservedAt(long settlementId) => !MigrationSystemsEnabled(SimulationRulesVersion) ? TradeNonFoodReserved :
+        OpenTrades.Where(t => SiteIdForHousehold(t.HouseholdA) == settlementId)
+            .Sum(t => (t.ResourceA != ResourceType.Food && t.PickedA && !t.DeliveredA ? (long)t.QuantityA : 0) +
+                (t.ResourceB != ResourceType.Food && t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
     private long ReservedGoods(long household, ResourceType resource) => OpenTrades.Sum(t =>
         t.HouseholdA == household && t.ResourceA == resource && !t.PickedA ? (long)t.QuantityA :
         t.HouseholdB == household && t.ResourceB == resource && !t.PickedB ? t.QuantityB : 0);
     private long AvailablePrivate(long household, ResourceType resource) => _householdStocks.TryGetValue(household, out var stock) ? Math.Max(0, stock.Holdings.Get(resource) - ReservedGoods(household, resource)) : 0;
-    private int FoodAvailableTo(Citizen citizen) => checked(Settlement.FoodStored + (int)(citizen.HouseholdId is { } h ? AvailablePrivate(h.Value, ResourceType.Food) : 0));
+    private int FoodAvailableTo(Citizen citizen)
+    {
+        var siteId = SiteIdForCitizen(citizen);
+        return checked(SettlementFor(siteId).FoodStored + (int)(citizen.HouseholdId is { } h ? AvailablePrivate(h.Value, ResourceType.Food) : 0));
+    }
     private void AddPrivate(long owner, ResourceType resource, long amount)
     {
         var stock = _householdStocks[owner];
         var goods = stock.Holdings.Add(resource, amount); goods.Validate();
         _householdStocks[owner] = stock with { Holdings = goods };
     }
-    private void AddCommons(ResourceType resource, int amount)
+    private void AddCommons(ResourceType resource, int amount) => AddCommons(1, resource, amount);
+    private void AddCommons(long settlementId, ResourceType resource, int amount)
     {
-        if (resource == ResourceType.Food) Settlement.FoodStored = checked(Settlement.FoodStored + amount);
-        else if (resource == ResourceType.Wood) Settlement.WoodStored = checked(Settlement.WoodStored + amount);
-        else Settlement.StoneStored = checked(Settlement.StoneStored + amount);
+        var settlement = SettlementFor(settlementId);
+        if (resource == ResourceType.Food) settlement.FoodStored = checked(settlement.FoodStored + amount);
+        else if (resource == ResourceType.Wood) settlement.WoodStored = checked(settlement.WoodStored + amount);
+        else settlement.StoneStored = checked(settlement.StoneStored + amount);
     }
     private void RecordProduction(Citizen citizen, ResourceType resource, int amount)
     {
@@ -98,18 +121,31 @@ public sealed partial class SimulationEngine
         var numerator = checked(amount * EconomyRules.CommunalPercent + stock.ContributionRemainders.Get(resource));
         var communal = checked((int)(numerator / 100));
         _householdStocks[owner] = stock with { ContributionRemainders = stock.ContributionRemainders.Add(resource, numerator % 100 - stock.ContributionRemainders.Get(resource)) };
-        AddCommons(resource, communal); AddPrivate(owner, resource, amount - communal);
+        AddCommons(SiteIdForHousehold(owner), resource, communal); AddPrivate(owner, resource, amount - communal);
     }
     private int ConsumeEconomicMeal(Citizen citizen, int portion)
     {
         var owner = citizen.HouseholdId!.Value.Value;
-        var own = checked((int)Math.Min(portion, AvailablePrivate(owner, ResourceType.Food)));
+        var siteId = SiteIdForCitizen(citizen);
+        var settlement = SettlementFor(siteId);
+        if (MigrationSystemsEnabled(SimulationRulesVersion) &&
+            FoundingPartyForCitizen(citizen.Id.Value) is { JourneyKind: MigrationJourneyKind.Founding or MigrationJourneyKind.Relocation })
+        {
+            var provisions = ConsumeFoundingProvisions(citizen, portion);
+            _foodConsumed = checked(_foodConsumed + provisions);
+            if (_historyState is not null)
+                _historyState.FoodConsumedSinceSample = checked(_historyState.FoodConsumedSinceSample + provisions);
+            return provisions;
+        }
+        var transit = MigrationSystemsEnabled(SimulationRulesVersion) ? ConsumeFoundingProvisions(citizen, portion) : 0;
+        var remaining = portion - transit;
+        var own = checked((int)Math.Min(remaining, AvailablePrivate(owner, ResourceType.Food)));
         AddPrivate(owner, ResourceType.Food, -own);
-        var support = Math.Min(portion - own, Settlement.FoodStored);
-        Settlement.FoodStored -= support;
+        var support = Math.Min(remaining - own, settlement.FoodStored);
+        settlement.FoodStored -= support;
         _emergencyFoodConsumed = checked(_emergencyFoodConsumed + support);
-        var consumed = own + support;
-        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && citizen.Location == World.StartingSite && citizen.Needs.Hunger >= 8500 && consumed < portion)
+        var consumed = transit + own + support;
+        if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && citizen.Location == SiteLocation(siteId) && citizen.Needs.Hunger >= 8500 && consumed < portion)
         {
             var aid = TransferEmergencyFood(owner, portion - consumed);
             if (aid > 0)
@@ -140,12 +176,13 @@ public sealed partial class SimulationEngine
     }
 
     private bool HasEmergencyFoodDonor(long recipient, int hunger) =>
-        SimulationRulesVersion == UnifiedSimulationRulesVersion && hunger >= 8500 && SelectEmergencyFoodDonor(recipient) is not null;
+        UnifiedSimulationRulesEnabled(SimulationRulesVersion) && hunger >= 8500 && SelectEmergencyFoodDonor(recipient) is not null;
 
     private (long HouseholdId, long Surplus)? SelectEmergencyFoodDonor(long recipient)
     {
+        var siteId = SiteIdForHousehold(recipient);
         var donor = _householdStocks.Values
-            .Where(stock => stock.HouseholdId != recipient)
+            .Where(stock => stock.HouseholdId != recipient && SiteIdForHousehold(stock.HouseholdId) == siteId)
             .Select(stock =>
             {
                 var members = _citizens.Values.Count(c => c.IsAlive && c.HouseholdId?.Value == stock.HouseholdId);
@@ -169,14 +206,17 @@ public sealed partial class SimulationEngine
         {
             foreach (var t in OpenTrades.Where(t => t.HouseholdA == owner || t.HouseholdB == owner).ToArray()) CancelTrade(t.Id);
             var formerMembers = _economicMembers.Values.Where(m => m.HouseholdId == owner).Select(m => m.CitizenId).Concat(_citizens.Values.Where(c => c.HouseholdId?.Value == owner).Select(c => c.Id.Value)).ToHashSet();
-            var livingDestinations = formerMembers.Select(id => _citizens[id]).Where(c => c.IsAlive && c.HouseholdId is not null).Select(c => c.HouseholdId!.Value.Value).Distinct().Order().ToArray();
+            var ownerSite = SiteIdForHousehold(owner);
+            var livingDestinations = formerMembers.Select(id => _citizens[id]).Where(c => c.IsAlive && c.HouseholdId is not null)
+                .Select(c => c.HouseholdId!.Value.Value).Where(id => SiteIdForHousehold(id) == ownerSite).Distinct().Order().ToArray();
             var inherited = livingDestinations.Length == 0;
             var descendants = new HashSet<long>(formerMembers);
             if (inherited)
             {
                 bool changed;
                 do { changed = false; foreach (var c in _citizens.Values) if (!descendants.Contains(c.Id.Value) && (c.ParentAId is { } a && descendants.Contains(a.Value) || c.ParentBId is { } b && descendants.Contains(b.Value))) changed |= descendants.Add(c.Id.Value); } while (changed);
-                livingDestinations = descendants.Select(id => _citizens[id]).Where(c => c.IsAlive && c.HouseholdId is not null && c.HouseholdId.Value.Value != owner).Select(c => c.HouseholdId!.Value.Value).Distinct().Order().ToArray();
+                livingDestinations = descendants.Select(id => _citizens[id]).Where(c => c.IsAlive && c.HouseholdId is not null && c.HouseholdId.Value.Value != owner)
+                    .Select(c => c.HouseholdId!.Value.Value).Where(id => SiteIdForHousehold(id) == ownerSite).Distinct().Order().ToArray();
             }
             foreach (var cargo in _productionCargoOwners.Where(p => p.Value == owner).ToArray())
             {
@@ -191,7 +231,7 @@ public sealed partial class SimulationEngine
             foreach (var resource in EconomyRules.Resources)
             {
                 var quantity = goods.Get(resource);
-                if (livingDestinations.Length == 0) AddCommons(resource, checked((int)quantity));
+                if (livingDestinations.Length == 0) AddCommons(ownerSite, resource, checked((int)quantity));
                 else for (var i = 0; i < livingDestinations.Length; i++) AddPrivate(livingDestinations[i], resource, quantity / livingDestinations.Length + (i < quantity % livingDestinations.Length ? 1 : 0));
             }
             foreach (var cache in _recoverableGoods.Values.Where(g => g.HouseholdId == owner).ToArray())
@@ -214,16 +254,19 @@ public sealed partial class SimulationEngine
 
     private void UpdateOccupations()
     {
-        var workers = _citizens.Values.Where(c => c.IsAlive && c.AgeYears(CurrentMinute) >= 13).OrderBy(c => c.Id.Value).ToArray();
-        var count = workers.Length;
-        var quotas = new[] { (WorkSpecialization.Builder, Math.Max(1, count / 10)), (WorkSpecialization.Hauler, Math.Max(1, count / 10)),
-            (WorkSpecialization.Farmer, Math.Min(count / 4, _farms.Count * 2)), (WorkSpecialization.Woodcutter, Math.Max(1, count / 8)), (WorkSpecialization.Stoneworker, Math.Max(1, count / 10)), (WorkSpecialization.Forager, count) };
-        var assigned = new HashSet<long>();
-        foreach (var (role, target) in quotas)
+        foreach (var siteId in MigrationSettlementIds)
         {
-            var chosen = workers.Where(c => !assigned.Contains(c.Id.Value)).OrderByDescending(c => _workAssignments.TryGetValue(c.Id.Value, out var prior) && prior.Specialization == role ? 20000 : 0)
-                .ThenByDescending(c => role switch { WorkSpecialization.Builder => c.Skills.Construction, WorkSpecialization.Hauler => c.Skills.Hauling, WorkSpecialization.Woodcutter => c.Skills.Woodcutting, WorkSpecialization.Stoneworker => c.Skills.Stoneworking, _ => c.Skills.Foraging }).ThenBy(c => c.Id.Value).Take(target);
-            foreach (var c in chosen) { assigned.Add(c.Id.Value); if (!_workAssignments.TryGetValue(c.Id.Value, out var prior) || prior.Specialization != role) _workAssignments[c.Id.Value] = new(c.Id.Value, role, CurrentMinute.Value); }
+            var workers = CitizensAt(siteId).Where(c => c.IsAlive && c.AgeYears(CurrentMinute) >= 13).OrderBy(c => c.Id.Value).ToArray();
+            var count = workers.Length;
+            var quotas = new[] { (WorkSpecialization.Builder, Math.Max(1, count / 10)), (WorkSpecialization.Hauler, Math.Max(1, count / 10)),
+                (WorkSpecialization.Farmer, Math.Min(count / 4, FarmsAt(siteId).Count() * 2)), (WorkSpecialization.Woodcutter, Math.Max(1, count / 8)), (WorkSpecialization.Stoneworker, Math.Max(1, count / 10)), (WorkSpecialization.Forager, count) };
+            var assigned = new HashSet<long>();
+            foreach (var (role, target) in quotas)
+            {
+                var chosen = workers.Where(c => !assigned.Contains(c.Id.Value)).OrderByDescending(c => _workAssignments.TryGetValue(c.Id.Value, out var prior) && prior.Specialization == role ? 20000 : 0)
+                    .ThenByDescending(c => role switch { WorkSpecialization.Builder => c.Skills.Construction, WorkSpecialization.Hauler => c.Skills.Hauling, WorkSpecialization.Woodcutter => c.Skills.Woodcutting, WorkSpecialization.Stoneworker => c.Skills.Stoneworking, _ => c.Skills.Foraging }).ThenBy(c => c.Id.Value).Take(target);
+                foreach (var c in chosen) { assigned.Add(c.Id.Value); if (!_workAssignments.TryGetValue(c.Id.Value, out var prior) || prior.Specialization != role) _workAssignments[c.Id.Value] = new(c.Id.Value, role, CurrentMinute.Value); }
+            }
         }
     }
     private int OccupationBonus(Citizen citizen, CitizenAction action)
@@ -235,34 +278,41 @@ public sealed partial class SimulationEngine
     private int EconomicGatherScore(Citizen citizen, ResourceType resource, int commonScore)
     {
         if (!EconomyEnabled) return commonScore;
-        var members = _citizens.Values.Count(c => c.IsAlive && c.HouseholdId == citizen.HouseholdId);
+        var siteId = SiteIdForCitizen(citizen);
+        var settlement = SettlementFor(siteId);
+        var members = CitizensAt(siteId).Count(c => c.IsAlive && c.HouseholdId == citizen.HouseholdId);
         var own = AvailablePrivate(citizen.HouseholdId!.Value.Value, resource);
         var target = resource == ResourceType.Food ? members * 120 : resource == ResourceType.Wood ? 160 : 100;
         var action = resource == ResourceType.Food ? CitizenAction.GatherFood : resource == ResourceType.Wood ? CitizenAction.GatherWood : CitizenAction.GatherStone;
         var personal = own < target && OccupationBonus(citizen, action) > 0 ? 4500 : 0;
-        if (resource == ResourceType.Food && own < members * 20 && Settlement.FoodStored < LivingPopulation * 10) personal = 8500;
+        if (resource == ResourceType.Food && own < members * 20 && settlement.FoodStored < PopulationAt(siteId) * 10) personal = 8500;
         return Math.Max(commonScore, personal);
     }
 
-    private bool CanProcure(ResourceType resource, bool reserveWage = true) => EconomyEnabled && Settlement.FoodStored > LivingPopulation * 10 + EconomyRules.Weight(resource) + (reserveWage ? EconomyRules.PublicWorkFood : 0) &&
-        _householdStocks.Keys.Any(id => AvailablePrivate(id, resource) > (resource == ResourceType.Wood ? 20 : 10));
+    private bool CanProcure(ResourceType resource, bool reserveWage = true) => CanProcure(1, resource, reserveWage);
+    private bool CanProcure(long settlementId, ResourceType resource, bool reserveWage = true) => EconomyEnabled &&
+        SettlementFor(settlementId).FoodStored > PopulationAt(settlementId) * 10 + EconomyRules.Weight(resource) + (reserveWage ? EconomyRules.PublicWorkFood : 0) &&
+        _householdStocks.Keys.Any(id => SiteIdForHousehold(id) == settlementId && AvailablePrivate(id, resource) > (resource == ResourceType.Wood ? 20 : 10));
     private void ProcurePublicMaterial(Citizen citizen, ResourceType resource, int missing)
     {
-        if (!CanProcure(resource, reserveWage: false) || missing <= 0) return;
-        var owner = _householdStocks.Keys.First(id => AvailablePrivate(id, resource) > (resource == ResourceType.Wood ? 20 : 10));
-        var quantity = checked((int)Math.Min(Math.Min(40, missing), Math.Min(AvailablePrivate(owner, resource) - (resource == ResourceType.Wood ? 20 : 10), (Settlement.FoodStored - LivingPopulation * 10) / EconomyRules.Weight(resource))));
+        var siteId = SiteIdForCitizen(citizen);
+        var settlement = SettlementFor(siteId);
+        if (!CanProcure(siteId, resource, reserveWage: false) || missing <= 0) return;
+        var owner = _householdStocks.Keys.First(id => SiteIdForHousehold(id) == siteId && AvailablePrivate(id, resource) > (resource == ResourceType.Wood ? 20 : 10));
+        var quantity = checked((int)Math.Min(Math.Min(40, missing), Math.Min(AvailablePrivate(owner, resource) - (resource == ResourceType.Wood ? 20 : 10), (settlement.FoodStored - PopulationAt(siteId) * 10) / EconomyRules.Weight(resource))));
         if (quantity <= 0) return;
         var food = quantity * EconomyRules.Weight(resource);
         AddPrivate(owner, resource, -quantity); AddPrivate(owner, ResourceType.Food, food);
-        Settlement.FoodStored -= food; AddCommons(resource, quantity);
+        settlement.FoodStored -= food; AddCommons(siteId, resource, quantity);
         _publicSupplyTrades.Add(new(_publicSupplyTrades.Count + 1L, CurrentMinute.Value, citizen.Id.Value, owner, resource, quantity, food));
     }
 
     private void ReservePublicWork(Citizen citizen)
     {
-        if (!EconomyEnabled || _publicWork.ContainsKey(citizen.Id.Value) || Settlement.FoodStored <= LivingPopulation * 10) return;
-        var amount = Math.Min(EconomyRules.PublicWorkFood, Settlement.FoodStored - LivingPopulation * 10);
-        Settlement.FoodStored -= amount;
+        var settlement = SettlementFor(SiteIdForCitizen(citizen));
+        if (!EconomyEnabled || _publicWork.ContainsKey(citizen.Id.Value) || settlement.FoodStored <= PopulationAt(SiteIdForCitizen(citizen)) * 10) return;
+        var amount = Math.Min(EconomyRules.PublicWorkFood, settlement.FoodStored - PopulationAt(SiteIdForCitizen(citizen)) * 10);
+        settlement.FoodStored -= amount;
         _publicWork.Add(citizen.Id.Value, new(citizen.Id.Value, citizen.HouseholdId!.Value.Value, amount));
     }
     private void CompletePublicWork(Citizen citizen)
@@ -273,7 +323,11 @@ public sealed partial class SimulationEngine
     }
     private void ReleasePublicWork(Citizen citizen)
     {
-        if (_publicWork.Remove(citizen.Id.Value, out var reservation)) Settlement.FoodStored = checked(Settlement.FoodStored + reservation.Food);
+        if (_publicWork.Remove(citizen.Id.Value, out var reservation))
+        {
+            var settlement = SettlementFor(SiteIdForCitizen(citizen));
+            settlement.FoodStored = checked(settlement.FoodStored + reservation.Food);
+        }
     }
     private void AddRecoverable(long? owner, TileCoordinate location, ResourceType resource, int quantity)
     {
@@ -311,32 +365,40 @@ public sealed partial class SimulationEngine
                 _barterOffers.Add(new(h.HouseholdId, resource, checked((int)Math.Max(0, available - reserve)), checked((int)Math.Max(0, reserve - available)), CurrentMinute.Value));
             }
         }
-        var market = _structures.Values.FirstOrDefault(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete);
-        if (market is null) return;
-        var busy = OpenTrades.SelectMany(t => new[] { t.HouseholdA, t.HouseholdB }).ToHashSet();
-        foreach (var offer in _barterOffers.Where(o => o.Surplus > 0))
+        foreach (var settlementId in MigrationSettlementIds)
         {
-            if (busy.Contains(offer.HouseholdId)) continue;
-            foreach (var other in _barterOffers.Where(o => o.HouseholdId > offer.HouseholdId && o.Surplus > 0 && o.Resource != offer.Resource))
+            var market = StructuresAt(settlementId).FirstOrDefault(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete);
+            if (market is null) continue;
+            var siteOffers = _barterOffers.Where(o => SiteIdForHousehold(o.HouseholdId) == settlementId).ToArray();
+            var busy = OpenTrades.Where(t => SiteIdForHousehold(t.HouseholdA) == settlementId)
+                .SelectMany(t => new[] { t.HouseholdA, t.HouseholdB }).ToHashSet();
+            foreach (var offer in siteOffers.Where(o => o.Surplus > 0))
             {
-                if (busy.Contains(other.HouseholdId)) continue;
-                var wantA = _barterOffers.Single(o => o.HouseholdId == offer.HouseholdId && o.Resource == other.Resource).Requested;
-                var wantB = _barterOffers.Single(o => o.HouseholdId == other.HouseholdId && o.Resource == offer.Resource).Requested;
-                var unitA = EconomyRules.Weight(other.Resource); var unitB = EconomyRules.Weight(offer.Resource);
-                var multiples = Math.Min(Math.Min(Math.Min(offer.Surplus, wantB) / unitA, Math.Min(other.Surplus, wantA) / unitB), 20);
-                if (multiples <= 0) continue;
-                var id = _nextTradeId++;
-                var trade = new BarterTrade(id, CurrentMinute.Value, CurrentMinute.Value + 2 * WorldCalendar.MinutesPerDay, market.Id.Value, offer.HouseholdId, other.HouseholdId, offer.Resource, multiples * unitA, other.Resource, multiples * unitB, null, null, false, false, false, false, BarterStatus.Reserved, null);
-                _barterTrades.Add(id, trade); _pendingTrades.Add(id); busy.Add(offer.HouseholdId); busy.Add(other.HouseholdId); break;
+                if (busy.Contains(offer.HouseholdId)) continue;
+                foreach (var other in siteOffers.Where(o => o.HouseholdId > offer.HouseholdId && o.Surplus > 0 && o.Resource != offer.Resource))
+                {
+                    if (busy.Contains(other.HouseholdId)) continue;
+                    var wantA = siteOffers.Single(o => o.HouseholdId == offer.HouseholdId && o.Resource == other.Resource).Requested;
+                    var wantB = siteOffers.Single(o => o.HouseholdId == other.HouseholdId && o.Resource == offer.Resource).Requested;
+                    var unitA = EconomyRules.Weight(other.Resource); var unitB = EconomyRules.Weight(offer.Resource);
+                    var multiples = Math.Min(Math.Min(Math.Min(offer.Surplus, wantB) / unitA, Math.Min(other.Surplus, wantA) / unitB), 20);
+                    if (multiples <= 0) continue;
+                    var id = _nextTradeId++;
+                    var trade = new BarterTrade(id, CurrentMinute.Value, CurrentMinute.Value + 2 * WorldCalendar.MinutesPerDay, market.Id.Value, offer.HouseholdId, other.HouseholdId, offer.Resource, multiples * unitA, other.Resource, multiples * unitB, null, null, false, false, false, false, BarterStatus.Reserved, null);
+                    _barterTrades.Add(id, trade); _pendingTrades.Add(id); busy.Add(offer.HouseholdId); busy.Add(other.HouseholdId); break;
+                }
             }
         }
     }
     private BarterTrade? TradeFor(Citizen citizen) => !EconomyEnabled || citizen.AgeYears(CurrentMinute) < 13 ? null : OpenTrades.FirstOrDefault(t =>
-        t.HouseholdA == citizen.HouseholdId?.Value && t.CarrierA is null || t.HouseholdB == citizen.HouseholdId?.Value && t.CarrierB is null);
+        SiteIdForHousehold(t.HouseholdA) == SiteIdForCitizen(citizen) &&
+        SiteIdForHousehold(t.HouseholdB) == SiteIdForCitizen(citizen) &&
+        (t.HouseholdA == citizen.HouseholdId?.Value && t.CarrierA is null || t.HouseholdB == citizen.HouseholdId?.Value && t.CarrierB is null));
     private void BeginTrade(Citizen citizen, BarterTrade trade)
     {
         _barterTrades[trade.Id] = trade.HouseholdA == citizen.HouseholdId?.Value ? trade with { CarrierA = citizen.Id.Value } : trade with { CarrierB = citizen.Id.Value };
-        BeginTravel(citizen, CitizenAction.TradeDelivery, World.StartingSite, null, CitizenActionPhase.TravelToStockpile, new StructureId(trade.MarketId));
+        var marketSite = SiteIdForStructure(trade.MarketId);
+        BeginTravel(citizen, CitizenAction.TradeDelivery, SiteLocation(marketSite), null, CitizenActionPhase.TravelToStockpile, new StructureId(trade.MarketId));
     }
     private void ArriveTrade(Citizen citizen)
     {

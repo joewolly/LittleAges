@@ -7,6 +7,9 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
+- [`m14-migration.md`](./m14-migration.md) — implemented M14 rules contract and
+  current new-world default for migration and a second settlement; long-horizon
+  acceptance status is documented there.
 - [`living-settlement-v0.2.md`](./living-settlement-v0.2.md) — opt-in successor
   rules, including the `living1` and opt-in new-world `living2` identifiers,
   autonomous work and economy, personal life, environment, knowledge,

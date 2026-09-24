@@ -6,15 +6,13 @@ namespace LittleAges.Headless.Tests;
 public sealed class UnifiedRulesHeadlessTests
 {
     [Fact]
-    public void M13IsAcceptedByHeadlessAndIsTheCurrentDefault()
+    public void M13RemainsSelectableByHeadless()
     {
         var acceptance = HeadlessCommandLine.Parse(["acceptance", "--rules", SimulationEngine.UnifiedSimulationRulesVersion,
             "--years", "10", "--checkpoint-year", "5"]);
         var diagnostic = HeadlessCommandLine.Parse(["run", "--rules", SimulationEngine.UnifiedSimulationRulesVersion,
             "--living-diagnostic", "monthly", "--diagnostic-end-year", "1"]);
 
-        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
-        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
         Assert.True(acceptance.Succeeded, acceptance.Error);
         Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, acceptance.Options!.Rules);
         Assert.True(diagnostic.Succeeded, diagnostic.Error);

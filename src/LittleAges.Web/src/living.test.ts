@@ -4,11 +4,12 @@ import { parseLivingWorld } from './living'
 const world = { version: 1, rulesVersion: 'v02-rng1-living1', worldMinute: 1440, age: 'Foraging', capabilities: ['work'], weather: 'Fair', temperature: 15, rainfall: 25, completedOrders: 0, foodHarvested: 0, foodPrepared: 0, careGiven: 0, goodsSpoiled: 0, totalFacts: 0, stock: [], people: [], orders: [], fields: [], facilities: [], animals: [], facts: [] }
 
 describe('living world observations', () => {
-  it('accepts the legacy Living rules and unified M13 while rejecting unknown versions', () => {
+  it('accepts legacy Living and unified M13/M14 rules while rejecting unknown versions', () => {
     expect(parseLivingWorld(null)).toBeNull()
     expect(parseLivingWorld(world)?.weather).toBe('Fair')
     expect(parseLivingWorld({ ...world, rulesVersion: 'v02-rng1-living2' })?.rulesVersion).toBe('v02-rng1-living2')
     expect(parseLivingWorld({ ...world, rulesVersion: 'm13-rng1-unified1' })?.rulesVersion).toBe('m13-rng1-unified1')
+    expect(parseLivingWorld({ ...world, rulesVersion: 'm14-rng1-migration1' })?.rulesVersion).toBe('m14-rng1-migration1')
     expect(() => parseLivingWorld({ ...world, version: 2 })).toThrow()
     expect(() => parseLivingWorld({ ...world, rulesVersion: 'v02-rng1-living3' })).toThrow()
   })

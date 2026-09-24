@@ -146,7 +146,86 @@ public sealed class LivingRecoveryTests
     private static SimulationEngine Create() => new(new WorldSeed(42), simulationRulesVersion: SimulationEngine.LivingSimulationRulesVersion);
     private static Citizen[] Citizens(SimulationEngine engine) => ((IDictionary<long, Citizen>)typeof(SimulationEngine).GetField("_citizens", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(engine)!).Values.OrderBy(x => x.Id.Value).ToArray();
     private static LivingWorldState State(SimulationEngine engine) => (LivingWorldState)typeof(SimulationEngine).GetField("_living", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(engine)!;
-    private static object? Call(SimulationEngine engine, string name, params object[] arguments) => typeof(SimulationEngine).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(engine, arguments);
+    private static object? Call(SimulationEngine engine, string name, params object[] arguments)
+    {
+        var method = Assert.Single(typeof(SimulationEngine).GetMethods(BindingFlags.NonPublic | BindingFlags.Instance),
+            candidate => candidate.Name == name && TryBindArguments(candidate.GetParameters(), arguments, out _));
+        TryBindArguments(method.GetParameters(), arguments, out var invokeArguments);
+        return method.Invoke(engine, invokeArguments);
+    }
+
+    private static bool TryBindArguments(ParameterInfo[] parameters, object[] arguments, out object?[] invokeArguments)
+    {
+        var bound = new object?[parameters.Length];
+        if (!Bind(0, 0))
+        {
+            invokeArguments = [];
+            return false;
+        }
+
+        invokeArguments = bound;
+        return true;
+
+        bool Bind(int parameterIndex, int argumentIndex)
+        {
+            if (parameterIndex == parameters.Length) return argumentIndex == arguments.Length;
+
+            var parameter = parameters[parameterIndex];
+            if (parameter.GetCustomAttribute<ParamArrayAttribute>() is not null)
+            {
+                var arrayType = parameter.ParameterType;
+                var elementType = arrayType.GetElementType()!;
+                var remaining = arguments.Length - argumentIndex;
+                if (remaining == 0)
+                {
+                    bound[parameterIndex] = Array.CreateInstance(elementType, 0);
+                    return Bind(parameterIndex + 1, argumentIndex);
+                }
+
+                if (remaining == 1 && MatchesParameter(arrayType, arguments[argumentIndex]))
+                {
+                    bound[parameterIndex] = arguments[argumentIndex];
+                    if (Bind(parameterIndex + 1, argumentIndex + 1)) return true;
+                    bound[parameterIndex] = null;
+                }
+
+                var expanded = Array.CreateInstance(elementType, remaining);
+                for (var index = 0; index < remaining; index++)
+                {
+                    var argument = arguments[argumentIndex + index];
+                    if (!MatchesParameter(elementType, argument)) return false;
+                    expanded.SetValue(argument, index);
+                }
+
+                bound[parameterIndex] = expanded;
+                return Bind(parameterIndex + 1, arguments.Length);
+            }
+
+            if (argumentIndex < arguments.Length && MatchesParameter(parameter.ParameterType, arguments[argumentIndex]))
+            {
+                bound[parameterIndex] = arguments[argumentIndex];
+                if (Bind(parameterIndex + 1, argumentIndex + 1)) return true;
+                bound[parameterIndex] = null;
+            }
+
+            if (parameter.IsOptional)
+            {
+                bound[parameterIndex] = parameter.DefaultValue;
+                if (Bind(parameterIndex + 1, argumentIndex)) return true;
+                bound[parameterIndex] = null;
+            }
+
+            return false;
+        }
+    }
+
+    private static bool MatchesParameter(Type parameterType, object? argument)
+    {
+        if (argument is null) return !parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) is not null;
+        var argumentType = argument.GetType();
+        var nullableType = Nullable.GetUnderlyingType(parameterType);
+        return parameterType.IsAssignableFrom(argumentType) || nullableType?.IsAssignableFrom(argumentType) == true;
+    }
 
     [Theory]
     [InlineData(false)]

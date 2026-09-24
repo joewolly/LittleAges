@@ -67,6 +67,8 @@ public sealed class M6HistoryApiTests
             Assert.Equal("WorldCreated", eventDetail.RootElement.GetProperty("eventType").GetString());
             Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/v1/history/01")).StatusCode);
             Assert.Equal(HttpStatusCode.BadRequest, (await client.GetAsync("/api/v1/history?eventType=NoSuchEvent")).StatusCode);
+            using var migrationTypeFilter = await GetJsonAsync(client, "/api/v1/history?eventType=ExpeditionDeparted&minimumImportance=0");
+            Assert.Empty(migrationTypeFilter.RootElement.EnumerateArray());
 
             using var biography = await GetJsonAsync(client, "/api/v1/citizens/1/biography");
             Assert.Equal("1", biography.RootElement.GetProperty("citizen").GetProperty("citizenId").GetString());

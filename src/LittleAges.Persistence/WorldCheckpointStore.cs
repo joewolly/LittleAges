@@ -563,6 +563,10 @@ public sealed class WorldCheckpointStore
             _context.ChangeTracker.Clear();
             var existingMetadata = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
             if (existingMetadata.Count > 1) throw new InvalidDataException("A checkpoint cannot replace a database with multiple world_meta rows.");
+            if (existingMetadata.Count == 1 &&
+                (existingMetadata[0].SimulationRulesVersion == SimulationEngine.MigrationSimulationRulesVersion) !=
+                (snapshot.SimulationRulesVersion == SimulationEngine.MigrationSimulationRulesVersion))
+                throw new InvalidDataException("M14 migration state is supported only for new M14 worlds and cannot convert an existing world.");
             if (existingMetadata.Count == 1) LivingValidation.ValidateRetainedFacts(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson);
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
 
@@ -570,7 +574,7 @@ public sealed class WorldCheckpointStore
             var economyRow = await _context.EconomyStates.SingleOrDefaultAsync(cancellationToken);
             if (snapshot.Economy is { } economy)
             {
-                var canonicalEconomyJson = snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion
+                var canonicalEconomyJson = SimulationEngine.UnifiedSimulationRulesEnabled(snapshot.SimulationRulesVersion)
                     ? economy.ToUnifiedCanonicalJson()
                     : economy.ToCanonicalJson();
                 if (economyRow is null) _context.EconomyStates.Add(new EconomyStateRow { CanonicalJson = canonicalEconomyJson });
@@ -638,7 +642,7 @@ public sealed class WorldCheckpointStore
         {
             _context.WorldMeta.Add(ToWorldMetaRow(snapshot, world, createdUtc, checkpointUtc));
             _context.ScheduledEvents.AddRange(snapshot.ScheduledEvents.Select(ToScheduledEventRow));
-            var unifiedRules = snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion;
+            var unifiedRules = SimulationEngine.UnifiedSimulationRulesEnabled(snapshot.SimulationRulesVersion);
             _context.Citizens.AddRange(snapshot.Citizens.Select(citizen => ToCitizenRow(citizen, unifiedRules)));
             _context.WorldTiles.AddRange(world.Tiles.Select(tile => ToWorldTileRow(tile, world.Width)).ToArray());
             _context.ResourceNodes.AddRange(world.Resources.Select(node => ToResourceNodeRow(node, world.Width)).ToArray());
@@ -766,7 +770,7 @@ public sealed class WorldCheckpointStore
         if (metadata.CitizenGenerationVersion == 0 && citizensRows.Count != 0) throw new InvalidDataException("A pre-M2 checkpoint must not contain citizen rows.");
         if (metadata.CitizenGenerationVersion is not (0 or SimulationEngine.CitizenGenerationVersion)) throw new NotSupportedException($"Citizen generation version '{metadata.CitizenGenerationVersion}' is not supported.");
         Citizen[] citizens;
-        var unifiedRules = metadata.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion;
+        var unifiedRules = SimulationEngine.UnifiedSimulationRulesEnabled(metadata.SimulationRulesVersion);
         try { citizens = citizensRows.Select(row => FromCitizenRow(row, world, minute, metadata.SurvivalVersion, SimulationEngine.LivingSystemsEnabled(metadata.SimulationRulesVersion), unifiedRules)).ToArray(); }
         catch (InvalidDataException) { throw; }
         catch (ArgumentException exception) { throw new InvalidDataException("A persisted citizen row is not valid.", exception); }
@@ -791,7 +795,7 @@ public sealed class WorldCheckpointStore
             AgricultureState? agriculture;
             try { agriculture = agricultureRow is null ? null : AgricultureState.Parse(agricultureRow.CanonicalJson); }
             catch (JsonException exception) { throw new InvalidDataException("Malformed agriculture state.", exception); }
-            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion, metadata.SettlementVersion, persistedStructures, persistedContributions, metadata.SocialVersion, relationshipRows.Select(FromRelationshipRow).ToArray(), householdRows.Select(FromHouseholdRow).ToArray(), metadata.HistoryVersion, historyState, historicalEvents, historicalCitizenLinks, historicalStructureLinks, statistics, memories, agriculture, economy, metadata.LivingStateJson);
+            snapshot = new SimulationPersistenceSnapshot(seed, minute, metadata.WorldSchemaVersion, metadata.SimulationRulesVersion, metadata.ApplicationVersion, configuration.CanonicalJson, new DeterministicCountersSnapshot(metadata.NextEntityId, metadata.NextHistoricalEventId, metadata.NextScheduledEventSequence), events.Select(ToScheduledEventSnapshot).ToArray(), world, citizens, metadata.CitizenGenerationVersion, states, settlement, metadata.SurvivalVersion, metadata.SettlementVersion, persistedStructures, persistedContributions, metadata.SocialVersion, relationshipRows.Select(FromRelationshipRow).ToArray(), householdRows.Select(FromHouseholdRow).ToArray(), metadata.HistoryVersion, historyState, historicalEvents, historicalCitizenLinks, historicalStructureLinks, statistics, memories, agriculture, economy, metadata.LivingStateJson, metadata.MigrationStateJson);
             SimulationEngine.ValidatePersistenceSnapshotCompatibility(snapshot);
         }
         catch (ArgumentException exception) { throw new InvalidDataException("The persisted checkpoint is not a valid persistence snapshot.", exception); }
@@ -937,6 +941,7 @@ public sealed class WorldCheckpointStore
         StartingX = world.StartingSite.X, StartingY = world.StartingSite.Y, WorldFingerprint = world.Fingerprint,
         CitizenGenerationVersion = snapshot.CitizenGenerationVersion, SurvivalVersion = snapshot.SurvivalVersion, SettlementVersion = snapshot.SettlementVersion, SocialVersion = snapshot.SocialVersion, HistoryVersion = snapshot.HistoryVersion, NextEntityId = snapshot.Counters.NextEntityId, NextHistoricalEventId = snapshot.Counters.NextHistoricalEventId, NextScheduledEventSequence = snapshot.Counters.NextScheduledEventSequence,
         LivingStateJson = snapshot.LivingStateJson,
+        MigrationStateJson = snapshot.MigrationStateJson,
         CreatedUtc = createdUtc, LastCheckpointUtc = checkpointUtc
     };
 
@@ -1097,7 +1102,7 @@ public sealed class WorldCheckpointStore
             if (citizensById.Keys.Any(id => !snapshotCitizenIds.Contains(id))) throw new InvalidDataException("An M6 checkpoint cannot remove a citizen referenced by history.");
             foreach (var citizen in snapshot.Citizens)
             {
-                var row = ToCitizenRow(citizen, snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion);
+                var row = ToCitizenRow(citizen, SimulationEngine.UnifiedSimulationRulesEnabled(snapshot.SimulationRulesVersion));
                 if (citizensById.TryGetValue(row.Id, out var existing)) { _context.Entry(existing).CurrentValues.SetValues(row); _context.Entry(existing).State = EntityState.Modified; }
                 else _context.Citizens.Add(row);
             }

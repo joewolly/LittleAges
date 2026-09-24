@@ -31,19 +31,44 @@ public sealed partial class SimulationEngine
         if (weather == LivingWeatherKind.Drought)
             foreach (var node in World.Resources.Where(x => x.Type == ResourceType.Food))
                 _resourceStates[node.Id.Value].CurrentQuantity = Math.Max(0, _resourceStates[node.Id.Value].CurrentQuantity - Math.Max(1, node.RegenerationPotential / 4));
-        foreach (var item in state.Stock.Where(x => x.Good is LivingGood.Grain or LivingGood.PreservedFood or LivingGood.Fiber or LivingGood.Hide).ToArray())
+        if (MigrationSystemsEnabled(SimulationRulesVersion))
         {
-            var spoilage = item.Good == LivingGood.Grain ? item.Quantity / 100 : item.Good is LivingGood.Fiber or LivingGood.Hide ? item.Quantity / 200 : day % 30 == 0 ? item.Quantity / 200 : 0;
-            ChangeGood(item.Good, -spoilage); state.GoodsSpoiled += spoilage;
-            if (SimulationRulesVersion == UnifiedSimulationRulesVersion && item.Good == LivingGood.Grain)
-                state.CommunalGrainSpoiled = checked(state.CommunalGrainSpoiled + spoilage);
+            foreach (var settlementId in MigrationSettlementIds)
+            {
+                foreach (var item in LivingGoodsFor(settlementId).Where(x => x.Good is LivingGood.Grain or LivingGood.PreservedFood or LivingGood.Fiber or LivingGood.Hide).ToArray())
+                {
+                    var spoilage = item.Good == LivingGood.Grain ? item.Quantity / 100 : item.Good is LivingGood.Fiber or LivingGood.Hide ? item.Quantity / 200 : day % 30 == 0 ? item.Quantity / 200 : 0;
+                    ChangeGoodAt(settlementId, item.Good, -spoilage); state.GoodsSpoiled += spoilage;
+                    if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && item.Good == LivingGood.Grain)
+                        state.CommunalGrainSpoiled = checked(state.CommunalGrainSpoiled + spoilage);
+                }
+                var settlement = SettlementFor(settlementId);
+                var population = PopulationAt(settlementId);
+                var neededFood = Math.Max(0, population * 30 - settlement.FoodStored);
+                var release = Math.Min(neededFood, Good(settlementId, LivingGood.PreservedFood));
+                if (UnifiedSimulationRulesEnabled(SimulationRulesVersion)) RecordCommunalFoodProduction(release);
+                ChangeGoodAt(settlementId, LivingGood.PreservedFood, -release);
+                settlement.FoodStored = checked(settlement.FoodStored + release);
+                if (state.Temperature < 5)
+                    ChangeGoodAt(settlementId, LivingGood.Fuel, -Math.Min(Good(settlementId, LivingGood.Fuel), Math.Max(1, (population + 3) / 4)));
+            }
         }
-        var neededFood = Math.Max(0, LivingPopulation * 30 - Settlement.FoodStored);
-        var release = Math.Min(neededFood, Good(LivingGood.PreservedFood));
-        if (SimulationRulesVersion == UnifiedSimulationRulesVersion) RecordCommunalFoodProduction(release);
-        ChangeGood(LivingGood.PreservedFood, -release); Settlement.FoodStored += release;
-        if (state.Temperature < 5)
-            ChangeGood(LivingGood.Fuel, -Math.Min(Good(LivingGood.Fuel), Math.Max(1, (LivingPopulation + 3) / 4)));
+        else
+        {
+            foreach (var item in state.Stock.Where(x => x.Good is LivingGood.Grain or LivingGood.PreservedFood or LivingGood.Fiber or LivingGood.Hide).ToArray())
+            {
+                var spoilage = item.Good == LivingGood.Grain ? item.Quantity / 100 : item.Good is LivingGood.Fiber or LivingGood.Hide ? item.Quantity / 200 : day % 30 == 0 ? item.Quantity / 200 : 0;
+                ChangeGood(item.Good, -spoilage); state.GoodsSpoiled += spoilage;
+                if (UnifiedSimulationRulesEnabled(SimulationRulesVersion) && item.Good == LivingGood.Grain)
+                    state.CommunalGrainSpoiled = checked(state.CommunalGrainSpoiled + spoilage);
+            }
+            var neededFood = Math.Max(0, LivingPopulation * 30 - Settlement.FoodStored);
+            var release = Math.Min(neededFood, Good(LivingGood.PreservedFood));
+            if (UnifiedSimulationRulesEnabled(SimulationRulesVersion)) RecordCommunalFoodProduction(release);
+            ChangeGood(LivingGood.PreservedFood, -release); Settlement.FoodStored += release;
+            if (state.Temperature < 5)
+                ChangeGood(LivingGood.Fuel, -Math.Min(Good(LivingGood.Fuel), Math.Max(1, (LivingPopulation + 3) / 4)));
+        }
         AdvanceLivingWildlife(day);
     }
     private void AdvanceLivingWildlife(long day)

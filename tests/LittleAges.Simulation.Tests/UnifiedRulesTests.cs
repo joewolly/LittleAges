@@ -8,9 +8,19 @@ namespace LittleAges.Simulation.Tests;
 public sealed class UnifiedRulesTests
 {
     [Fact]
+    public void M14IsCurrentDefaultWhileM13RemainsExplicitlyAvailable()
+    {
+        Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+
+        var m13 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.UnifiedSimulationRulesVersion);
+
+        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, m13.SimulationRulesVersion);
+        Assert.NotNull(m13.CreatePersistenceSnapshot().LivingStateJson);
+    }
+
+    [Fact]
     public void M13ComposesM12AndLivingWithoutDuplicateFieldsAndCarriesCanonicalGrain()
     {
-        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         var m12 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.SpacedSimulationRulesVersion);
         Assert.Equal(SimulationEngine.SpacedSimulationRulesVersion, m12.SimulationRulesVersion);
         Assert.Null(m12.LivingStateJson);

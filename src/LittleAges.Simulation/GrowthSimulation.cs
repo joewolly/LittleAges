@@ -10,7 +10,7 @@ public sealed record GrowthObservation(int Living, int Births, int Deaths, int U
 
 public sealed partial class SimulationEngine
 {
-    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion;
+    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion || UnifiedSimulationRulesEnabled(rulesVersion);
     public static bool UsesSampledShortageRecovery(string rulesVersion) => rulesVersion is M8SimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion || GrowthSystemsEnabled(rulesVersion);
 
     private void EnsureIndependentHouseholds()
@@ -39,8 +39,14 @@ public sealed partial class SimulationEngine
         var result = new List<CitizenDecisionEvaluation>();
         var needs = citizen.GetProjectedNeeds(CurrentMinute);
         var random = new DeterministicRandom(Seed);
+        var siteId = SiteIdForCitizen(citizen);
+        var settlement = SettlementFor(siteId);
+        var population = PopulationAt(siteId);
         var travel = GetTravelCostsCached(citizen.Location);
         var age = citizen.AgeYears(CurrentMinute);
+        var harvestTarget = AgricultureSystemsEnabled(SimulationRulesVersion)
+            ? SelectFarmTarget(citizen, CitizenAction.HaulHarvest)
+            : null;
         void Add(CitizenAction action, int score, ulong purpose, long cost = 0)
         {
             if (!IsAgeEligible(action, age)) return;
@@ -51,34 +57,41 @@ public sealed partial class SimulationEngine
         }
         var hasMeal = EconomyEnabled
             ? FoodAvailableTo(citizen) > 0 || citizen.HouseholdId is { } household && HasEmergencyFoodDonor(household.Value, needs.Hunger)
-            : Settlement.FoodStored > 0;
-        if (hasMeal && needs.Hunger >= 3500 && travel.TryGetValue(World.StartingSite, out var mealCost))
+            : settlement.FoodStored > 0;
+        var prioritizeDaughterHarvest = harvestTarget is not null &&
+            MigrationSystemsEnabled(SimulationRulesVersion) &&
+            siteId == MigrationDaughterSettlementState.SettlementId &&
+            settlement.FoodStored < population * (long)DaughterFoodReservePerResident &&
+            (!hasMeal || needs.Hunger < 8000) && needs.Rest < 8500;
+        if (hasMeal && needs.Hunger >= 3500 && travel.TryGetValue(SiteLocation(siteId), out var mealCost))
             Add(CitizenAction.Eat, needs.Hunger * 4, 1, mealCost);
         if (needs.Rest >= 4000) Add(CitizenAction.Rest, needs.Rest * 3, 2);
         if (needs.Hunger < 8000 && needs.Rest < 8500 && needs.Social >= 3500 && SelectSocialTarget(citizen) is not null)
             Add(CitizenAction.Socialize, needs.Social * 2 + citizen.Traits.Sociability / 10, 101);
 
-        var project = ActiveConstructionProject;
+        var project = ActiveConstructionProjectFor(siteId);
         var woodMissing = project is null ? 0 : ConstructionMissing(project, ResourceType.Wood);
         var stoneMissing = project is null ? 0 : ConstructionMissing(project, ResourceType.Stone);
         if (project is not null && travel.TryGetValue(project.Location, out var projectCost))
         {
-            var urgency = project.Type == StructureType.Shelter && ShelterCapacity < LivingPopulation ? 9000 : 4500;
-            if ((woodMissing > 0 && (Settlement.WoodStored > 0 || CanProcure(ResourceType.Wood))) || (stoneMissing > 0 && (Settlement.StoneStored > 0 || CanProcure(ResourceType.Stone))))
+            var urgency = project.Type == StructureType.Shelter && ShelterCapacityAt(siteId) < population ? 9000 : 4500;
+            if ((woodMissing > 0 && (settlement.WoodStored > 0 || CanProcure(siteId, ResourceType.Wood))) || (stoneMissing > 0 && (settlement.StoneStored > 0 || CanProcure(siteId, ResourceType.Stone))))
                 Add(CitizenAction.HaulConstruction, urgency, 9, projectCost);
             else if (woodMissing == 0 && stoneMissing == 0) Add(CitizenAction.Build, urgency, 10, projectCost);
         }
-        if (Settlement.StorageUsed < StorageCapacity)
+        if ((long)settlement.StorageUsed + LivingStoredQuantityAt(siteId) + (EconomyEnabled ? OwnedStoredGoodsAt(siteId).Total : 0) < StorageCapacityAt(siteId))
         {
-            GatherCandidate(CitizenAction.GatherFood, ResourceType.Food, Settlement.FoodStored < GrowthFoodReserveTarget
-                ? 4500 + (GrowthFoodReserveTarget - Settlement.FoodStored) * 4000 / Math.Max(1, GrowthFoodReserveTarget) : 0, 3);
-            GatherCandidate(CitizenAction.GatherWood, ResourceType.Wood, Settlement.WoodStored < woodMissing ? 9500 : Settlement.WoodStored < 80 ? 2500 : 0, 4);
-            GatherCandidate(CitizenAction.GatherStone, ResourceType.Stone, Settlement.StoneStored < stoneMissing ? 9500 : Settlement.StoneStored < 40 ? 2500 : 0, 5);
+            var foodTarget = checked(population * (EconomyEnabled ? 12 : 60));
+            if (!prioritizeDaughterHarvest) GatherCandidate(CitizenAction.GatherFood, ResourceType.Food, settlement.FoodStored < foodTarget
+                ? 4500 + (foodTarget - settlement.FoodStored) * 4000 / Math.Max(1, foodTarget) : 0, 3);
+            GatherCandidate(CitizenAction.GatherWood, ResourceType.Wood, settlement.WoodStored < woodMissing ? 9500 : settlement.WoodStored < 80 ? 2500 : 0, 4);
+            GatherCandidate(CitizenAction.GatherStone, ResourceType.Stone, settlement.StoneStored < stoneMissing ? 9500 : settlement.StoneStored < 40 ? 2500 : 0, 5);
         }
         if (AgricultureSystemsEnabled(SimulationRulesVersion))
         {
             if (SelectFarmTarget(citizen, CitizenAction.WorkFarm) is { } field) Add(CitizenAction.WorkFarm, 6500, 201, travel[field.Location]);
-            if (SelectFarmTarget(citizen, CitizenAction.HaulHarvest) is { } harvest) Add(CitizenAction.HaulHarvest, 8500, 202, travel[harvest.Location]);
+            if (harvestTarget is { } harvest)
+                Add(CitizenAction.HaulHarvest, prioritizeDaughterHarvest ? 34200 : 8500, 202, travel[harvest.Location]);
         }
         if (TradeFor(citizen) is not null) Add(CitizenAction.TradeDelivery, 10000, 203);
         // Once supplies and needs are satisfied, rest locally instead of aimless long trips.
@@ -92,12 +105,15 @@ public sealed partial class SimulationEngine
             // Reserve space for outbound workers as well as goods already in transit.
             // Otherwise a full stockpile can trap every gatherer in WaitingForStorage,
             // unable to eat the food they just produced.
-            var incoming = _citizens.Values.Where(c => c.IsAlive && c.Id != citizen.Id)
+            var incoming = CitizensAt(siteId).Where(c => c.IsAlive && c.Id != citizen.Id)
                 .Sum(c => c.CarriedResourceQuantity > 0 ? (long)c.CarriedResourceQuantity :
                     c.CurrentAction is CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone
                         ? GrowthGatherYield(c, c.CurrentAction) : 0);
-            if (incoming + GrowthGatherYield(citizen, action) > AvailableStorage(type)) return;
-            if (type == ResourceType.Food && Settlement.FoodStored == 0 && needs.Hunger >= 6000) score += needs.Hunger * 2;
+            var available = AvailableStorage(type, siteId);
+            if (MigrationSystemsEnabled(SimulationRulesVersion)
+                ? incoming >= available
+                : incoming + GrowthGatherYield(citizen, action) > available) return;
+            if (type == ResourceType.Food && settlement.FoodStored == 0 && needs.Hunger >= 6000) score += needs.Hunger * 2;
             Add(action, score + citizen.Traits.Industriousness / 20, purpose, cost);
         }
     }

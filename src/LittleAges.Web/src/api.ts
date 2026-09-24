@@ -99,6 +99,17 @@ export type Settlement = {
   elderCount: number
 }
 
+export type SettlementSite = {
+  settlementId: string
+  site: { x: number; y: number }
+  livingPopulation: number
+  foodStored: number
+  woodStored: number
+  stoneStored: number
+}
+
+export type SettlementDetails = Settlement & Pick<SettlementSite, 'settlementId' | 'site'>
+
 export type Relationship = {
   otherCitizenId: string
   otherCitizenName: string
@@ -166,7 +177,7 @@ export type Map = {
   startingSite: { x: number; y: number }
 }
 
-export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted'] as const
+export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned'] as const
 export type HistoricalEventType = typeof HISTORICAL_EVENT_TYPES[number]
 export const HISTORICAL_IMPORTANCES = ['Debug', 'Routine', 'Personal', 'Notable', 'Major', 'Historic'] as const
 export type HistoricalImportance = typeof HISTORICAL_IMPORTANCES[number]
@@ -291,8 +302,19 @@ export function parseStatus(value: unknown): Status {
 async function get(path: string): Promise<unknown> {
   const response = await fetch(path)
   if (!response.ok) throw new Error(`Request failed (${response.status})`)
+  return readResponseValue(response)
+}
+
+async function readResponseValue(response: Response): Promise<unknown> {
   const text = await response.text()
   try { return JSON.parse(text) as unknown } catch { return text }
+}
+
+async function getIfFound(path: string): Promise<{ found: true; value: unknown } | { found: false }> {
+  const response = await fetch(path)
+  if (response.status === 404) return { found: false }
+  if (!response.ok) throw new Error(`Request failed (${response.status})`)
+  return { found: true, value: await readResponseValue(response) }
 }
 
 async function post(path: string, body?: unknown): Promise<unknown> {
@@ -854,6 +876,27 @@ export function parseMap(value: unknown): Map {
 
 export async function fetchMap(): Promise<Map> { return parseMap(await get('/api/v1/map')) }
 
+export function parseSettlementSite(value: unknown): SettlementSite {
+  if (!isRecord(value)) throw new Error('The server returned an invalid settlement site.')
+  return {
+    settlementId: parsePositiveDecimalId(value.settlementId, 'The server returned an invalid settlement ID.'),
+    site: parseCoordinate(value.site, 'The server returned an invalid settlement site coordinate.'),
+    livingPopulation: parseRequiredNonNegativeInteger(value.livingPopulation, 'The server returned an invalid settlement living population.'),
+    foodStored: parseRequiredNonNegativeInteger(value.foodStored, 'The server returned an invalid settlement food stockpile.'),
+    woodStored: parseRequiredNonNegativeInteger(value.woodStored, 'The server returned an invalid settlement wood stockpile.'),
+    stoneStored: parseRequiredNonNegativeInteger(value.stoneStored, 'The server returned an invalid settlement stone stockpile.'),
+  }
+}
+
+export function parseSettlementSites(value: unknown): SettlementSite[] {
+  if (!Array.isArray(value)) throw new Error('The server returned invalid settlement sites.')
+  const sites = value.map(parseSettlementSite)
+  for (let index = 1; index < sites.length; index += 1) {
+    if (BigInt(sites[index - 1].settlementId) >= BigInt(sites[index].settlementId)) throw new Error('The server returned settlement sites out of numeric ID order.')
+  }
+  return sites
+}
+
 function parseSettlementResourceQuantity(value: unknown): SettlementResourceQuantity {
   if (!isRecord(value)) throw new Error('The server returned an invalid settlement resource quantity.')
   const resourceType = parseNullableResource(value.resourceType)
@@ -921,4 +964,36 @@ export function parseSettlement(value: unknown): Settlement {
   }
 }
 
+export function parseSettlementDetails(value: unknown): SettlementDetails {
+  if (!isRecord(value)) throw new Error('The server returned an invalid settlement.')
+  const settlement = parseSettlement(value)
+  return {
+    ...settlement,
+    settlementId: parsePositiveDecimalId(value.settlementId, 'The server returned an invalid settlement ID.'),
+    site: parseCoordinate(value.site, 'The server returned an invalid settlement site coordinate.'),
+  }
+}
+
 export async function fetchSettlement(): Promise<Settlement> { return parseSettlement(await get('/api/v1/settlement')) }
+
+export async function fetchSettlementSites(): Promise<SettlementSite[]> {
+  const response = await getIfFound('/api/v1/settlements')
+  if (response.found) return parseSettlementSites(response.value)
+
+  // Older servers expose only the original settlement. Keep it visible at the
+  // map's original starting site so the observer remains usable during upgrades.
+  const [settlement, map] = await Promise.all([fetchSettlement(), fetchMap()])
+  return [{
+    settlementId: '1',
+    site: map.startingSite,
+    livingPopulation: settlement.livingPopulation,
+    foodStored: settlement.foodStored,
+    woodStored: settlement.woodStored,
+    stoneStored: settlement.stoneStored,
+  }]
+}
+
+export async function fetchSettlementDetails(settlementId: string): Promise<SettlementDetails> {
+  const id = parsePositiveDecimalId(settlementId, 'The requested settlement ID is invalid.')
+  return parseSettlementDetails(await get(`/api/v1/settlements/${encodeURIComponent(id)}`))
+}

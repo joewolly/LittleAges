@@ -68,6 +68,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.Property(row => row.SettlementVersion).HasColumnName("settlement_version").IsRequired();
             entity.Property(row => row.SocialVersion).HasColumnName("social_version").IsRequired();
             entity.Property(row => row.LivingStateJson).HasColumnName("living_state_json").HasColumnType("TEXT");
+            entity.Property(row => row.MigrationStateJson).HasColumnName("migration_state_json").HasColumnType("TEXT");
             entity.Property(row => row.HistoryVersion).HasColumnName("history_version").IsRequired();
             entity.Property(row => row.NextEntityId).HasColumnName("next_entity_id").IsRequired();
             entity.Property(row => row.NextHistoricalEventId).HasColumnName("next_historical_event_id").IsRequired();
@@ -182,7 +183,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.ToTable("historical_events", table =>
             {
                 table.HasCheckConstraint("CK_historical_events_id", "id > 0");
-                table.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 15 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
+                table.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 22 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
             });
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
