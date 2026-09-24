@@ -20,7 +20,10 @@ public sealed partial class SimulationEngine
         {
             LivingTechnique.Cultivation => practiced >= 8 && citizen.Skills.Foraging > 0,
             LivingTechnique.Toolmaking => practiced >= 10 && citizen.Skills.Stoneworking + citizen.Skills.Woodcutting > 0,
-            LivingTechnique.Preservation => practiced >= 12 && _living!.FoodHarvested > 0,
+            LivingTechnique.Preservation => practiced >= 12 &&
+                (SimulationRulesVersion == UnifiedSimulationRulesVersion
+                    ? _living!.FarmFoodHarvested > 0
+                    : _living!.FoodHarvested > 0),
             LivingTechnique.Textiles => practiced >= 14 && Good(LivingGood.Fiber) > 0,
             LivingTechnique.Care => practiced >= 16 && _living!.People.Any(x => !x.DeathObserved && x.Injury + x.Illness > 0),
             _ => false

@@ -51,21 +51,65 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
     IReadOnlyList<RecoverableGoods> Recoverable, IReadOnlyList<EconomicEvent> Events, IReadOnlyList<PublicSupplyTrade> PublicSupplyTrades, IReadOnlyList<ProductionCargoOwner> ProductionCargo)
 {
     private static readonly JsonSerializerOptions Options = new() { UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow, RespectRequiredConstructorParameters = true, IgnoreReadOnlyProperties = true };
+    private static readonly JsonSerializerOptions UnifiedOptions = CreateUnifiedOptions();
     public string ToCanonicalJson() => JsonSerializer.Serialize(this, Options);
-    public static EconomyState Parse(string json)
+    public string ToUnifiedCanonicalJson() => JsonSerializer.Serialize(this, UnifiedOptions);
+    public static EconomyState Parse(string json) => Parse(json, Options);
+    public static EconomyState ParseUnified(string json) => Parse(json, UnifiedOptions);
+
+    private static EconomyState Parse(string json, JsonSerializerOptions options)
     {
-        var state = JsonSerializer.Deserialize<EconomyState>(json, Options) ?? throw new InvalidDataException("Missing economy state.");
-        if (state.Produced is null || state.Households is null || state.Members is null || state.Assignments is null || state.Offers is null || state.Trades is null || state.PublicWork is null || state.Recoverable is null || state.Events is null || state.PublicSupplyTrades is null || state.ProductionCargo is null || state.ToCanonicalJson() != json) throw new InvalidDataException("Economy JSON is not canonical.");
+        var state = JsonSerializer.Deserialize<EconomyState>(json, options) ?? throw new InvalidDataException("Missing economy state.");
+        if (state.Produced is null || state.Households is null || state.Members is null || state.Assignments is null || state.Offers is null || state.Trades is null || state.PublicWork is null || state.Recoverable is null || state.Events is null || state.PublicSupplyTrades is null || state.ProductionCargo is null || JsonSerializer.Serialize(state, options) != json) throw new InvalidDataException("Economy JSON is not canonical.");
         return state;
     }
+
+    private static JsonSerializerOptions CreateUnifiedOptions()
+    {
+        var options = new JsonSerializerOptions(Options);
+        options.Converters.Add(new TileCoordinateJsonConverter());
+        return options;
+    }
+
     public EconomyState Copy() => this with { Households = Array.AsReadOnly(Households.ToArray()), Members = Array.AsReadOnly(Members.ToArray()), Assignments = Array.AsReadOnly(Assignments.ToArray()), Offers = Array.AsReadOnly(Offers.ToArray()), Trades = Array.AsReadOnly(Trades.ToArray()), PublicWork = Array.AsReadOnly(PublicWork.ToArray()), Recoverable = Array.AsReadOnly(Recoverable.ToArray()), Events = Array.AsReadOnly(Events.ToArray()), PublicSupplyTrades = Array.AsReadOnly(PublicSupplyTrades.ToArray()), ProductionCargo = Array.AsReadOnly(ProductionCargo.ToArray()) };
 
     public Goods StoredGoods(SettlementState commons) => Households.Aggregate(new Goods(commons.FoodStored, commons.WoodStored, commons.StoneStored), (sum, h) => sum.Plus(h.Holdings))
         .Plus(Trades.Where(t => t.Status == BarterStatus.Reserved).Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.DeliveredA ? t.QuantityA : 0).Add(t.ResourceB, t.DeliveredB ? t.QuantityB : 0)))
         .Add(ResourceType.Food, PublicWork.Sum(p => (long)p.Food));
 
+    private sealed class TileCoordinateJsonConverter : JsonConverter<TileCoordinate>
+    {
+        public override TileCoordinate Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.StartObject) throw new JsonException("A persisted tile coordinate must be an object.");
+            int? x = null;
+            int? y = null;
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndObject)
+            {
+                if (reader.TokenType != JsonTokenType.PropertyName) throw new JsonException("A persisted tile coordinate must contain named coordinates.");
+                var name = reader.GetString();
+                if (!reader.Read() || reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var coordinate) || coordinate < 0)
+                    throw new JsonException("A persisted tile coordinate component must be a non-negative integer.");
+                if (name == nameof(TileCoordinate.X) && x is null) x = coordinate;
+                else if (name == nameof(TileCoordinate.Y) && y is null) y = coordinate;
+                else throw new JsonException("A persisted tile coordinate contains an unknown or duplicate component.");
+            }
+            if (reader.TokenType != JsonTokenType.EndObject || x is null || y is null)
+                throw new JsonException("A persisted tile coordinate must contain exactly one X and one Y component.");
+            return new TileCoordinate(x.Value, y.Value);
+        }
+
+        public override void Write(Utf8JsonWriter writer, TileCoordinate value, JsonSerializerOptions options)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber(nameof(TileCoordinate.X), value.X);
+            writer.WriteNumber(nameof(TileCoordinate.Y), value.Y);
+            writer.WriteEndObject();
+        }
+    }
+
     public void Validate(IReadOnlyList<Citizen> citizens, IReadOnlyList<Household> households, IReadOnlyList<Structure> structures,
-        SettlementState commons, WorldMap world, long minute, int capacity, int dedicatedFoodCapacity)
+        SettlementState commons, WorldMap world, long minute, int capacity, int dedicatedFoodCapacity, Goods? additionalAccounted = null)
     {
         if (Version != 1 || CommunalPercent != EconomyRules.CommunalPercent || FoodConsumed < 0 || EmergencyFoodConsumed < 0 || EmergencyFoodConsumed > FoodConsumed || PublicWorkPaid < 0)
             throw new ArgumentException("Unsupported economy version or accounting totals.");
@@ -108,7 +152,7 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
         Ordered(PublicSupplyTrades.Select(t => t.Id));
         foreach (var t in PublicSupplyTrades) if (t.Id > PublicSupplyTrades.Count || t.WorldMinute < 0 || t.WorldMinute > minute || t.Resource is not (ResourceType.Wood or ResourceType.Stone) || t.Quantity <= 0 || t.FoodPaid != t.Quantity * EconomyRules.Weight(t.Resource) || !citizens.Any(c => c.Id.Value == t.CitizenId) || !households.Any(h => h.Id.Value == t.HouseholdId)) throw new ArgumentException("Invalid public supply transaction.");
         foreach (var g in Recoverable) if (g.Quantity <= 0 || g.HouseholdId is { } owner && !owners.ContainsKey(owner) || !EconomyRules.Resources.Contains(g.Resource) || !world.GetTile(g.Location).Walkable) throw new ArgumentException("Invalid recoverable cargo.");
-        foreach (var e in Events) { e.Goods.Validate(); if (e.WorldMinute < 0 || e.WorldMinute > minute || e.Kind is not ("Inheritance" or "HouseholdMerged" or "FirstTrade") || !households.Any(h => h.Id.Value == e.HouseholdId) || e.RecipientHouseholdId is { } recipient && !households.Any(h => h.Id.Value == recipient)) throw new ArgumentException("Invalid economic event."); }
+        foreach (var e in Events) { e.Goods.Validate(); if (e.WorldMinute < 0 || e.WorldMinute > minute || e.Kind is not ("Inheritance" or "HouseholdMerged" or "FirstTrade" or "EmergencyFoodAid") || !households.Any(h => h.Id.Value == e.HouseholdId) || e.RecipientHouseholdId is { } recipient && !households.Any(h => h.Id.Value == recipient) || e.Kind == "EmergencyFoodAid" && (e.HouseholdId == e.RecipientHouseholdId || e.RecipientHouseholdId is null || e.Goods.Food <= 0 || e.Goods.Wood != 0 || e.Goods.Stone != 0)) throw new ArgumentException("Invalid economic event."); }
         if (NextTradeId <= (Trades.Count == 0 ? 0 : Trades[^1].Id) || NextCacheId <= (Recoverable.Count == 0 ? 0 : Recoverable[^1].Id) || NextEventId <= (Events.Count == 0 ? 0 : Events[^1].Id)) throw new ArgumentException("Economic counters must exceed recorded identities.");
         var stored = StoredGoods(commons); stored.Validate();
         var transit = Trades.Where(t => t.Status == BarterStatus.Reserved).Aggregate(new Goods(), (sum, t) => sum.Add(t.ResourceA, t.PickedA && !t.DeliveredA ? t.QuantityA : 0).Add(t.ResourceB, t.PickedB && !t.DeliveredB ? t.QuantityB : 0));
@@ -116,6 +160,7 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
         var accounted = citizens.Aggregate(stored, (sum, c) => c.CarriedResourceType is { } resource ? sum.Add(resource, c.CarriedResourceQuantity) : sum);
         accounted = Recoverable.Aggregate(accounted, (sum, g) => sum.Add(g.Resource, g.Quantity));
         accounted = accounted.Plus(new Goods(FoodConsumed, structures.Sum(s => (long)s.DeliveredWood), structures.Sum(s => (long)s.DeliveredStone)));
+        if (additionalAccounted is not null) { additionalAccounted.Validate(); accounted = accounted.Plus(additionalAccounted); }
         if (accounted != Produced.Plus(new Goods(400))) throw new ArgumentException($"Goods conservation failed: accounted {accounted}; produced plus founding supplies {Produced.Plus(new Goods(400))}.");
 
         void CheckSide(long owner, ResourceType resource, int quantity, long? carrierId, bool picked, bool delivered, BarterTrade trade)

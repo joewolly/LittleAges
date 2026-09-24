@@ -11,7 +11,7 @@ public sealed partial class SimulationEngine
     public string? LivingStateJson => _living is null ? null : LivingWorldCodec.Serialize(_living);
     public System.Text.Json.JsonElement? CreateLivingObservation() => _living is null ? null : LivingWorldCodec.Observe(_living, CurrentMinute.Value, SimulationRulesVersion);
     private int LivingStoredQuantity => _living is null ? 0 : checked(_living.Stock.Sum(x => x.Quantity) + _living.Orders.Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
-    private int LivingFreeStorage => Math.Max(0, StorageCapacity - Settlement.StorageUsed - LivingStoredQuantity);
+    private int LivingFreeStorage => checked((int)Math.Max(0L, (long)StorageCapacity - Settlement.StorageUsed - LivingStoredQuantity - (EconomyEnabled ? OwnedStoredGoods.Total + TradeCargoReserved : 0L)));
     private LivingPerson LivingPerson(Citizen citizen) => _living!.People.Single(x => x.CitizenId == citizen.Id.Value);
     private int Good(LivingGood good) => _living!.Stock.Single(x => x.Good == good).Quantity;
     private void ChangeGood(LivingGood good, int quantity)
@@ -83,6 +83,10 @@ public sealed partial class SimulationEngine
     {
         var needs = citizen.Needs;
         var person = LivingPerson(citizen);
+        // M13 retains M12's meal candidate and food ownership. Do not replace an
+        // available M12 meal with discretionary Living work at the same hunger
+        // threshold where Growth first offers Eat.
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && needs.Hunger >= 3500 && FoodAvailableTo(citizen) > 0) return false;
         if (needs.Hunger >= 8500 && Settlement.FoodStored > 0 || needs.Rest >= 7500 || person.Injury >= 7000 || person.Illness >= 7000 || citizen.AgeYears(CurrentMinute) < 6) return false;
         var choices = _living!.Orders.Where(x => x.CitizenId is null && CanWork(citizen, x))
             .Where(x => needs.Hunger < 4000 && needs.Rest < 5000 || IsEmergencyFoodWork(x.Kind) && Settlement.FoodStored == 0 && needs.Rest < 6000)
@@ -220,6 +224,16 @@ public sealed partial class SimulationEngine
         citizen.ActionCompletesMinute = CurrentMinute.Add(duration);
         ScheduleCitizen(citizen, CitizenEventNames.ActionComplete, citizen.ActionCompletesMinute.Value, CitizenEventNames.CompletionPriority);
     }
+    private bool InterruptUnifiedLivingWorkForFood(Citizen citizen)
+    {
+        if (SimulationRulesVersion != UnifiedSimulationRulesVersion || citizen.CurrentAction != CitizenAction.LivingWork) return false;
+        var needs = citizen.GetProjectedNeeds(CurrentMinute);
+        if (needs.Hunger < 3500 || FoodAvailableTo(citizen) <= 0) return false;
+        citizen.Needs = needs;
+        citizen.NeedsUpdatedMinute = CurrentMinute.Value;
+        EndLivingAction(citizen);
+        return true;
+    }
     private void CompleteLivingShift(Citizen citizen)
     {
         var order = OrderFor(citizen) ?? throw new InvalidOperationException("Living completion lost its work claim.");
@@ -243,7 +257,8 @@ public sealed partial class SimulationEngine
             FinishLivingOrder(citizen, order);
             return;
         }
-        if (citizen.Needs.Hunger >= 6000 || citizen.Needs.Rest >= 6000 || person.Injury >= 7000) { EndLivingAction(citizen); return; }
+        var unifiedMealAvailable = SimulationRulesVersion == UnifiedSimulationRulesVersion && citizen.Needs.Hunger >= 3500 && FoodAvailableTo(citizen) > 0;
+        if (unifiedMealAvailable || citizen.Needs.Hunger >= 6000 || citizen.Needs.Rest >= 6000 || person.Injury >= 7000) { EndLivingAction(citizen); return; }
         ScheduleLivingShift(citizen, 120);
     }
     private void DepositLiving(Citizen citizen, LivingWorkOrder order)
@@ -252,7 +267,11 @@ public sealed partial class SimulationEngine
         // Cargo already owns storage capacity while in transit; depositing is a transfer.
         foreach (var item in order.Cargo)
         {
-            if (item.Good == LivingGood.Meal) Settlement.FoodStored = checked(Settlement.FoodStored + item.Quantity);
+            if (item.Good == LivingGood.Meal)
+            {
+                if (SimulationRulesVersion == UnifiedSimulationRulesVersion) RecordCommunalFoodProduction(item.Quantity);
+                Settlement.FoodStored = checked(Settlement.FoodStored + item.Quantity);
+            }
             else ChangeGood(item.Good, item.Quantity);
         }
         order.Cargo.Clear();
@@ -274,7 +293,9 @@ public sealed partial class SimulationEngine
     {
         var order = OrderFor(citizen);
         if (order is null) return;
-        if (citizen.ActionPhase == CitizenActionPhase.TravelToTarget && (order.CargoInTransit || !order.SuppliesDelivered && order.Phase == LivingWorkPhase.Travel))
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && order.Kind == LivingWorkKind.Harvest && order.Produced && order.CargoInTransit && citizen.CurrentAction == CitizenAction.HaulHarvest)
+            order.SupplyLocation = citizen.Location;
+        else if (citizen.ActionPhase == CitizenActionPhase.TravelToTarget && (order.CargoInTransit || !order.SuppliesDelivered && order.Phase == LivingWorkPhase.Travel))
             order.SupplyLocation = citizen.Location;
         order.CargoInTransit = false;
         order.CitizenId = null;
@@ -285,7 +306,11 @@ public sealed partial class SimulationEngine
         if (order.Reserved && !order.Produced) foreach (var ingredient in order.Ingredients) ChangeIngredient(ingredient.Resource, ingredient.Quantity);
         foreach (var cargo in order.Cargo)
         {
-            if (cargo.Good == LivingGood.Meal) Settlement.FoodStored = checked(Settlement.FoodStored + cargo.Quantity);
+            if (cargo.Good == LivingGood.Meal)
+            {
+                if (SimulationRulesVersion == UnifiedSimulationRulesVersion) RecordCommunalFoodProduction(cargo.Quantity);
+                Settlement.FoodStored = checked(Settlement.FoodStored + cargo.Quantity);
+            }
             else ChangeGood(cargo.Good, cargo.Quantity);
         }
         _living!.Orders.Remove(order);
@@ -294,7 +319,12 @@ public sealed partial class SimulationEngine
     {
         foreach (var order in _living!.Orders.ToArray())
         {
-            if (order.CitizenId is { } workerId && (!_citizens[workerId].IsAlive || _citizens[workerId].CurrentAction != CitizenAction.LivingWork)) ReleaseLivingClaim(_citizens[workerId]);
+            if (order.CitizenId is { } workerId)
+            {
+                var worker = _citizens[workerId];
+                var unifiedFarmCarrier = SimulationRulesVersion == UnifiedSimulationRulesVersion && order.Kind == LivingWorkKind.Harvest && order.Produced && worker.IsAlive && worker.CurrentAction == CitizenAction.HaulHarvest;
+                if (!worker.IsAlive || worker.CurrentAction != CitizenAction.LivingWork && !unifiedFarmCarrier) ReleaseLivingClaim(worker);
+            }
             if (order.CitizenId is not null) continue;
             if (!OrderStillUseful(order)) { CancelLivingOrder(order); continue; }
             var missing = order.Reserved ? [] : order.Ingredients.Where(x => AvailableIngredient(x.Resource) < x.Quantity).Select(x => x.Resource).ToArray();

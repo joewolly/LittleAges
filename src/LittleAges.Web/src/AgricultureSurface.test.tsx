@@ -14,6 +14,7 @@ it('shows actual crop work, reserves, harvest loss, and bounded record navigatio
   expect(request).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Farming and reserves' }))
   expect(await screen.findByText('Farm 9223372036854775806 · Harvest')).toBeTruthy()
+  expect(screen.queryByText("This world's rules do not include farming.")).toBeNull()
   expect(screen.getByText(/2000 left unharvested/)).toBeTruthy()
   expect(screen.getByRole('img', { name: 'Monthly food production and consumption' })).toBeTruthy()
   expect(request.mock.calls.some(([url]) => url.startsWith('/api/v1/statistics?'))).toBe(true)

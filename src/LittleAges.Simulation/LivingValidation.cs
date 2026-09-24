@@ -24,6 +24,22 @@ public static class LivingValidation
         Require(state.Version == 1 && state.NextId > 0 && state.NextFactId > 0, "Unsupported living version or counter.");
         Require(state.People is not null && state.Orders is not null && state.Fields is not null && state.Facilities is not null && state.Animals is not null && state.Stock is not null && state.Facts is not null, "Living collections are required.");
         Require(state.People.All(x => x is not null) && state.Orders.All(x => x is not null) && state.Fields.All(x => x is not null) && state.Facilities.All(x => x is not null) && state.Animals.All(x => x is not null) && state.Stock.All(x => x is not null) && state.Facts.All(x => x is not null), "Living entities cannot be null.");
+        var unified = snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion;
+        if (unified)
+        {
+            Require(snapshot.Agriculture is not null && snapshot.Economy is not null, "Unified worlds require M12 agriculture and household economy state.");
+            Require(state.Fields.Count == 0 && state.Orders.All(x => x.Kind is not (LivingWorkKind.EstablishField or LivingWorkKind.Sow or LivingWorkKind.Tend) && (x.Kind != LivingWorkKind.Harvest || x.Produced && x.Cargo.Count == 1 && x.Cargo[0].Good == LivingGood.Grain)), "Unified worlds use M12 FarmCrop as their only field lifecycle; Living Harvest orders only carry M12 grain.");
+            Require(state.FoodHarvested == 0, "Unified worlds cannot record duplicate Living-field harvests.");
+            var agriculture = snapshot.Agriculture!;
+            var recordedHarvests = agriculture.Harvests.Select(x => (x.StructureId, x.Year)).ToHashSet();
+            var harvested = agriculture.Harvests.Sum(x => (long)x.Harvested) + agriculture.Farms
+                .Where(x => !recordedHarvests.Contains((x.StructureId, x.Year))).Sum(x => (long)x.Harvested);
+            Require(state.FarmFoodHarvested >= 0 && state.CommunalGrainHarvested >= 0 && state.FarmFoodHarvested + state.CommunalGrainHarvested == harvested, "Unified farm harvest allocation must conserve every M12 crop unit.");
+            Require(state.CommunalGrainConsumed >= 0 && state.CommunalGrainSpoiled >= 0, "Unified communal grain accounting cannot be negative.");
+            state.UnifiedM12InputsConsumed?.Validate();
+        }
+        else
+            Require(state.FarmFoodHarvested == 0 && state.CommunalGrainHarvested == 0 && state.CommunalGrainConsumed == 0 && state.CommunalGrainSpoiled == 0 && state.UnifiedM12InputsConsumed is null, "Legacy Living rules cannot carry unified accounting.");
         Require(state.UpdatedMinute == minute / SimulationEngine.LivingPulseMinutes * SimulationEngine.LivingPulseMinutes && state.LastDailyMinute == minute / WorldCalendar.MinutesPerDay * WorldCalendar.MinutesPerDay, "Living update boundaries are invalid.");
         Require(pulse.Length == 1 && pulse[0].Order.Priority == 5 && pulse[0].Order.EntitySortKey == 0 && pulse[0].PayloadJson == "{\"version\":1}" && pulse[0].Order.DueWorldMinute.Value == (minute / SimulationEngine.LivingPulseMinutes + 1) * SimulationEngine.LivingPulseMinutes, "Living pulse is missing or malformed.");
         Require(Enum.IsDefined(state.Weather) && state.Temperature is >= -40 and <= 60 && state.Rainfall is >= 0 and <= 100, "Weather is invalid.");
@@ -65,10 +81,17 @@ public static class LivingValidation
             Require(order.Cargo!.All(x => Enum.IsDefined(x.Good) && x.Quantity > 0) && (order.Cargo.Count == 0 || order.Produced) && (!order.Produced || order.Reserved && order.WorkDone == order.RequiredWork), "Work cargo or completion is invalid.");
             if (order.CitizenId is { } id)
             {
-                Require(citizens.TryGetValue(id, out var citizen) && citizen.IsAlive && citizen.CurrentAction == CitizenAction.LivingWork && order.Reserved, "Work claim is orphaned.");
+                Require(citizens.TryGetValue(id, out var citizen) && citizen.IsAlive && (citizen.CurrentAction == CitizenAction.LivingWork || unified && order.Kind == LivingWorkKind.Harvest && order.Produced && citizen.CurrentAction == CitizenAction.HaulHarvest) && order.Reserved, "Work claim is orphaned.");
                 var worker = citizens[id];
                 if (order.Produced)
-                    Require(worker.ActionPhase == CitizenActionPhase.TravelToTarget && worker.ActionTarget == (order.CargoInTransit ? world.StartingSite : order.SupplyLocation), "Cargo movement does not match pickup or delivery.");
+                {
+                    if (unified && order.Kind == LivingWorkKind.Harvest && worker.CurrentAction == CitizenAction.HaulHarvest)
+                        Require(order.CargoInTransit && worker.CarriedResourceType == ResourceType.Food && worker.CarriedResourceQuantity >= 0 &&
+                            (worker.ActionPhase == CitizenActionPhase.ReturnToStockpile && worker.ActionTarget == world.StartingSite || worker.ActionPhase == CitizenActionPhase.WaitingForStorage && worker.Location == world.StartingSite && worker.ActionTarget is null),
+                            "M12 food and communal grain cargo must share the physical harvest carrier until food delivery.");
+                    else
+                        Require(worker.ActionPhase == CitizenActionPhase.TravelToTarget && worker.ActionTarget == (order.CargoInTransit ? world.StartingSite : order.SupplyLocation), "Cargo movement does not match pickup or delivery.");
+                }
                 else if (order.Phase == LivingWorkPhase.Work)
                     Require(order.SuppliesDelivered && worker.ActionPhase == CitizenActionPhase.Perform && worker.Location == order.Location, "Work must occur at its supplied site.");
                 else
@@ -77,13 +100,35 @@ public static class LivingValidation
             if (order.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.Recreate or LivingWorkKind.RepairRelationship or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing)
                 Require(order.SubjectId is { } subject && citizens.ContainsKey(subject), "Work recipient is unknown.");
             if (order.Kind is LivingWorkKind.Sow or LivingWorkKind.Tend or LivingWorkKind.Harvest)
-                Require(state.Fields.Any(x => x.Id == order.SubjectId), "Work field is unknown.");
+            {
+                if (unified && order.Kind == LivingWorkKind.Harvest)
+                    Require(snapshot.Agriculture!.Farms.Any(x => x.StructureId == order.SubjectId), "Unified Living harvest cargo must reference its canonical M12 farm.");
+                else
+                    Require(state.Fields.Any(x => x.Id == order.SubjectId), "Work field is unknown.");
+            }
             if (order.Kind is LivingWorkKind.Cook or LivingWorkKind.Preserve)
                 Require(state.Facilities.Any(x => x.Id == order.SubjectId && x.Kind == LivingFacilityKind.Hearth && x.Location == order.Location), "Food production requires its hearth.");
         }
         Require(snapshot.Citizens.Where(x => x.CurrentAction == CitizenAction.LivingWork).All(c => state.Orders.Count(x => x.CitizenId == c.Id.Value) == 1), "A living action requires one claim.");
         var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + snapshot.Structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus;
-        var used = (long)snapshot.Settlement.StorageUsed + state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
+        var livingUsed = state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
+        var used = (long)snapshot.Settlement.StorageUsed + livingUsed;
+        if (unified)
+        {
+            capacity += snapshot.Structures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
+            var economy = snapshot.Economy!;
+            var m12Stored = economy.StoredGoods(snapshot.Settlement);
+            var tradeCargo = economy.Trades.Where(x => x.Status == BarterStatus.Reserved).Sum(x =>
+                (x.PickedA && !x.DeliveredA ? (long)x.QuantityA : 0) + (x.PickedB && !x.DeliveredB ? x.QuantityB : 0));
+            var m12Cargo = snapshot.Citizens.Where(x => x.IsAlive && x.CarriedResourceType is not null)
+                .Sum(x => (long)x.CarriedResourceQuantity);
+            used = m12Stored.Total + tradeCargo + m12Cargo + livingUsed;
+            var grainAccounted = state.Stock.Single(x => x.Good == LivingGood.Grain).Quantity +
+                state.Orders.Sum(x => x.Cargo.Where(y => y.Good == LivingGood.Grain).Sum(y => y.Quantity) +
+                    (x.Reserved && !x.Produced ? x.Ingredients.Where(y => y.Resource == nameof(LivingGood.Grain)).Sum(y => y.Quantity) : 0L)) +
+                state.CommunalGrainConsumed + state.CommunalGrainSpoiled;
+            Require(grainAccounted == state.CommunalGrainHarvested, "Unified communal grain stock, escrow, consumption, and spoilage must conserve harvests.");
+        }
         Require(used <= capacity, "Living storage including escrow and transit exceeds capacity.");
         Require(state.Facts!.Select(x => x.Id).SequenceEqual(Enumerable.Range(1, state.Facts.Count).Select(x => (long)x)) && state.NextFactId == state.Facts.Count + 1L && state.Facts.Zip(state.Facts.Skip(1)).All(x => x.First.Minute <= x.Second.Minute), "Living history order or counter is invalid.");
         Require(state.Facts.All(x => Enum.IsDefined(x.Kind) && x.Minute >= 0 && x.Minute <= minute && (x.CitizenId is null || citizens.ContainsKey(x.CitizenId.Value)) && (x.Location is null || ValidLocation(x.Location.Value))), "Living historical fact is invalid.");

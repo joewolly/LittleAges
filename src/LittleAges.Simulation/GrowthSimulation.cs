@@ -10,7 +10,7 @@ public sealed record GrowthObservation(int Living, int Births, int Deaths, int U
 
 public sealed partial class SimulationEngine
 {
-    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion;
+    public static bool GrowthSystemsEnabled(string rulesVersion) => rulesVersion is GrowthSimulationRulesVersion or AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion;
     public static bool UsesSampledShortageRecovery(string rulesVersion) => rulesVersion is M8SimulationRulesVersion or LivingSimulationRulesVersion or Living2SimulationRulesVersion || GrowthSystemsEnabled(rulesVersion);
 
     private void EnsureIndependentHouseholds()
@@ -49,7 +49,10 @@ public sealed partial class SimulationEngine
             var penalty = (int)Math.Min(2000, cost / 10);
             result.Add(new(action, score, 0, 0, variation, checked(score + variation - penalty), TravelPenalty: penalty));
         }
-        if ((EconomyEnabled ? FoodAvailableTo(citizen) : Settlement.FoodStored) > 0 && needs.Hunger >= 3500 && travel.TryGetValue(World.StartingSite, out var mealCost))
+        var hasMeal = EconomyEnabled
+            ? FoodAvailableTo(citizen) > 0 || citizen.HouseholdId is { } household && HasEmergencyFoodDonor(household.Value, needs.Hunger)
+            : Settlement.FoodStored > 0;
+        if (hasMeal && needs.Hunger >= 3500 && travel.TryGetValue(World.StartingSite, out var mealCost))
             Add(CitizenAction.Eat, needs.Hunger * 4, 1, mealCost);
         if (needs.Rest >= 4000) Add(CitizenAction.Rest, needs.Rest * 3, 2);
         if (needs.Hunger < 8000 && needs.Rest < 8500 && needs.Social >= 3500 && SelectSocialTarget(citizen) is not null)

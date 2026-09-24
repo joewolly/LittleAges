@@ -49,7 +49,7 @@ internal static class HeadlessSnapshotComparer
         ["citizens"] = snapshot.Citizens.OrderBy(item => item.Id.Value).Select(item =>
         {
             var node = JsonSerializer.SerializeToNode(item, JsonOptions)!;
-            node["CurrentAction"] = CitizenActionCodec.ToCanonicalValue(item.CurrentAction);
+            node["CurrentAction"] = CitizenActionCodec.ToCanonicalValue(item.CurrentAction, snapshot.SimulationRulesVersion == SimulationEngine.UnifiedSimulationRulesVersion);
             return node;
         }).ToArray(),
         ["settlement"] = snapshot.Settlement,

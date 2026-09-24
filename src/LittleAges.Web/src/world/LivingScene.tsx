@@ -1,13 +1,15 @@
 import type { Map } from '../api'
 import type { LivingWorld } from '../living'
+import { isM12OwnedGood, isUnifiedLivingRules } from '../living'
 import { worldToScene } from './visuals'
 
 /** Geometry depicts canonical state; no visual animation advances gameplay. */
 export function LivingScene({ map, world }: { map: Map; world: LivingWorld | null }) {
   if (!world) return null
   const stores = worldToScene(map, map.startingSite.x, map.startingSite.y)
+  const unified = isUnifiedLivingRules(world.rulesVersion)
   return <group>
-    {world.stock.filter(s => s.quantity > 0).map((s, index) => <group key={`supply-${s.good}`} position={[stores.x + (index % 3 - 1) * .28, stores.y, stores.z + Math.floor(index / 3) * .28]}>
+    {world.stock.filter(s => s.quantity > 0 && (!unified || !isM12OwnedGood(s.good))).map((s, index) => <group key={`supply-${s.good}`} position={[stores.x + (index % 3 - 1) * .28, stores.y, stores.z + Math.floor(index / 3) * .28]}>
       <mesh position={[0, Math.min(.65, .12 + s.quantity / 300), 0]} castShadow><boxGeometry args={[.2, Math.min(1.3, .24 + s.quantity / 150), .2]} /><meshStandardMaterial color={s.good === 'Grain' || s.good === 'PreservedFood' ? '#c9ab65' : s.good === 'Fuel' ? '#735847' : '#b4bcaa'} /></mesh>
     </group>)}
     {world.weather === 'Rain' && Array.from({ length: 24 }, (_, i) => <mesh key={`rain-${i}`} position={[stores.x + (i % 6 - 2.5) * 2.1, stores.y + 1.4 + i % 3, stores.z + (Math.floor(i / 6) - 1.5) * 2.4]} rotation={[0, 0, -.2]}><boxGeometry args={[.025, .5, .025]} /><meshBasicMaterial color="#a9c1d0" transparent opacity={.55} /></mesh>)}

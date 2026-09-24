@@ -104,7 +104,8 @@ public sealed class HeadlessTests
             "--living-diagnostic", "monthly", "--diagnostic-start-year", "64", "--diagnostic-end-year", "72",
             "--diagnostic-checkpoint", "checkpoint.db"]);
         var missingEnd = HeadlessCommandLine.Parse(["run", "--rules", rules, "--living-diagnostic", "seasonal"]);
-        var wrongRules = HeadlessCommandLine.Parse(["run", "--living-diagnostic", "monthly", "--diagnostic-end-year", "72"]);
+        var wrongRules = HeadlessCommandLine.Parse(["run", "--rules", SimulationEngine.SpacedSimulationRulesVersion,
+            "--living-diagnostic", "monthly", "--diagnostic-end-year", "72"]);
         var conflictingHorizon = HeadlessCommandLine.Parse(["run", "--rules", rules, "--living-diagnostic", "monthly", "--diagnostic-end-year", "72", "--years", "100"]);
         var reversedRange = HeadlessCommandLine.Parse(["run", "--rules", rules, "--living-diagnostic", "monthly", "--diagnostic-start-year", "72", "--diagnostic-end-year", "72"]);
 

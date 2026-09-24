@@ -21,7 +21,7 @@ public sealed partial class SimulationEngine
     private long _foodConsumed, _emergencyFoodConsumed, _publicWorkPaid;
     private long _nextTradeId = 1, _nextCacheId = 1, _nextEconomicEventId = 1;
     private bool _economyInitialized;
-    public static bool EconomySystemsEnabled(string rules) => rules is BarterSimulationRulesVersion or SpacedSimulationRulesVersion;
+    public static bool EconomySystemsEnabled(string rules) => rules is BarterSimulationRulesVersion or SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion;
     private bool EconomyEnabled => EconomySystemsEnabled(SimulationRulesVersion);
     private IEnumerable<BarterTrade> OpenTrades => _pendingTrades.Select(id => _barterTrades[id]);
 
@@ -85,6 +85,12 @@ public sealed partial class SimulationEngine
         _producedGoods = _producedGoods.Add(resource, amount);
         if (resource == ResourceType.Food && _historyState is not null) _historyState.FoodProducedSinceSample = checked(_historyState.FoodProducedSinceSample + amount);
     }
+    private void RecordCommunalFoodProduction(int amount)
+    {
+        if (!EconomyEnabled || amount == 0) return;
+        _producedGoods = _producedGoods.Add(ResourceType.Food, amount);
+        if (_historyState is not null) _historyState.FoodProducedSinceSample = checked(_historyState.FoodProducedSinceSample + amount);
+    }
     private void DepositOwnedProduction(Citizen citizen, ResourceType resource, int amount)
     {
         var owner = _productionCargoOwners.GetValueOrDefault(citizen.Id.Value, citizen.HouseholdId!.Value.Value);
@@ -94,17 +100,63 @@ public sealed partial class SimulationEngine
         _householdStocks[owner] = stock with { ContributionRemainders = stock.ContributionRemainders.Add(resource, numerator % 100 - stock.ContributionRemainders.Get(resource)) };
         AddCommons(resource, communal); AddPrivate(owner, resource, amount - communal);
     }
-    private int ConsumeEconomicMeal(Citizen citizen)
+    private int ConsumeEconomicMeal(Citizen citizen, int portion)
     {
         var owner = citizen.HouseholdId!.Value.Value;
-        var own = checked((int)Math.Min(CitizenSimulationRules.MealFoodUnits, AvailablePrivate(owner, ResourceType.Food)));
+        var own = checked((int)Math.Min(portion, AvailablePrivate(owner, ResourceType.Food)));
         AddPrivate(owner, ResourceType.Food, -own);
-        var support = Math.Min(CitizenSimulationRules.MealFoodUnits - own, Settlement.FoodStored);
+        var support = Math.Min(portion - own, Settlement.FoodStored);
         Settlement.FoodStored -= support;
         _emergencyFoodConsumed = checked(_emergencyFoodConsumed + support);
-        var consumed = own + support; _foodConsumed = checked(_foodConsumed + consumed);
+        var consumed = own + support;
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && citizen.Location == World.StartingSite && citizen.Needs.Hunger >= 8500 && consumed < portion)
+        {
+            var aid = TransferEmergencyFood(owner, portion - consumed);
+            if (aid > 0)
+            {
+                // Aid moves through the recipient's ordinary household account before
+                // consumption, so stored-goods conservation remains exact.
+                AddPrivate(owner, ResourceType.Food, -aid);
+                consumed = checked(consumed + aid);
+            }
+        }
+        _foodConsumed = checked(_foodConsumed + consumed);
         if (_historyState is not null) _historyState.FoodConsumedSinceSample = checked(_historyState.FoodConsumedSinceSample + consumed);
         return consumed;
+    }
+
+    private int TransferEmergencyFood(long recipient, int requested)
+    {
+        if (requested <= 0) return 0;
+
+        var donor = SelectEmergencyFoodDonor(recipient);
+        if (donor is not { } source) return 0;
+
+        var quantity = checked((int)Math.Min(requested, source.Surplus));
+        AddPrivate(source.HouseholdId, ResourceType.Food, -quantity);
+        AddPrivate(recipient, ResourceType.Food, quantity);
+        _economicEvents.Add(new(_nextEconomicEventId++, CurrentMinute.Value, "EmergencyFoodAid", source.HouseholdId, recipient, new Goods(Food: quantity)));
+        return quantity;
+    }
+
+    private bool HasEmergencyFoodDonor(long recipient, int hunger) =>
+        SimulationRulesVersion == UnifiedSimulationRulesVersion && hunger >= 8500 && SelectEmergencyFoodDonor(recipient) is not null;
+
+    private (long HouseholdId, long Surplus)? SelectEmergencyFoodDonor(long recipient)
+    {
+        var donor = _householdStocks.Values
+            .Where(stock => stock.HouseholdId != recipient)
+            .Select(stock =>
+            {
+                var members = _citizens.Values.Count(c => c.IsAlive && c.HouseholdId?.Value == stock.HouseholdId);
+                var surplus = AvailablePrivate(stock.HouseholdId, ResourceType.Food) - members * 60L;
+                return (stock.HouseholdId, Members: members, Surplus: surplus);
+            })
+            .Where(candidate => candidate.Members > 0 && candidate.Surplus > 0)
+            .OrderByDescending(candidate => candidate.Surplus)
+            .ThenBy(candidate => candidate.HouseholdId)
+            .FirstOrDefault();
+        return donor.Members > 0 && donor.Surplus > 0 ? (donor.HouseholdId, donor.Surplus) : null;
     }
 
     private void ReconcileEconomicHouseholds()

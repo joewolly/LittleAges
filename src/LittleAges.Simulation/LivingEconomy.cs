@@ -33,20 +33,23 @@ public sealed partial class SimulationEngine
         var state = _living!;
         var site = World.StartingSite;
         var foodPressure = Settlement.FoodStored < LivingPopulation * 20;
-        var desiredFields = Math.Min(64, Math.Max(2, (LivingPopulation + 1) / 2));
         foreach (var technique in Enum.GetValues<LivingTechnique>())
         {
             if (!SettlementKnows(technique)) RequestLiving(LivingWorkKind.Experiment, site, 2200, technique: technique, work: 480);
         }
-        if (SettlementKnows(LivingTechnique.Cultivation) && state.Fields.Count < desiredFields && SelectLivingSite(true) is { } fieldSite)
-            RequestLiving(LivingWorkKind.EstablishField, fieldSite, 4000, work: 360, ingredients: [new("Wood", 4)]);
-        foreach (var field in state.Fields)
+        if (SimulationRulesVersion != UnifiedSimulationRulesVersion)
         {
-            if (field.YieldRemaining > 0 && Good(LivingGood.Grain) < LivingPopulation * 200) RequestLiving(LivingWorkKind.Harvest, field.Location, foodPressure ? 6500 : 3500, field.Id);
-            else if (field.SownMinute < 0 && CurrentMinute.ToCalendar().Season != WorldSeason.Winter)
-                RequestLiving(LivingWorkKind.Sow, field.Location, 4500, field.Id, work: 240);
-            else if (field.SownMinute >= 0 && CurrentMinute.Value - field.LastTendedMinute >= 3L * WorldCalendar.MinutesPerDay)
-                RequestLiving(LivingWorkKind.Tend, field.Location, 3200, field.Id);
+            var desiredFields = Math.Min(64, Math.Max(2, (LivingPopulation + 1) / 2));
+            if (SettlementKnows(LivingTechnique.Cultivation) && state.Fields.Count < desiredFields && SelectLivingSite(true) is { } fieldSite)
+                RequestLiving(LivingWorkKind.EstablishField, fieldSite, 4000, work: 360, ingredients: [new("Wood", 4)]);
+            foreach (var field in state.Fields)
+            {
+                if (field.YieldRemaining > 0 && Good(LivingGood.Grain) < LivingPopulation * 200) RequestLiving(LivingWorkKind.Harvest, field.Location, foodPressure ? 6500 : 3500, field.Id);
+                else if (field.SownMinute < 0 && CurrentMinute.ToCalendar().Season != WorldSeason.Winter)
+                    RequestLiving(LivingWorkKind.Sow, field.Location, 4500, field.Id, work: 240);
+                else if (field.SownMinute >= 0 && CurrentMinute.Value - field.LastTendedMinute >= 3L * WorldCalendar.MinutesPerDay)
+                    RequestLiving(LivingWorkKind.Tend, field.Location, 3200, field.Id);
+            }
         }
         RequestFacility(LivingFacilityKind.Hearth, LivingWorkKind.BuildHearth, 4500, null);
         RequestFacility(LivingFacilityKind.Loom, LivingWorkKind.BuildLoom, 2200, LivingTechnique.Textiles);
@@ -96,6 +99,21 @@ public sealed partial class SimulationEngine
     private void ProduceLiving(Citizen citizen, LivingWorkOrder order)
     {
         var state = _living!;
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion)
+        {
+            var consumed = state.UnifiedM12InputsConsumed ?? new Goods();
+            foreach (var ingredient in order.Ingredients)
+                consumed = ingredient.Resource switch
+                {
+                    "Food" => consumed.Add(ResourceType.Food, ingredient.Quantity),
+                    "Wood" => consumed.Add(ResourceType.Wood, ingredient.Quantity),
+                    "Stone" => consumed.Add(ResourceType.Stone, ingredient.Quantity),
+                    _ => consumed
+                };
+            if (consumed != new Goods()) state.UnifiedM12InputsConsumed = consumed;
+        }
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion && order.Kind is LivingWorkKind.Cook or LivingWorkKind.Preserve)
+            state.CommunalGrainConsumed = checked(state.CommunalGrainConsumed + order.Ingredients.Where(x => x.Resource == nameof(LivingGood.Grain)).Sum(x => (long)x.Quantity));
         switch (order.Kind)
         {
             case LivingWorkKind.EstablishField:

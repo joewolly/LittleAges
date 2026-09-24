@@ -29,6 +29,16 @@ public sealed class LivingWorldState
     public long FoodPrepared { get; set; }
     public long GoodsSpoiled { get; set; }
     public long CareGiven { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long FarmFoodHarvested { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long CommunalGrainHarvested { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long CommunalGrainConsumed { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public long CommunalGrainSpoiled { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Goods? UnifiedM12InputsConsumed { get; set; }
     public List<LivingStock> Stock { get; set; } = [];
     public List<LivingPerson> People { get; set; } = [];
     public List<LivingWorkOrder> Orders { get; set; } = [];

@@ -18,11 +18,11 @@ public sealed class LivingSettlementTests(ITestOutputHelper output)
         Assert.Equal(snapshot.LivingStateJson, LivingWorldCodec.Serialize(state));
         Assert.Equal(20, state.People.Count);
         Assert.Single(snapshot.ScheduledEvents, x => x.Name == SimulationEngine.LivingPulseEvent);
-        Assert.Null(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.CurrentSimulationRulesVersion).CreatePersistenceSnapshot().LivingStateJson);
+        Assert.Null(new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.SpacedSimulationRulesVersion).CreatePersistenceSnapshot().LivingStateJson);
     }
 
     [Fact]
-    public void Living2IsAnOptInLivingRulesVersionAndLeavesCurrentRulesUnchanged()
+    public void Living2RemainsASeparateVersionedRuleset()
     {
         var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.Living2SimulationRulesVersion);
         var snapshot = engine.CreatePersistenceSnapshot();
@@ -36,7 +36,8 @@ public sealed class LivingSettlementTests(ITestOutputHelper output)
         Assert.False(SimulationEngine.LivingSystemsEnabled("v02-rng1-living3"));
         Assert.True(SimulationEngine.UsesSampledShortageRecovery(SimulationEngine.LivingSimulationRulesVersion));
         Assert.True(SimulationEngine.UsesSampledShortageRecovery(SimulationEngine.Living2SimulationRulesVersion));
-        Assert.Equal(SimulationEngine.SpacedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.UnifiedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.True(SimulationEngine.LivingSystemsEnabled(SimulationEngine.CurrentSimulationRulesVersion));
         LivingValidation.Validate(snapshot);
     }
 

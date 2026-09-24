@@ -35,9 +35,12 @@ public sealed partial class SimulationEngine
         {
             var spoilage = item.Good == LivingGood.Grain ? item.Quantity / 100 : item.Good is LivingGood.Fiber or LivingGood.Hide ? item.Quantity / 200 : day % 30 == 0 ? item.Quantity / 200 : 0;
             ChangeGood(item.Good, -spoilage); state.GoodsSpoiled += spoilage;
+            if (SimulationRulesVersion == UnifiedSimulationRulesVersion && item.Good == LivingGood.Grain)
+                state.CommunalGrainSpoiled = checked(state.CommunalGrainSpoiled + spoilage);
         }
         var neededFood = Math.Max(0, LivingPopulation * 30 - Settlement.FoodStored);
         var release = Math.Min(neededFood, Good(LivingGood.PreservedFood));
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion) RecordCommunalFoodProduction(release);
         ChangeGood(LivingGood.PreservedFood, -release); Settlement.FoodStored += release;
         if (state.Temperature < 5)
             ChangeGood(LivingGood.Fuel, -Math.Min(Good(LivingGood.Fuel), Math.Max(1, (LivingPopulation + 3) / 4)));

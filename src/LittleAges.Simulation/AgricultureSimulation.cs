@@ -9,7 +9,7 @@ public sealed partial class SimulationEngine
     private readonly SortedDictionary<long, FarmCrop> _farms = [];
     private readonly List<HarvestRecord> _harvests = [];
     private long _agricultureSeasonIndex;
-    public static bool AgricultureSystemsEnabled(string rules) => rules is AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion;
+    public static bool AgricultureSystemsEnabled(string rules) => rules is AgricultureSimulationRulesVersion or BarterSimulationRulesVersion or SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion;
     public int GranaryCapacity => _structures.Values.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
     public int WinterFoodTarget => checked(LivingPopulation * 810);
     public AgricultureState? CaptureAgriculture() => AgricultureSystemsEnabled(SimulationRulesVersion)
@@ -77,7 +77,7 @@ public sealed partial class SimulationEngine
                 !occupied.Contains(t.Coordinate) && World.GetResources(t.Coordinate).Count == 0 && costs.ContainsKey(t.Coordinate))
             .OrderBy(t => costs[t.Coordinate]).ThenByDescending(AgricultureRules.PotentialYield)
             .ThenBy(t => t.Coordinate.Y).ThenBy(t => t.Coordinate.X);
-        if (SimulationRulesVersion != SpacedSimulationRulesVersion) return candidates.Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
+        if (SimulationRulesVersion is not (SpacedSimulationRulesVersion or UnifiedSimulationRulesVersion)) return candidates.Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
         var excluded = SpacedConstructionExclusions();
         return candidates.Where(t => !excluded.Contains(t.Coordinate)).Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault()
             ?? candidates.Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
@@ -90,7 +90,9 @@ public sealed partial class SimulationEngine
         if (season == WorldSeason.Winter || action == CitizenAction.HaulHarvest && season != WorldSeason.Autumn || action == CitizenAction.WorkFarm && season == WorldSeason.Autumn) return null;
         var costs = GetTravelCostsCached(citizen.Location);
         var incoming = _citizens.Values.Where(c => c.IsAlive && c.Id != citizen.Id).Sum(c =>
-            (long)c.CarriedResourceQuantity + (c.CurrentAction == CitizenAction.HaulHarvest && c.CarriedResourceQuantity == 0 ? AgricultureRules.HarvestPerShift : 0));
+            (long)c.CarriedResourceQuantity + (c.CurrentAction == CitizenAction.HaulHarvest && c.CarriedResourceQuantity == 0 &&
+                !(SimulationRulesVersion == UnifiedSimulationRulesVersion && _living!.Orders.Any(o => o.Kind == LivingWorkKind.Harvest && o.CitizenId == c.Id.Value && o.CargoInTransit))
+                ? AgricultureRules.HarvestPerShift : 0));
         foreach (var farm in _farms.Values)
         {
             var structure = _structures[farm.StructureId];
@@ -112,17 +114,63 @@ public sealed partial class SimulationEngine
         var season = CurrentMinute.ToCalendar().Season;
         if (citizen.CurrentAction == CitizenAction.WorkFarm)
         {
-            if (season == WorldSeason.Spring) _farms[id.Value] = farm with { Stage = CropStage.Planted, PlantingWork = Math.Min(AgricultureRules.PlantingWork, farm.PlantingWork + AgricultureRules.WorkPerShift) };
-            else if (season == WorldSeason.Summer && farm.PlantingWork > 0) _farms[id.Value] = farm with { Stage = CropStage.Growing, TendingWork = Math.Min(AgricultureRules.TendingWork, farm.TendingWork + AgricultureRules.WorkPerShift) };
+            var work = FarmWorkPerShift(citizen);
+            if (season == WorldSeason.Spring) _farms[id.Value] = farm with { Stage = CropStage.Planted, PlantingWork = Math.Min(AgricultureRules.PlantingWork, farm.PlantingWork + work) };
+            else if (season == WorldSeason.Summer && farm.PlantingWork > 0) _farms[id.Value] = farm with { Stage = CropStage.Growing, TendingWork = Math.Min(AgricultureRules.TendingWork, farm.TendingWork + work) };
             return;
         }
         if (season != WorldSeason.Autumn) return;
         var amount = Math.Min(farm.Remaining, Math.Min(AgricultureRules.HarvestPerShift, AvailableStorage(ResourceType.Food)));
         if (amount <= 0 || FindPathCached(citizen.Location, World.StartingSite) is null) return;
         _farms[id.Value] = farm with { Remaining = farm.Remaining - amount, Harvested = checked(farm.Harvested + amount) };
-        RecordProduction(citizen, ResourceType.Food, amount);
+        var grain = SimulationRulesVersion == UnifiedSimulationRulesVersion
+            ? checked((int)((farm.Harvested + amount) / 10 - farm.Harvested / 10))
+            : 0;
+        var food = amount - grain;
+        if (SimulationRulesVersion == UnifiedSimulationRulesVersion)
+        {
+            if (grain > 0)
+            {
+                var now = CurrentMinute.Value;
+                _living!.Orders.Add(new LivingWorkOrder
+                {
+                    Id = _living.NextId++,
+                    Kind = LivingWorkKind.Harvest,
+                    Location = _structures[id.Value].Location,
+                    SupplyLocation = citizen.Location,
+                    SubjectId = id.Value,
+                    CitizenId = citizen.Id.Value,
+                    CreatedMinute = now,
+                    ClaimedMinute = now,
+                    Priority = 5000,
+                    RequiredWork = LivingWorkDefinitions.Work(LivingWorkKind.Harvest),
+                    WorkDone = LivingWorkDefinitions.Work(LivingWorkKind.Harvest),
+                    Phase = LivingWorkPhase.Deliver,
+                    Reserved = true,
+                    Produced = true,
+                    CargoInTransit = true,
+                    Cargo = [new(LivingGood.Grain, grain)]
+                });
+            }
+            _living!.FarmFoodHarvested = checked(_living.FarmFoodHarvested + food);
+            _living.CommunalGrainHarvested = checked(_living.CommunalGrainHarvested + grain);
+        }
+        RecordProduction(citizen, ResourceType.Food, food);
         citizen.CarriedResourceType = ResourceType.Food;
-        citizen.CarriedResourceQuantity = amount;
+        citizen.CarriedResourceQuantity = food;
         BeginTravel(citizen, CitizenAction.HaulHarvest, World.StartingSite, null, CitizenActionPhase.ReturnToStockpile, id);
+    }
+
+    private int FarmWorkPerShift(Citizen citizen)
+    {
+        if (SimulationRulesVersion != UnifiedSimulationRulesVersion) return AgricultureRules.WorkPerShift;
+        var weatherAdjustment = _living!.Weather switch
+        {
+            LivingWeatherKind.Rain => 20,
+            LivingWeatherKind.Drought or LivingWeatherKind.ColdSpell => -20,
+            _ => 0
+        };
+        var cultivationBonus = Knows(citizen, LivingTechnique.Cultivation) ? 20 : 0;
+        return Math.Max(1, AgricultureRules.WorkPerShift + weatherAdjustment + cultivationBonus);
     }
 }

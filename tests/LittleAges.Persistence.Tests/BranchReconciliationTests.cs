@@ -45,7 +45,7 @@ public sealed class BranchReconciliationTests
                     CREATE UNIQUE INDEX IX_citizens_founder_ordinal ON citizens(founder_ordinal);
                     DROP TABLE agriculture_state;
                     DROP TABLE economy_state;
-                    DELETE FROM __EFMigrationsHistory WHERE MigrationId IN ('20260920000000_M10Agriculture','20260920010000_M11Economy');
+                    DELETE FROM __EFMigrationsHistory WHERE MigrationId IN ('20260920000000_M10Agriculture','20260920010000_M11Economy','20260923010000_M13UnifiedCitizenAction');
                     PRAGMA foreign_keys=ON;
                     """);
                 Assert.True(await Scalar(connection, "SELECT count(*) FROM citizens WHERE current_action=13") > 0);
