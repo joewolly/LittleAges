@@ -1339,6 +1339,14 @@ public sealed partial class SimulationEngine
             }
             if (citizen.ActionPhase == CitizenActionPhase.WaitingForStorage)
             {
+                if (SimulationRulesVersion == MigrationSimulationRulesVersion &&
+                    ShouldInterruptM14StorageWait(citizen))
+                {
+                    FinishAction(citizen);
+                    ScheduleCitizen(citizen, CitizenEventNames.Decision, CurrentMinute,
+                        CitizenEventNames.DecisionPriority);
+                    return;
+                }
                 Deposit(citizen);
                 if (citizen.ActionPhase != CitizenActionPhase.WaitingForStorage)
                     CompleteAction(citizen, gatheringAlreadyDeposited: true);
@@ -1347,6 +1355,19 @@ public sealed partial class SimulationEngine
         }
         else if (item.Name == CitizenEventNames.MoveStep && InterruptUnifiedLivingWorkForFood(citizen)) return;
         else MoveStep(citizen);
+    }
+    private bool ShouldInterruptM14StorageWait(Citizen citizen)
+    {
+        if (citizen.CurrentAction is not (CitizenAction.GatherFood or CitizenAction.GatherWood or CitizenAction.GatherStone))
+            return false;
+
+        var needs = citizen.GetProjectedNeeds(CurrentMinute);
+        if (needs.Hunger < CitizenSimulationRules.StarvationThreshold &&
+            needs.Rest < CitizenSimulationRules.ExhaustionThreshold)
+            return false;
+
+        var selected = SelectDecision(EvaluateDecision(citizen));
+        return selected is CitizenAction.Eat or CitizenAction.Rest;
     }
     private void Decide(Citizen citizen)
     {
@@ -2057,7 +2078,13 @@ public sealed partial class SimulationEngine
             calculated = productivity == 0 ? 0 : Math.Max(1, checked(calculated * productivity / 10000));
         }
         var actual = Math.Min(calculated, state.CurrentQuantity);
-        if (SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion) actual = Math.Min(actual, AvailableStorage(node.Type, settlementId));
+        if (SocialSystemsEnabled(SimulationRulesVersion) || SimulationRulesVersion == M4SimulationRulesVersion)
+        {
+            var availableStorage = AvailableStorage(node.Type, settlementId);
+            if (MigrationSystemsEnabled(SimulationRulesVersion))
+                availableStorage = checked((int)Math.Max(0L, (long)availableStorage - M12CitizenCargoAt(settlementId)));
+            actual = Math.Min(actual, availableStorage);
+        }
         state.CurrentQuantity -= actual;
         RecordProduction(citizen, node.Type, actual);
         if (actual == 0)

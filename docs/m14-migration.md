@@ -120,15 +120,23 @@ M14 implementation is acceptable when evidence shows:
   survival is a separate observation from passing the invariants.
 - Browser QA verified the two-site list and detail views, the original
   singular route, and map focus in both 2D and 3D.
+- A focused storage diagnostic found that a Gather action waiting for storage
+  could keep a citizen from responding to urgent Eat or Rest needs. The M14
+  fix lets those needs preempt the blocked action through `FinishAction`, which
+  recovers carried cargo. M14 living-work output and new Gather pickups both
+  account for live residents' carried M12 cargo when checking local free
+  capacity; Deposit behavior is unchanged. Focused regression coverage
+  exercises daughter-site food gathering with 14 and 4 units of free storage,
+  preserves the M13 exact-yield Gather case, checks seed-17 survival through
+  minute 34,200, and validates the year-5 storage-boundary snapshot.
 - The final seed-17 and seed-42 100-year Release acceptance runs used current
   source with `--checkpoint-year 30`. Both exited 0 with
   `mandatoryInvariantsPassed=true`, `acceptance.equivalent=true`, and no failed
-  invariants or mismatches. At year 100:
-  - Seed 17 had 3 living citizens globally: 3 at site 1 and 0 at daughter site
-    2. Food stocks were 601688 at site 1 and 349126 at site 2.
-  - Seed 42 had 23 living citizens globally: 19 at site 1 and 4 at daughter
-    site 2. Food stocks were 449857 at site 1 and 229325 at site 2.
+  invariants or mismatches. At year 100, seed 17 had 25 living citizens
+  globally (17 at site 1 and 8 at daughter site 2); seed 42 had 16 (14 at site
+  1 and 2 at site 2). The reports are
+  `artifacts/m14-acceptance/seed-17-storagefix-100/report.json` and
+  `artifacts/m14-acceptance/seed-42-storagefix-100/report.json`.
 
-The seed-17 daughter settlement was depopulated by year 100 despite the
-invariant and equivalence pass. Population survival is a separate observation
-from those checks.
+Both runs retained living populations at both sites. Population survival is a
+separate observation from passing the invariant and equivalence checks.

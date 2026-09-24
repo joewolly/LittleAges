@@ -14,9 +14,18 @@ public sealed partial class SimulationEngine
     private int LivingStoredQuantityAt(long settlementId) => checked(LivingGoodsFor(settlementId).Sum(x => x.Quantity) + OrdersAt(settlementId)
         .Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
     private int LivingFreeStorage => checked((int)Math.Max(0L, (long)StorageCapacity - Settlement.StorageUsed - LivingStoredQuantity - (EconomyEnabled ? OwnedStoredGoods.Total + TradeCargoReserved : 0L)));
-    private int LivingFreeStorageAt(long settlementId) => checked((int)Math.Max(0L, (long)StorageCapacityAt(settlementId) -
-        SettlementFor(settlementId).StorageUsed - LivingStoredQuantityAt(settlementId) -
-        (EconomyEnabled ? OwnedStoredGoodsAt(settlementId).Total + TradeCargoReservedAt(settlementId) : 0L)));
+    private long M12CitizenCargoAt(long settlementId) => MigrationSystemsEnabled(SimulationRulesVersion)
+        ? _citizens.Values.Where(citizen => citizen.IsAlive && citizen.CarriedResourceType is not null &&
+                SiteIdForCitizen(citizen) == settlementId)
+            .Sum(citizen => (long)citizen.CarriedResourceQuantity)
+        : 0L;
+    private int LivingFreeStorageAt(long settlementId)
+    {
+        return checked((int)Math.Max(0L, (long)StorageCapacityAt(settlementId) -
+            SettlementFor(settlementId).StorageUsed - LivingStoredQuantityAt(settlementId) -
+            (EconomyEnabled ? OwnedStoredGoodsAt(settlementId).Total + TradeCargoReservedAt(settlementId) : 0L) -
+            M12CitizenCargoAt(settlementId)));
+    }
     private LivingPerson LivingPerson(Citizen citizen) => _living!.People.Single(x => x.CitizenId == citizen.Id.Value);
     private int Good(LivingGood good) => _living!.Stock.Single(x => x.Good == good).Quantity;
     private int Good(long settlementId, LivingGood good) => GoodAt(settlementId, good);

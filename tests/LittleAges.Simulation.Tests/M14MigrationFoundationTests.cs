@@ -61,6 +61,28 @@ public sealed class M14MigrationFoundationTests
     }
 
     [Fact]
+    public void Seed17M14KeepsCitizen13AliveThroughPriorDeathMinute()
+    {
+        var engine = new SimulationEngine(new WorldSeed(17),
+            simulationRulesVersion: SimulationEngine.MigrationSimulationRulesVersion);
+        engine.AdvanceUntil(new WorldMinute(34_200));
+        var citizen = engine.Citizens.Single(x => x.CitizenId.Value == 13);
+        Assert.True(citizen.IsAlive, $"Citizen 13 died at minute {citizen.DeathMinute} from {citizen.DeathCause}.");
+    }
+
+    [Fact]
+    public void Seed17M14LivingOutputReservesSpaceForCarriedM12CitizenCargo()
+    {
+        var engine = new SimulationEngine(new WorldSeed(17),
+            simulationRulesVersion: SimulationEngine.MigrationSimulationRulesVersion);
+        var storageBoundary = new WorldMinute(5 * WorldCalendar.MinutesPerYear +
+            90L * WorldCalendar.MinutesPerDay);
+        engine.AdvanceUntil(storageBoundary);
+
+        LivingValidation.Validate(engine.CreatePersistenceSnapshot());
+    }
+
+    [Fact]
     public void M14DaughterPrioritizesItsInitialFarmAfterShelterChecksAndPreservesBaselineDemandOrder()
     {
         var seed = new WorldSeed(913);
