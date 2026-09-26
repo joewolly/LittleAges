@@ -6,7 +6,7 @@ namespace LittleAges.Domain;
 public enum LivingGoal { FamilySecurity = 1, Comfort, Mastery, Exploration }
 public enum LivingGood { Grain = 1, Meal, PreservedFood, Fuel, Tool, Clothing, Medicine, Fiber, Hide }
 public enum LivingTechnique { Cultivation = 1, Preservation, Toolmaking, Textiles, Care }
-public enum LivingWorkKind { EstablishField = 1, Sow, Tend, Harvest, Cook, Preserve, CutFuel, MakeTool, Weave, PrepareMedicine, BuildHearth, BuildLoom, BuildCareHouse, Care, Recreate, Teach, Experiment, Hunt, RepairRelationship, EquipTool, EquipClothing }
+public enum LivingWorkKind { EstablishField = 1, Sow, Tend, Harvest, Cook, Preserve, CutFuel, MakeTool, Weave, PrepareMedicine, BuildHearth, BuildLoom, BuildCareHouse, Care, Recreate, Teach, Experiment, Hunt, RepairRelationship, EquipTool, EquipClothing, BuildRoad }
 public enum LivingWorkPhase { Collect = 1, Travel, Work, Deliver }
 public enum LivingFacilityKind { Hearth = 1, Loom, CareHouse }
 public enum LivingWeatherKind { Fair = 1, Rain, Drought, ColdSpell }

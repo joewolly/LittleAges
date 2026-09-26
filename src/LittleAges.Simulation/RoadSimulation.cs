@@ -81,6 +81,50 @@ public sealed partial class SimulationEngine
     {
         if (CurrentMinute.Value == 0 || CurrentMinute.Value % MinutesPerMigrationSeason != 0) return;
         GradeRoadsForSeason();
+        foreach (var settlementId in MigrationSettlementIds) PlanRoadWork(settlementId);
+    }
+
+    internal const int RoadOrdersPerSeason = 4;
+    internal const int RoadWorkPriority = 1800;
+    internal static int RoadStoneReserve(int population) => checked(10 + 2 * population);
+
+    /// <summary>Requests paving of the settlement's own trails: the route between the sites first, then by wear.</summary>
+    private void PlanRoadWork(long settlementId)
+    {
+        var population = PopulationAt(settlementId);
+        if (population == 0 || !SettlementKnows(settlementId, LivingTechnique.Toolmaking) ||
+            SettlementFor(settlementId).StoneStored < RoadStoneReserve(population)) return;
+        var pending = OrdersAt(settlementId).Where(x => x.Kind == LivingWorkKind.BuildRoad).Select(x => x.Location).ToHashSet();
+        var capacity = RoadOrdersPerSeason - pending.Count;
+        if (capacity <= 0) return;
+        var grades = Roads!;
+        var wear = RoadWear;
+        var route = IntersiteRoute();
+        var candidates = new List<(TileCoordinate Coordinate, bool OnRoute, int Wear)>();
+        for (var y = 0; y < World.Height; y++)
+            for (var x = 0; x < World.Width; x++)
+            {
+                var coordinate = new TileCoordinate(x, y);
+                if (grades.GradeAt(coordinate) != RoadGrade.Trail || pending.Contains(coordinate) ||
+                    SiteIdForLocation(coordinate) != settlementId) continue;
+                candidates.Add((coordinate, route.Contains(coordinate), wear[y * World.Width + x]));
+            }
+        foreach (var tile in candidates.OrderByDescending(x => x.OnRoute).ThenByDescending(x => x.Wear).ThenBy(x => x.Coordinate).Take(capacity))
+            RequestLiving(LivingWorkKind.BuildRoad, tile.Coordinate, RoadWorkPriority, settlementId: settlementId,
+                ingredients: [.. LivingWorkDefinitions.Ingredients(LivingWorkKind.BuildRoad)]);
+    }
+
+    private HashSet<TileCoordinate> IntersiteRoute() =>
+        _migrationState?.DaughterSettlement is { } daughter && FindPathCached(World.StartingSite, daughter.Site) is { } path
+            ? path.ToHashSet()
+            : [];
+
+    private void CompleteRoadTile(LivingWorkOrder order)
+    {
+        var grades = Roads ?? throw new InvalidOperationException("Road work requires M15 rules.");
+        if (grades.GradeAt(order.Location) != RoadGrade.Trail) return;
+        grades.SetGrade(order.Location, RoadGrade.Road);
+        OnRoadNetworkChanged();
     }
 
     /// <summary>The seasonal pass: regrade from wear with hysteresis, then fade wear by one eighth.</summary>

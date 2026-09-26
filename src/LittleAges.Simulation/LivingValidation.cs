@@ -86,6 +86,8 @@ public static class LivingValidation
             Require(!order.Produced || order.Phase == LivingWorkPhase.Deliver, "Produced work must be delivered.");
             Require(!order.CargoInTransit || order.Produced && order.CitizenId is not null && order.Cargo.Count > 0, "Cargo in transit requires a worker and produced goods.");
             Require(order.Technique is not null == (order.Kind is LivingWorkKind.Teach or LivingWorkKind.Experiment), "Technique references belong to learning work.");
+            Require(order.Kind != LivingWorkKind.BuildRoad || SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion) && order.SubjectId is null,
+                "Road building is M15 work on a tile, not a subject.");
             Require(order.Cargo!.All(x => Enum.IsDefined(x.Good) && x.Quantity > 0) && (order.Cargo.Count == 0 || order.Produced) && (!order.Produced || order.Reserved && order.WorkDone == order.RequiredWork), "Work cargo or completion is invalid.");
             if (order.CitizenId is { } id)
             {

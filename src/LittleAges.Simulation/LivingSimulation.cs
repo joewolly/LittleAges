@@ -186,7 +186,7 @@ public sealed partial class SimulationEngine
     {
         LivingWorkKind.EstablishField or LivingWorkKind.Sow or LivingWorkKind.Tend or LivingWorkKind.Harvest => LivingTechnique.Cultivation,
         LivingWorkKind.Preserve => LivingTechnique.Preservation,
-        LivingWorkKind.MakeTool => LivingTechnique.Toolmaking,
+        LivingWorkKind.MakeTool or LivingWorkKind.BuildRoad => LivingTechnique.Toolmaking,
         LivingWorkKind.Weave or LivingWorkKind.BuildLoom => LivingTechnique.Textiles,
         LivingWorkKind.PrepareMedicine or LivingWorkKind.BuildCareHouse => LivingTechnique.Care,
         _ => null
@@ -370,6 +370,7 @@ public sealed partial class SimulationEngine
         if (order.Produced) return true;
         var siteId = SiteIdForOrder(order);
         if (order.Kind == LivingWorkKind.Experiment) return order.Technique is { } technique && !SettlementKnows(siteId, technique);
+        if (order.Kind == LivingWorkKind.BuildRoad) return Roads?.GradeAt(order.Location) == RoadGrade.Trail;
         if (order.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.Recreate or LivingWorkKind.RepairRelationship or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing)
         {
             if (order.SubjectId is not { } citizen || !_citizens.TryGetValue(citizen, out var target) || !target.IsAlive ||

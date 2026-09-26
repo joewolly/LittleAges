@@ -1,6 +1,6 @@
 # M15 - Roads and intersite trade
 
-**Status:** in progress on `codex/m15-roads-trade`; phases 1 and 2 are implemented.
+**Status:** in progress on `codex/m15-roads-trade`; phases 1 to 3 are implemented.
 The rules identifier is `m15-rng1-roads1`. Tuning values marked *initial* are
 starting points to be calibrated by the phase measurements below, not settled
 rules.
@@ -127,17 +127,26 @@ A settlement can improve a `Trail` tile it owns into a `Road`:
   pipeline: collect, travel, work, complete. It takes 2 Stone and 120 work
   minutes, at priority 1800 (*initial*), so food, fuel, and shelter work come
   first.
-- **Planning.** Each season, each settlement requests at most 4 (*initial*)
-  road orders, and plans nothing when Stone is below a per-population reserve.
-  It chooses among its own `Trail` tiles in this order:
+- **Planning.** Each season, right after the grading pass, each settlement
+  tops its pending road orders up to 4 (*initial*). It plans nothing when its
+  communal Stone is below `10 + 2 × population` (*initial*). It chooses among
+  its own `Trail` tiles in this order:
   1. tiles on the current route between the two sites;
   2. then any other tile, highest wear first;
   3. ties broken by coordinate.
 
   The route between the sites is the road-aware path at planning time.
 - **Completion.** When the order completes, the tile becomes `Road`
-  immediately, and the derived caches are cleared as above. In M15, built roads never decay. Disrepair and
-  ruins are deferred.
+  immediately, and the derived caches are cleared as above. An unclaimed order
+  whose tile is no longer a `Trail` is cancelled. If a claimed order's tile
+  fades below `Trail` at a season boundary before the work finishes, the work
+  completes without paving and its Stone is spent. This keeps the invariant
+  that roads are only built on `Trail` tiles. In M15, built
+  roads never decay. Disrepair and ruins are deferred.
+
+The observer needs no new handling for this work kind. Work kinds reach the
+web client as enum names, so `BuildRoad` is shown as "Build Road" with the
+construction animation, like other building work.
 
 Roads don't block building or field placement in M15.
 
@@ -292,8 +301,15 @@ M15 is acceptable when evidence shows:
    Road state rides in the existing `migration_state_json` column, so no
    database migration is needed. Add reopen-parity tests across a grade
    change.
-3. **Road building.** Add the `BuildRoad` work kind, derived ownership,
-   seasonal planning, and completion-driven cache resets.
+3. **Road building.** *(Done.)* Add the `BuildRoad` work kind, derived
+   ownership, seasonal planning, and completion-driven cache resets. The tests
+   stock a real seed-42 world with household stone just before its second
+   season boundary. They then check that orders go only to the most worn
+   `Trail` tiles, that finished orders turn exactly those tiles into `Road`
+   and use 2 Stone each, and that reopened and chunked runs match
+   uninterrupted ones. The `RoadWorkSeason` and `RouteConnected` history
+   events move to phase 4 with the other new event types, because they need
+   the same persistence migration.
 4. **Trade journeys.** Add the trade journey kind and phases, monthly
    evaluation, lot exchange, cargo accounting, the history events, and the
    persistence migration for the new event types.
@@ -315,6 +331,15 @@ M15 is acceptable when evidence shows:
   load now depends on route grade, as described above.
 - **Movement statistics.** `LifetimeMovementCost` records the reduced cost,
   and occupation statistics are unchanged.
+
+- **Stone for paving (open, phase 6).** In unmodified early runs, roads are
+  never planned. Seeds 17 and 42 have more than 30 `Trail` tiles by the
+  second season boundary, but communal Stone stays between 0 and 12 against a
+  reserve of 50. The shared non-food storage is full of household-owned goods,
+  so the commons cannot grow, while households hold hundreds of Stone between
+  them. Phase 6 should either count stone that can be procured from
+  households, as construction already does, or lower the reserve. It should
+  then confirm that paving happens in the multiseed runs.
 
 - **Reopening mid-route.** Re-planning after a reopen relied on A* from
   partway along a route reproducing the rest of it, which road ties make

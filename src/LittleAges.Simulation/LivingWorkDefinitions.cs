@@ -35,6 +35,7 @@ public static class LivingWorkDefinitions
         LivingWorkKind.Weave => [new("Fiber", 8)],
         LivingWorkKind.PrepareMedicine => [new("Food", 5), new("Fiber", 2)],
         LivingWorkKind.BuildHearth or LivingWorkKind.BuildLoom or LivingWorkKind.BuildCareHouse => [new("Wood", 12), new("Stone", 6)],
+        LivingWorkKind.BuildRoad => [new("Stone", 2)],
         LivingWorkKind.EquipTool => [new("Tool", 1)],
         LivingWorkKind.EquipClothing => [new("Clothing", 1)],
         _ => []
