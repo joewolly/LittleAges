@@ -8,7 +8,7 @@ public sealed class DeterministicPathfinder
     private static readonly (int X, int Y)[] Directions =
     [ (0,-1), (1,-1), (1,0), (1,1), (0,1), (-1,1), (-1,0), (-1,-1) ];
 
-    public static IReadOnlyList<TileCoordinate>? FindPath(WorldMap world, TileCoordinate start, TileCoordinate destination)
+    public static IReadOnlyList<TileCoordinate>? FindPath(WorldMap world, TileCoordinate start, TileCoordinate destination, RoadGradeMap? roads = null)
     {
         ArgumentNullException.ThrowIfNull(world);
         var startTile = world.GetTile(start);
@@ -21,7 +21,7 @@ public sealed class DeterministicPathfinder
         var startIndex = start.ToIndex(width);
         var g = new Dictionary<long, long> { [startIndex] = 0 };
         var parent = new Dictionary<long, long>();
-        var startNode = new Node(startIndex, 0, Heuristic(start, destination), 0);
+        var startNode = new Node(startIndex, 0, Heuristic(start, destination, roads), 0);
         var queue = new PriorityQueue<Node, NodePriority>();
         queue.Enqueue(startNode, NodePriority.From(startNode));
         long localSequence = 0;
@@ -38,18 +38,18 @@ public sealed class DeterministicPathfinder
                 var next = world.GetTile(nx, ny);
                 if (!next.Walkable) continue;
                 var nextIndex = next.Coordinate.ToIndex(width);
-                var step = checked((dx == 0 || dy == 0 ? 10L : 14L) * next.MovementCost);
+                var step = TravelCost.Step(dx == 0 || dy == 0, next, roads);
                 var nextG = checked(current.G + step);
                 if (g.TryGetValue(nextIndex, out var oldG) && nextG >= oldG) continue;
                 g[nextIndex] = nextG; parent[nextIndex] = current.Index;
-                var candidate = new Node(nextIndex, nextG, Heuristic(next.Coordinate, destination), localSequence++);
+                var candidate = new Node(nextIndex, nextG, Heuristic(next.Coordinate, destination, roads), localSequence++);
                 queue.Enqueue(candidate, NodePriority.From(candidate));
             }
         }
         return null;
     }
 
-    public static IReadOnlyList<TileCoordinate>? Find(WorldMap world, TileCoordinate start, TileCoordinate destination) => FindPath(world, start, destination);
+    public static IReadOnlyList<TileCoordinate>? Find(WorldMap world, TileCoordinate start, TileCoordinate destination, RoadGradeMap? roads = null) => FindPath(world, start, destination, roads);
 
     /// <summary>Computes exact weighted travel costs from one tile to every reachable tile.</summary>
     public static IReadOnlyDictionary<TileCoordinate, long> ComputeTravelCosts(WorldMap world, TileCoordinate start)
@@ -68,7 +68,7 @@ public sealed class DeterministicPathfinder
                 if (nx < 0 || nx >= world.Width || ny < 0 || ny >= world.Height) continue;
                 if (dx != 0 && dy != 0 && (!world.GetTile(nx, current.Coordinate.Y).Walkable || !world.GetTile(current.Coordinate.X, ny).Walkable)) continue;
                 var next = world.GetTile(nx, ny); if (!next.Walkable) continue;
-                var nextCost = checked(current.Cost + (checked((dx == 0 || dy == 0 ? 10L : 14L) * next.MovementCost)));
+                var nextCost = checked(current.Cost + TravelCost.Step(dx == 0 || dy == 0, next, null));
                 if (costs.TryGetValue(next.Coordinate, out var old) && nextCost >= old) continue;
                 costs[next.Coordinate] = nextCost; queue.Enqueue((next.Coordinate, nextCost), (nextCost, sequence++));
             }
@@ -76,9 +76,13 @@ public sealed class DeterministicPathfinder
         return costs;
     }
 
-    private static long Heuristic(TileCoordinate from, TileCoordinate to)
+    private static long Heuristic(TileCoordinate from, TileCoordinate to, RoadGradeMap? roads)
     {
         var dx = Math.Abs(from.X - to.X); var dy = Math.Abs(from.Y - to.Y);
+        // Road steps can cost less than the M1 terrain minimum, so M15 bounds by the cheapest road step.
+        if (roads is not null)
+            return (long)TravelCost.MinimumOrthogonalStep * Math.Max(dx, dy) +
+                   (long)(TravelCost.MinimumDiagonalStep - TravelCost.MinimumOrthogonalStep) * Math.Min(dx, dy);
         return 10L * Math.Max(dx, dy) + 4L * Math.Min(dx, dy);
     }
     private static System.Collections.ObjectModel.ReadOnlyCollection<TileCoordinate> Reconstruct(Dictionary<long, long> parent, long index, int width)

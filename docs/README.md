@@ -28,6 +28,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Product and design references
 
+- [`m15-roads-trade.md`](./m15-roads-trade.md) - M15 design for worn paths,
+  built roads, and trader journeys between settlements; in progress and opt-in.
 - [`feature-ideas.md`](./feature-ideas.md) — editable ideas for future
   simulation, history, world, and observer features; not a release schedule.
 - [`design-v0.1.md`](./design-v0.1.md) — the preserved v0.1 product-design

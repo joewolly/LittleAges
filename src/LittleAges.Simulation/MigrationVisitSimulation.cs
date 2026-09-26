@@ -57,7 +57,7 @@ public sealed partial class SimulationEngine
                 };
                 var party = new MigrationTransitPartyState(_counters.AllocateMigrationPartyId(), householdId.Value,
                     originSite, destinationSiteId, visitor.Location, destinationSite, [visitor.Id.Value], cargo,
-                    checked((int)SimulationEngine.RemainingPathCost(outboundPath, World)), CurrentMinute.Value,
+                    checked((int)TravelPathCost(outboundPath)), CurrentMinute.Value,
                     journeyKind: MigrationJourneyKind.Visit, visitRelativeId: relative.Id.Value,
                     visitPhase: MigrationVisitPhase.Outbound);
                 SetMigrationParty(party);
@@ -182,7 +182,7 @@ public sealed partial class SimulationEngine
 
         var returning = new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.OriginSettlementId, visitor.Location, originSite, party.CitizenIds, party.Cargo,
-            checked((int)SimulationEngine.RemainingPathCost(returnPath, World)), party.DepartedMinute,
+            checked((int)TravelPathCost(returnPath)), party.DepartedMinute,
             returning: true, journeyKind: MigrationJourneyKind.Visit, visitRelativeId: party.VisitRelativeId,
             visitPhase: MigrationVisitPhase.Returning);
         SetMigrationParty(returning);

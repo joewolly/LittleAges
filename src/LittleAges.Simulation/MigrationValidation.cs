@@ -8,7 +8,7 @@ public static class MigrationValidation
     public static void Validate(SimulationPersistenceSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        if (snapshot.SimulationRulesVersion != SimulationEngine.MigrationSimulationRulesVersion)
+        if (!SimulationEngine.MigrationSystemsEnabled(snapshot.SimulationRulesVersion))
         {
             Require(snapshot.MigrationStateJson is null && snapshot.MigrationState is null,
                 "Only M14 snapshots may carry migration state.");

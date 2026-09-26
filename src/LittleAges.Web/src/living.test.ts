@@ -10,6 +10,7 @@ describe('living world observations', () => {
     expect(parseLivingWorld({ ...world, rulesVersion: 'v02-rng1-living2' })?.rulesVersion).toBe('v02-rng1-living2')
     expect(parseLivingWorld({ ...world, rulesVersion: 'm13-rng1-unified1' })?.rulesVersion).toBe('m13-rng1-unified1')
     expect(parseLivingWorld({ ...world, rulesVersion: 'm14-rng1-migration1' })?.rulesVersion).toBe('m14-rng1-migration1')
+    expect(parseLivingWorld({ ...world, rulesVersion: 'm15-rng1-roads1' })?.rulesVersion).toBe('m15-rng1-roads1')
     expect(() => parseLivingWorld({ ...world, version: 2 })).toThrow()
     expect(() => parseLivingWorld({ ...world, rulesVersion: 'v02-rng1-living3' })).toThrow()
   })

@@ -1,6 +1,6 @@
 type Point = { x: number; y: number }
 export const UNIFIED_RULES_VERSION = 'm13-rng1-unified1'
-const UNIFIED_LIVING_SUCCESSOR_RULES_VERSION = 'm14-rng1-migration1'
+const UNIFIED_LIVING_SUCCESSOR_RULES_VERSIONS = new Set(['m14-rng1-migration1', 'm15-rng1-roads1'])
 const m12OwnedGoods = new Set(['Food', 'Wood', 'Stone'])
 export type LivingPerson = { citizenId: string; goal: string; mood: number; stress: number; injury: number; illness: number; toolCondition: number; clothingCondition: number; knowledge: string[]; deathObserved: boolean; experiences: { kind: string; minute: number; otherCitizenId: string | null }[] }
 export type LivingOrder = { id: string; kind: string; location: Point; citizenId: string | null; subjectId: string | null; technique: string | null; phase: string; cargoInTransit?: boolean; suppliesDelivered?: boolean; workDone: number; requiredWork: number; blockedReason: string; ingredients: { resource: string; quantity: number }[]; cargo: { good: string; quantity: number }[] }
@@ -14,7 +14,7 @@ export type LivingWorld = {
   stock: { good: string; quantity: number }[]; people: LivingPerson[]; orders: LivingOrder[]; fields: LivingField[]; facilities: LivingFacility[]; animals: LivingAnimal[]; facts: LivingFact[]
 }
 
-export function isUnifiedLivingRules(rulesVersion: string): boolean { return rulesVersion === UNIFIED_RULES_VERSION || rulesVersion === UNIFIED_LIVING_SUCCESSOR_RULES_VERSION }
+export function isUnifiedLivingRules(rulesVersion: string): boolean { return rulesVersion === UNIFIED_RULES_VERSION || UNIFIED_LIVING_SUCCESSOR_RULES_VERSIONS.has(rulesVersion) }
 export function isM12OwnedGood(good: string): boolean { return m12OwnedGoods.has(good) }
 
 function record(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid living-world record.'); return value as Record<string, unknown> }

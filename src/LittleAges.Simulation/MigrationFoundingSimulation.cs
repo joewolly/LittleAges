@@ -89,7 +89,7 @@ public sealed partial class SimulationEngine
             };
             var party = new MigrationTransitPartyState(partyId, household.Id.Value, 1, null,
                 representative.Location, destination, members.Select(x => x.Id.Value).ToArray(), cargo,
-                checked((int)SimulationEngine.RemainingPathCost(path, World)), CurrentMinute.Value);
+                checked((int)TravelPathCost(path)), CurrentMinute.Value);
             SetMigrationParty(party);
             EmitHistory(HistoricalEventType.ExpeditionDeparted, HistoricalImportance.Notable, party.Location,
                 HistoricalEventPayloads.ExpeditionDeparted(party.Id, party.HouseholdId, party.OriginSettlementId,
@@ -230,7 +230,7 @@ public sealed partial class SimulationEngine
             .FirstOrDefault(x => x is { IsAlive: true });
         if (representative is null) return;
         var route = FindPathCached(representative.Location, party.DestinationSite);
-        var remaining = route is null || route.Count < 2 ? 0 : checked((int)SimulationEngine.RemainingPathCost(route, World));
+        var remaining = route is null || route.Count < 2 ? 0 : checked((int)TravelPathCost(route));
         SetMigrationParty(new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.DestinationSettlementId, representative.Location, party.DestinationSite, party.CitizenIds,
             party.Cargo, remaining, party.DepartedMinute, party.Returning, party.FoundingAdultArrived,
@@ -484,7 +484,7 @@ public sealed partial class SimulationEngine
         var path = representative is null ? null : FindPathCached(representative.Location, destination);
         var updated = new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.OriginSettlementId, representative?.Location ?? party.Location, destination, party.CitizenIds,
-            party.Cargo, path is null || path.Count < 2 ? 0 : checked((int)SimulationEngine.RemainingPathCost(path, World)),
+            party.Cargo, path is null || path.Count < 2 ? 0 : checked((int)TravelPathCost(path)),
             party.DepartedMinute, returning: true, foundingAdultArrived: party.FoundingAdultArrived,
             journeyKind: party.JourneyKind);
         SetMigrationParty(updated);
