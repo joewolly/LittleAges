@@ -213,7 +213,7 @@ public sealed partial class SimulationEngine
     }
 
     private int HarvestLoadCapacity(long settlementId) =>
-        SimulationRulesVersion == MigrationSimulationRulesVersion &&
+        MigrationSystemsEnabled(SimulationRulesVersion) &&
         settlementId == MigrationDaughterSettlementState.SettlementId
             ? 120
             : AgricultureRules.HarvestPerShift;

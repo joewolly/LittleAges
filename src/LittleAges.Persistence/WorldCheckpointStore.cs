@@ -564,9 +564,10 @@ public sealed class WorldCheckpointStore
             var existingMetadata = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
             if (existingMetadata.Count > 1) throw new InvalidDataException("A checkpoint cannot replace a database with multiple world_meta rows.");
             if (existingMetadata.Count == 1 &&
-                (existingMetadata[0].SimulationRulesVersion == SimulationEngine.MigrationSimulationRulesVersion) !=
-                (snapshot.SimulationRulesVersion == SimulationEngine.MigrationSimulationRulesVersion))
-                throw new InvalidDataException("M14 migration state is supported only for new M14 worlds and cannot convert an existing world.");
+                (SimulationEngine.MigrationSystemsEnabled(existingMetadata[0].SimulationRulesVersion) ||
+                 SimulationEngine.MigrationSystemsEnabled(snapshot.SimulationRulesVersion)) &&
+                existingMetadata[0].SimulationRulesVersion != snapshot.SimulationRulesVersion)
+                throw new InvalidDataException("M14 and M15 state is supported only for new worlds on those rules and cannot convert an existing world.");
             if (existingMetadata.Count == 1) LivingValidation.ValidateRetainedFacts(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson);
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
 

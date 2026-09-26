@@ -62,7 +62,7 @@ public sealed partial class SimulationEngine
             WithdrawRelocatingHouseholdGoods(household.Id.Value, cargo);
             var party = new MigrationTransitPartyState(_counters.AllocateMigrationPartyId(), household.Id.Value,
                 origin, destination, members[0].Location, destinationSite, members.Select(x => x.Id.Value).ToArray(),
-                cargo, checked((int)SimulationEngine.RemainingPathCost(representativePath, World)),
+                cargo, checked((int)TravelPathCost(representativePath)),
                 CurrentMinute.Value, journeyKind: MigrationJourneyKind.Relocation);
             SetMigrationParty(party);
             foreach (var member in members) StartFoundingTravel(member, destinationSite);

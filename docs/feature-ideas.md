@@ -46,8 +46,9 @@ from the simulation without inventing events.
   with one autonomous daughter settlement, seasonal household migration, and
   family visits. New worlds use M14 by default; existing saves keep their
   recorded rules.
-- **Roads and trade routes.** Repeated travel could justify paths and exchange
-  between settlements, making geography matter to prosperity and contact.
+- **Roads and trade routes.** Proposed for [M15](m15-roads-trade.md): worn
+  tracks and trails from foot traffic, built roads, and trader journeys between
+  the two settlements.
 - **Visitors and newcomers.** Travelers could bring skills, goods, and stories
   from beyond the starting settlement, then choose whether to stay.
 - **Disasters and recovery.** Fires, floods, or severe seasons could destroy
