@@ -270,12 +270,14 @@ internal static class HeadlessInvariantValidator
         foreach (var party in state.InTransitParties)
         {
             party.Validate();
-            if (!households.Contains(party.HouseholdId) ||
-                !householdOwners.TryGetValue(party.HouseholdId, out var householdOwner) || householdOwner != party.OriginSettlementId)
+            // A trader's household is attribution at departure only; they must still live at the origin.
+            var trade = party.JourneyKind == MigrationJourneyKind.Trade;
+            if (!households.Contains(party.HouseholdId) || !trade &&
+                (!householdOwners.TryGetValue(party.HouseholdId, out var householdOwner) || householdOwner != party.OriginSettlementId))
                 return false;
             foreach (var citizenId in party.CitizenIds)
                 if (!travelers.Add(citizenId) || !citizens.TryGetValue(citizenId, out var citizen) ||
-                    citizen.HouseholdId?.Value != party.HouseholdId || citizenOwners[citizenId] != party.OriginSettlementId)
+                    !trade && citizen.HouseholdId?.Value != party.HouseholdId || citizenOwners[citizenId] != party.OriginSettlementId)
                     return false;
             foreach (var cargo in party.Cargo)
                 if (!cargoIds.Add(cargo.Id)) return false;

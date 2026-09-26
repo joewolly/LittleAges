@@ -75,6 +75,9 @@ public static class MigrationValidation
 
         var citizenById = snapshot.Citizens.ToDictionary(x => x.Id.Value);
         ValidateRoads(snapshot, state, world, citizenById);
+        Require(state.InTransitParties.Where(x => x.JourneyKind == MigrationJourneyKind.Trade)
+                .GroupBy(x => x.OriginSettlementId).All(x => x.Count() == 1),
+            "Each settlement may have at most one trade party in transit.");
         foreach (var pressure in state.FoundingPressure ?? Array.Empty<MigrationFoundingPressureState>())
             Require(householdOwners.ContainsKey(pressure.HouseholdId) && pressure.SinceMinute <= snapshot.WorldMinute.Value,
                 "Migration founding pressure must reference an existing household and cannot start in the future.");
@@ -128,12 +131,25 @@ public static class MigrationValidation
                 party.Location.X >= 0 && party.Location.Y >= 0 && party.Location.X < world.Width && party.Location.Y < world.Height && world.GetTile(party.Location).Walkable &&
                 party.DestinationSite.X >= 0 && party.DestinationSite.Y >= 0 && party.DestinationSite.X < world.Width && party.DestinationSite.Y < world.Height && world.GetTile(party.DestinationSite).Walkable,
                 "Migration party location or timing is invalid.");
-            Require(householdOwners.TryGetValue(party.HouseholdId, out var householdResidence) && householdResidence == party.OriginSettlementId,
-                "A migration party must belong to its household's origin settlement.");
-            foreach (var citizenId in party.CitizenIds)
-                Require(citizenById.TryGetValue(citizenId, out var citizen) && citizen.HouseholdId?.Value == party.HouseholdId &&
-                    citizenOwners[citizenId] == party.OriginSettlementId,
-                    "Migration party members must be residents of its originating household.");
+            if (party.JourneyKind == MigrationJourneyKind.Trade)
+            {
+                // A trader's household is attribution at departure only; the family check may re-house them while away.
+                Require(SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion) && state.DaughterSettlement is not null &&
+                    householdOwners.ContainsKey(party.HouseholdId),
+                    "Trade parties require M15 rules, a daughter settlement, and a recorded household.");
+                foreach (var citizenId in party.CitizenIds)
+                    Require(citizenById.ContainsKey(citizenId) && citizenOwners[citizenId] == party.OriginSettlementId,
+                        "A trader must be a resident of the trade party's origin settlement.");
+            }
+            else
+            {
+                Require(householdOwners.TryGetValue(party.HouseholdId, out var householdResidence) && householdResidence == party.OriginSettlementId,
+                    "A migration party must belong to its household's origin settlement.");
+                foreach (var citizenId in party.CitizenIds)
+                    Require(citizenById.TryGetValue(citizenId, out var citizen) && citizen.HouseholdId?.Value == party.HouseholdId &&
+                        citizenOwners[citizenId] == party.OriginSettlementId,
+                        "Migration party members must be residents of its originating household.");
+            }
             var representative = party.CitizenIds.Select(id => citizenById[id]).FirstOrDefault(x => x.IsAlive);
             if (representative is not null)
                 Require(party.Location == representative.Location, "A migration party must track its lowest-ID living member.");

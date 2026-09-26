@@ -10,7 +10,7 @@ public sealed partial class SimulationEngine
     {
         if (!MigrationSystemsEnabled(SimulationRulesVersion) ||
             _migrationState?.DaughterSettlement is null ||
-            _migrationState.InTransitParties.Count != 0 ||
+            HasNonTradeMigrationParty ||
             CurrentMinute.Value % MinutesPerMigrationSeason != 0)
             return;
 
@@ -36,6 +36,7 @@ public sealed partial class SimulationEngine
                 .Where(x => x.IsAlive && x.HouseholdId == household.Id)
                 .OrderBy(x => x.Id.Value).ToArray();
             if (members.Length == 0 || !members.Any(x => x.AgeYears(CurrentMinute) >= 18) ||
+                members.Any(x => FoundingPartyForCitizen(x.Id.Value) is not null) ||
                 HasMigrationWorkOrBarterObligations(household.Id.Value, members))
                 continue;
             var provisionPerTraveler = FoundingProvisionFood(CurrentMinute.Value);

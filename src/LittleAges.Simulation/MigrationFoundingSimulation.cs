@@ -234,7 +234,8 @@ public sealed partial class SimulationEngine
         SetMigrationParty(new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.DestinationSettlementId, representative.Location, party.DestinationSite, party.CitizenIds,
             party.Cargo, remaining, party.DepartedMinute, party.Returning, party.FoundingAdultArrived,
-            party.JourneyKind, party.VisitRelativeId, party.VisitPhase, party.VisitDwellEndsMinute));
+            party.JourneyKind, party.VisitRelativeId, party.VisitPhase, party.VisitDwellEndsMinute,
+            party.TradeReturnGood, party.TradeLoad));
     }
 
     private bool TryPauseFoundingTravelForMeal(Citizen citizen)
@@ -242,7 +243,7 @@ public sealed partial class SimulationEngine
         var party = FoundingPartyForCitizen(citizen.Id.Value);
         if (party is null ||
             citizen.CurrentAction != CitizenAction.Explore &&
-            (citizen.CurrentAction != CitizenAction.None || party.JourneyKind == MigrationJourneyKind.Visit) ||
+            (citizen.CurrentAction != CitizenAction.None || IsRoundTripJourney(party)) ||
             !MigrationPartyHasProvision(party, 1)) return false;
         var needs = citizen.GetProjectedNeeds(CurrentMinute);
         if (needs.Hunger < 8500) return false;
@@ -255,7 +256,7 @@ public sealed partial class SimulationEngine
     private bool TryPauseFoundingTravelForRest(Citizen citizen)
     {
         var party = FoundingPartyForCitizen(citizen.Id.Value);
-        if (party is null || party.JourneyKind == MigrationJourneyKind.Visit ||
+        if (party is null || IsRoundTripJourney(party) ||
             citizen.CurrentAction is not (CitizenAction.Explore or CitizenAction.None)) return false;
         var needs = citizen.GetProjectedNeeds(CurrentMinute);
         if (needs.Rest < 8500) return false;
@@ -313,7 +314,8 @@ public sealed partial class SimulationEngine
             SetMigrationParty(new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
                 party.DestinationSettlementId, party.Location, party.DestinationSite, party.CitizenIds, cargo,
                 party.RemainingPathCost, party.DepartedMinute, party.Returning, party.FoundingAdultArrived,
-                party.JourneyKind, party.VisitRelativeId, party.VisitPhase, party.VisitDwellEndsMinute));
+                party.JourneyKind, party.VisitRelativeId, party.VisitPhase, party.VisitDwellEndsMinute,
+                party.TradeReturnGood, party.TradeLoad));
         return consumed;
     }
 
@@ -321,7 +323,7 @@ public sealed partial class SimulationEngine
     {
         var party = FoundingPartyForCitizen(citizen.Id.Value);
         if (party is null) return;
-        if (party.JourneyKind == MigrationJourneyKind.Visit)
+        if (IsRoundTripJourney(party))
         {
             ResumeMigrationVisit(citizen, party);
             return;
@@ -338,7 +340,7 @@ public sealed partial class SimulationEngine
         if (party is null || citizen.CurrentAction != CitizenAction.Explore ||
             citizen.Location != party.DestinationSite) return false;
 
-        if (party.JourneyKind == MigrationJourneyKind.Visit)
+        if (IsRoundTripJourney(party))
             return HandleMigrationVisitArrival(citizen, party);
 
         if (!party.Returning && citizen.IsAlive && citizen.AgeYears(CurrentMinute) >= 18 && !party.FoundingAdultArrived)
@@ -518,7 +520,7 @@ public sealed partial class SimulationEngine
     {
         var party = FoundingPartyForCitizen(citizen.Id.Value);
         if (party is null) return;
-        if (party.JourneyKind == MigrationJourneyKind.Visit)
+        if (IsRoundTripJourney(party))
         {
             HandleMigrationVisitAfterSurvival(citizen, party);
             return;
@@ -548,7 +550,9 @@ public sealed partial class SimulationEngine
 
     private void RecoverFoundingCargoAtPartyLocation(MigrationTransitPartyState party)
     {
-        var owner = _households.TryGetValue(party.HouseholdId, out var household) && household.DissolvedMinute is null
+        // Trade cargo is communal: the party's household only records who the trader lived with at departure.
+        var owner = party.JourneyKind != MigrationJourneyKind.Trade &&
+            _households.TryGetValue(party.HouseholdId, out var household) && household.DissolvedMinute is null
             ? party.HouseholdId
             : (long?)null;
         foreach (var stack in party.Cargo.OrderBy(x => x.Id))
@@ -562,7 +566,15 @@ public sealed partial class SimulationEngine
             };
             if (resource is { } recoverable && stack.Quantity > 0)
                 AddRecoverable(owner, party.Location, recoverable, checked((int)stack.Quantity));
+            else if (stack.Good == MigrationCargoGood.Grain) SpoilLostGrain(stack.Quantity);
         }
+    }
+
+    /// <summary>Only M15 trade carries grain. Grain lost with its party spoils, which keeps communal grain conserved.</summary>
+    private void SpoilLostGrain(long quantity)
+    {
+        if (quantity > 0 && _living is not null)
+            _living.CommunalGrainSpoiled = checked(_living.CommunalGrainSpoiled + quantity);
     }
 
     private void DepositFoundingCargo(MigrationTransitPartyState party, long settlementId)

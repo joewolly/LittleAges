@@ -161,6 +161,7 @@ public static class LivingValidation
                 state.Orders.Sum(x => x.Cargo.Where(y => y.Good == LivingGood.Grain).Sum(y => y.Quantity) +
                     (x.Reserved && !x.Produced ? x.Ingredients.Where(y => y.Resource == nameof(LivingGood.Grain)).Sum(y => y.Quantity) : 0L)) +
                 (migration?.DaughterSettlement?.LivingGoods.SingleOrDefault(x => x.Good == LivingGood.Grain)?.Quantity ?? 0) +
+                (migration?.InTransitParties.SelectMany(x => x.Cargo).Where(x => x.Good == MigrationCargoGood.Grain).Sum(x => x.Quantity) ?? 0L) +
                 state.CommunalGrainConsumed + state.CommunalGrainSpoiled;
             Require(grainAccounted == state.CommunalGrainHarvested, "Unified communal grain stock, escrow, consumption, and spoilage must conserve harvests.");
         }

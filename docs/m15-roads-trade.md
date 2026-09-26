@@ -1,6 +1,6 @@
 # M15 - Roads and intersite trade
 
-**Status:** in progress on `codex/m15-roads-trade`; phases 1 to 3 are implemented.
+**Status:** in progress on `codex/m15-roads-trade`; phases 1 to 4 are implemented.
 The rules identifier is `m15-rng1-roads1`. Tuning values marked *initial* are
 starting points to be calibrated by the phase measurements below, not settled
 rules.
@@ -310,14 +310,62 @@ M15 is acceptable when evidence shows:
    uninterrupted ones. The `RoadWorkSeason` and `RouteConnected` history
    events move to phase 4 with the other new event types, because they need
    the same persistence migration.
-4. **Trade journeys.** Add the trade journey kind and phases, monthly
-   evaluation, lot exchange, cargo accounting, the history events, and the
-   persistence migration for the new event types.
+4. **Trade journeys.** *(Done.)* Add the trade journey kind and phases,
+   monthly evaluation, lot exchange, cargo accounting, the history events, and
+   the persistence migration for the new event types. The tests cover each
+   phase, cargo conservation, trader loss, reopen parity (in memory and through
+   SQLite) in every phase and after a loss, and chunk size. A 10-year seed-42
+   acceptance run passes every invariant and trades on its own. The decisions
+   are listed under "Phase 4 decisions" below.
 5. **Observer.** Add the road overlay route, the settlement trade fields, 2D
    and 3D road rendering, and history rendering.
 6. **Tuning and acceptance.** Calibrate the *initial* values from multiseed
    runs, run the 10-year and 100-year acceptance, and update the README,
    `simulation-model.md`, `feature-ideas.md`, and the release notes.
+
+## Phase 4 decisions
+
+- **Trade doesn't block M14 systems.** Trade parties are nearly always on the
+  road, but the daily family check, visits, and relocation all wait until no
+  party is in transit. These gates ignore trade parties
+  (`HasNonTradeMigrationParty`). Founding stays as it is, because trade needs
+  a daughter settlement. Visits skip citizens who are already traveling, and
+  relocation skips households with any member in a party.
+- **Household membership.** Party validation requires members to stay in
+  `party.HouseholdId`, but the family check may re-house a trader who is away.
+  For trade, `HouseholdId` is only attribution at departure, so
+  `MigrationValidation` and the headless acceptance check only that the
+  household exists and the trader lives at the origin. Recovered cargo has no
+  owner (it is communal).
+- **Phases.** Trade reuses the visit phases, `VisitPhase` and
+  `VisitDwellEndsMinute`. Dwell is the exchange hour, and the exchange happens
+  when the dwell ends. `TradeReturnGood` and `TradeLoad` are fixed at
+  departure. Trade cargo in transit never exceeds `TradeLoad`, so the exchange
+  also caps lots at the load.
+- **Targets and values.** Targets use population `p` (*initial*): Food `60p`,
+  Wood `20 + 2p`, Stone `10 + 2p`, Grain `200p`, Fuel `3p`, Tool and
+  Clothing `max(2, p/4)`, Medicine `p`, and PreservedFood `1000p`. Meal,
+  Fiber, and Hide are not traded.
+- **Choosing a pair.** Order candidate pairs by the origin's shortfall of the
+  return good times its value, then by return good ID, then by outbound good
+  ID. Take the first pair that allows at least one lot.
+- **Free storage.** Free storage is measured the way the harvest fix does it:
+  `AvailableStorage` minus `M12CitizenCargoAt`, using the non-food share for
+  Wood and Stone. The exchange limits lots by the destination's net storage
+  change. On return, the trader deposits what fits, provisions included, and
+  follows the M14 recovery rules for the rest.
+- **Departure.** Provisions come from the origin's communal Food, not a
+  household, and the outbound good's surplus is measured after provisions are
+  set aside. Lots at departure are also limited by the origin's shortfall of the
+  return good and by the load. The load is measured on the path between the two
+  sites, not on the trader's path from wherever they are standing. A capable
+  trader is at least 18, below 7000 injury and illness, not already traveling,
+  and free of the same work and barter obligations that visits check.
+- **Loss.** Both trader death and an abort caused by an unreachable route record
+  `TradeLost`. Under the M14 recovery rules, only Food, Wood, and Stone are
+  recovered. Other goods are lost, and lost Grain counts as spoiled, so Living
+  validation's communal grain conservation still holds. That conservation now
+  also counts Grain in transit.
 
 ## Resolved design questions
 

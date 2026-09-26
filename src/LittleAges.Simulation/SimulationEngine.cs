@@ -1743,7 +1743,7 @@ public sealed partial class SimulationEngine
     }
     private void RunFamilyCheck()
     {
-        if (MigrationSystemsEnabled(SimulationRulesVersion) && _migrationState is { InTransitParties.Count: > 0 }) return;
+        if (MigrationSystemsEnabled(SimulationRulesVersion) && HasNonTradeMigrationParty) return;
         if (GrowthSystemsEnabled(SimulationRulesVersion)) EnsureIndependentHouseholds();
         ReconcileHouseholdsAndHousing();
         var diagnostics = _captureFamilyCheckDiagnostics ? new FamilyCheckDiagnosticBuilder(CurrentMinute, _households.Values.Count(x => x.DissolvedMinute is null)) : null;
@@ -2418,6 +2418,7 @@ public sealed partial class SimulationEngine
             EvaluateMigrationFounding();
             EvaluateMigrationRelocation();
             EvaluateMigrationVisits();
+            if (RoadSystemsEnabled(SimulationRulesVersion)) EvaluateMigrationTrade();
             ScheduleSettlementDemand();
             return;
         }

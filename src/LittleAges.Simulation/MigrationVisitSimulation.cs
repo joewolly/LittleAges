@@ -21,7 +21,7 @@ public sealed partial class SimulationEngine
             state.StructureOwners, state.FacilityOwners, state.WorkOrderOwners, state.DaughterSettlement,
             state.InTransitParties, state.FoundingPressure, state.LastRelocations, year);
         _migrationState = state;
-        if (state.InTransitParties.Count != 0) return;
+        if (HasNonTradeMigrationParty) return;
 
         var citizenSites = state.CitizenResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
         var householdSites = state.HouseholdResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
@@ -32,6 +32,7 @@ public sealed partial class SimulationEngine
                 visitor.HouseholdId is not { } householdId ||
                 !householdSites.TryGetValue(householdId.Value, out var householdSite) || householdSite != originSite ||
                 !_households.TryGetValue(householdId.Value, out var household) || household.DissolvedMinute is not null ||
+                FoundingPartyForCitizen(visitor.Id.Value) is not null ||
                 HasMigrationWorkOrBarterObligations(householdId.Value, [visitor]))
                 continue;
 
@@ -71,6 +72,17 @@ public sealed partial class SimulationEngine
         }
     }
 
+    /// <summary>Visits and M15 trade journeys are single-traveler round trips: out, a one-hour stay, and home.</summary>
+    private static bool IsRoundTripJourney(MigrationTransitPartyState party) =>
+        party.JourneyKind is MigrationJourneyKind.Visit or MigrationJourneyKind.Trade;
+
+    /// <summary>
+    /// M14 gates that wait for travelers to come home ignore trade parties, which are almost always on the road
+    /// in M15; waiting on them would stop visits, relocation, and the daily family check.
+    /// </summary>
+    private bool HasNonTradeMigrationParty =>
+        _migrationState?.InTransitParties.Any(x => x.JourneyKind != MigrationJourneyKind.Trade) == true;
+
     private static bool AreMigrationVisitRelatives(Citizen first, Citizen second)
     {
         if (first.ParentAId == second.Id || first.ParentBId == second.Id ||
@@ -85,10 +97,11 @@ public sealed partial class SimulationEngine
 
     private bool HandleMigrationVisitArrival(Citizen visitor, MigrationTransitPartyState party)
     {
-        if (party.JourneyKind != MigrationJourneyKind.Visit || party.VisitPhase is null) return false;
+        if (!IsRoundTripJourney(party) || party.VisitPhase is null) return false;
         if (party.VisitPhase == MigrationVisitPhase.Outbound)
         {
-            if (VisitRelativeStillAtDestination(party)) BeginMigrationVisitDwell(visitor, party);
+            if (party.JourneyKind == MigrationJourneyKind.Trade || VisitRelativeStillAtDestination(party))
+                BeginMigrationVisitDwell(visitor, party);
             else BeginMigrationVisitReturn(visitor, party);
             return true;
         }
@@ -96,6 +109,11 @@ public sealed partial class SimulationEngine
         if (party.VisitPhase == MigrationVisitPhase.Returning && party.Returning &&
             visitor.Location == SiteLocation(party.OriginSettlementId))
         {
+            if (party.JourneyKind == MigrationJourneyKind.Trade)
+            {
+                CompleteTradeReturn(visitor, party);
+                return true;
+            }
             var remaining = party.Cargo.Where(x => x.Good == MigrationCargoGood.Food &&
                 x.Purpose == MigrationCargoPurpose.Provisions).Sum(x => x.Quantity);
             if (remaining > 0)
@@ -133,9 +151,9 @@ public sealed partial class SimulationEngine
         var endMinute = CurrentMinute.Add(MigrationVisitDwellMinutes).Value;
         var dwelling = new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.DestinationSettlementId, visitor.Location, party.DestinationSite, party.CitizenIds, party.Cargo,
-            0, party.DepartedMinute, journeyKind: MigrationJourneyKind.Visit,
+            0, party.DepartedMinute, journeyKind: party.JourneyKind,
             visitRelativeId: party.VisitRelativeId, visitPhase: MigrationVisitPhase.Dwell,
-            visitDwellEndsMinute: endMinute);
+            visitDwellEndsMinute: endMinute, tradeReturnGood: party.TradeReturnGood, tradeLoad: party.TradeLoad);
         SetMigrationParty(dwelling);
         BeginMigrationVisitDwellWait(visitor, endMinute);
     }
@@ -161,13 +179,20 @@ public sealed partial class SimulationEngine
     private bool TryCompleteMigrationVisitDwell(Citizen visitor)
     {
         var party = FoundingPartyForCitizen(visitor.Id.Value);
-        if (party is not { JourneyKind: MigrationJourneyKind.Visit, VisitPhase: MigrationVisitPhase.Dwell } ||
+        if (party is not { VisitPhase: MigrationVisitPhase.Dwell } || !IsRoundTripJourney(party) ||
             visitor.CurrentAction != CitizenAction.Idle || visitor.ActionPhase != CitizenActionPhase.Perform ||
             party.VisitDwellEndsMinute is not { } endMinute || CurrentMinute.Value < endMinute)
             return false;
 
-        BeginMigrationVisitReturn(visitor, party);
+        EndMigrationVisitDwell(visitor, party);
         return true;
+    }
+
+    /// <summary>A trader exchanges goods as the dwell ends; either traveler then starts home.</summary>
+    private void EndMigrationVisitDwell(Citizen visitor, MigrationTransitPartyState party)
+    {
+        if (party.JourneyKind == MigrationJourneyKind.Trade) party = ExchangeTradeCargo(visitor, party);
+        BeginMigrationVisitReturn(visitor, party);
     }
 
     private void BeginMigrationVisitReturn(Citizen visitor, MigrationTransitPartyState party)
@@ -183,8 +208,9 @@ public sealed partial class SimulationEngine
         var returning = new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.OriginSettlementId, visitor.Location, originSite, party.CitizenIds, party.Cargo,
             checked((int)TravelPathCost(returnPath)), party.DepartedMinute,
-            returning: true, journeyKind: MigrationJourneyKind.Visit, visitRelativeId: party.VisitRelativeId,
-            visitPhase: MigrationVisitPhase.Returning);
+            returning: true, journeyKind: party.JourneyKind, visitRelativeId: party.VisitRelativeId,
+            visitPhase: MigrationVisitPhase.Returning, tradeReturnGood: party.TradeReturnGood,
+            tradeLoad: party.TradeLoad);
         SetMigrationParty(returning);
         StartFoundingTravel(visitor, originSite);
     }
@@ -195,8 +221,7 @@ public sealed partial class SimulationEngine
         party = FoundingPartyForCitizen(visitor.Id.Value) ?? party;
         if (!visitor.IsAlive)
         {
-            RecoverFoundingCargoAtPartyLocation(party);
-            RemoveMigrationParty(party);
+            AbortMigrationVisit(visitor, party);
             return;
         }
 
@@ -209,7 +234,7 @@ public sealed partial class SimulationEngine
     private bool TryPauseMigrationVisitForMeal(Citizen visitor)
     {
         var party = FoundingPartyForCitizen(visitor.Id.Value);
-        if (party is not { JourneyKind: MigrationJourneyKind.Visit, VisitPhase: MigrationVisitPhase.Dwell } ||
+        if (party is not { VisitPhase: MigrationVisitPhase.Dwell } || !IsRoundTripJourney(party) ||
             visitor.CurrentAction != CitizenAction.Idle || visitor.ActionPhase != CitizenActionPhase.Perform ||
             party.VisitDwellEndsMinute is not { } dwellEnd || CurrentMinute.Value >= dwellEnd ||
             !MigrationPartyHasProvision(party, 1))
@@ -241,7 +266,7 @@ public sealed partial class SimulationEngine
         visitor.NeedsUpdatedMinute = CurrentMinute.Value;
         if (party.VisitPhase == MigrationVisitPhase.Dwell && party.VisitDwellEndsMinute is { } endMinute)
         {
-            if (CurrentMinute.Value >= endMinute) BeginMigrationVisitReturn(visitor, party);
+            if (CurrentMinute.Value >= endMinute) EndMigrationVisitDwell(visitor, party);
             else BeginMigrationVisitDwellWait(visitor, endMinute);
             return;
         }
@@ -263,7 +288,7 @@ public sealed partial class SimulationEngine
     private bool AbortMigrationVisitForUnavailableRoute(Citizen visitor)
     {
         var party = FoundingPartyForCitizen(visitor.Id.Value);
-        if (party is not { JourneyKind: MigrationJourneyKind.Visit }) return false;
+        if (party is null || !IsRoundTripJourney(party)) return false;
         AbortMigrationVisit(visitor, party);
         return true;
     }
@@ -272,6 +297,7 @@ public sealed partial class SimulationEngine
     {
         RecoverFoundingCargoAtPartyLocation(party);
         RemoveMigrationParty(party);
+        if (party.JourneyKind == MigrationJourneyKind.Trade) RecordTradeLost(party);
         if (visitor.IsAlive) FinishFoundingTravel(visitor);
     }
 }
