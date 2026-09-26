@@ -155,7 +155,10 @@ public sealed partial class SimulationEngine
         }
         if (season != WorldSeason.Autumn) return;
         var siteId = SiteIdForCitizen(citizen);
-        var amount = Math.Min(farm.Remaining, Math.Min(HarvestLoadCapacity(siteId), AvailableStorage(ResourceType.Food, siteId)));
+        var availableStorage = AvailableStorage(ResourceType.Food, siteId);
+        if (MigrationSystemsEnabled(SimulationRulesVersion))
+            availableStorage = checked((int)Math.Max(0L, (long)availableStorage - M12CitizenCargoAt(siteId)));
+        var amount = Math.Min(farm.Remaining, Math.Min(HarvestLoadCapacity(siteId), availableStorage));
         var site = SiteLocation(siteId);
         if (amount <= 0 || FindPathCached(citizen.Location, site) is null) return;
         _farms[id.Value] = farm with { Remaining = farm.Remaining - amount, Harvested = checked(farm.Harvested + amount) };
