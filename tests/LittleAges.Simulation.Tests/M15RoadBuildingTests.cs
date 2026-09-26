@@ -64,6 +64,23 @@ public sealed class M15RoadBuildingTests
         Assert.Equal(ordered, engine.RoadGrades.Where(x => x.Grade == RoadGrade.Road).Select(x => x.Coordinate).ToHashSet());
         Assert.All(snapshot.MigrationState!.Roads!.Tiles.Where(x => x.Grade == RoadGrade.Road), x => Assert.Contains(x.Coordinate, ordered));
         Assert.Equal(stone - ordered.Count * 2, engine.Settlement.StoneStored);
+        Assert.Equal([new RoadSeasonWorkState(1, ordered.Count)], snapshot.MigrationState.Roads.SeasonWork!);
+        Assert.DoesNotContain(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RoadWorkSeason);
+    }
+
+    [Fact]
+    public void TheSeasonsPavingIsRecordedOnceWhenTheSeasonEnds()
+    {
+        var engine = Stocked(new WorldSeed(42), new WorldMinute(Planning + Season + 1));
+        var snapshot = engine.CreatePersistenceSnapshot();
+        var recorded = Assert.Single(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RoadWorkSeason);
+        Assert.Equal(Planning + Season, recorded.WorldMinute);
+        Assert.Equal(HistoricalImportance.Routine, recorded.Importance);
+        Assert.Equal(engine.World.StartingSite, recorded.Location);
+        Assert.Equal(HistoricalEventPayloads.RoadWorkSeason(1, 4, WorldSeason.Autumn, 0), recorded.PayloadJson);
+        Assert.Null(snapshot.MigrationState!.Roads!.SeasonWork);
+        // No daughter site exists, so no route between settlements can connect.
+        Assert.DoesNotContain(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RouteConnected);
     }
 
     [Theory]

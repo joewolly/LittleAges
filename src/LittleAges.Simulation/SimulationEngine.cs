@@ -491,6 +491,9 @@ public sealed record SimulationPersistenceSnapshot
         HistoricalEventType.PopulationMilestone => HistoricalImportance.Major,
         HistoricalEventType.FriendshipFormed or HistoricalEventType.RivalryFormed or HistoricalEventType.HouseholdCreated or HistoricalEventType.StructureStarted or HistoricalEventType.CitizenSpecializationChanged or HistoricalEventType.FamilyVisitDeparted or HistoricalEventType.FamilyVisitReturned => HistoricalImportance.Personal,
         HistoricalEventType.SeasonStarted => HistoricalImportance.Routine,
+        HistoricalEventType.TradeDeparted or HistoricalEventType.TradeReturned or HistoricalEventType.RoadWorkSeason => HistoricalImportance.Routine,
+        HistoricalEventType.TradeCompleted => HistoricalImportance.Personal,
+        HistoricalEventType.TradeLost or HistoricalEventType.RouteConnected => HistoricalImportance.Notable,
         _ => throw new ArgumentException("Historical event type is unsupported.", nameof(eventType))
     };
 
@@ -505,6 +508,10 @@ public sealed record SimulationPersistenceSnapshot
                 HistoricalEventType.HouseholdRelocated or HistoricalEventType.FamilyVisitDeparted or
                 HistoricalEventType.FamilyVisitReturned) && !SimulationEngine.MigrationSystemsEnabled(rulesVersion))
             throw new ArgumentException("M14 historical events require M14 simulation rules.", nameof(historicalEvent));
+        if (historicalEvent.EventType is HistoricalEventType.TradeDeparted or HistoricalEventType.TradeCompleted or
+                HistoricalEventType.TradeReturned or HistoricalEventType.TradeLost or HistoricalEventType.RoadWorkSeason or
+                HistoricalEventType.RouteConnected && !SimulationEngine.RoadSystemsEnabled(rulesVersion))
+            throw new ArgumentException("M15 historical events require M15 simulation rules.", nameof(historicalEvent));
         if (historicalEvent.Importance != CanonicalImportance(historicalEvent.EventType)) throw new ArgumentException("Historical event importance is not canonical for its event type.", nameof(historicalEvent));
         using var payloadDocument = System.Text.Json.JsonDocument.Parse(historicalEvent.PayloadJson);
         var payload = payloadDocument.RootElement;
@@ -613,6 +620,12 @@ public sealed record SimulationPersistenceSnapshot
             case HistoricalEventType.HouseholdRelocated:
             case HistoricalEventType.FamilyVisitDeparted:
             case HistoricalEventType.FamilyVisitReturned:
+            case HistoricalEventType.TradeDeparted:
+            case HistoricalEventType.TradeCompleted:
+            case HistoricalEventType.TradeReturned:
+            case HistoricalEventType.TradeLost:
+            case HistoricalEventType.RoadWorkSeason:
+            case HistoricalEventType.RouteConnected:
                 // Their canonical payload and link contracts are checked before this
                 // method; completed migration parties are not retained in live state.
                 break;

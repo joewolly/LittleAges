@@ -61,11 +61,14 @@ public sealed class RoadActiveRouteState
     public IReadOnlyList<TileCoordinate> Route { get; }
 }
 
+/// <summary>Road tiles a settlement has paved since the last season boundary, reported in its season history.</summary>
+public sealed record RoadSeasonWorkState(long SettlementId, int TilesBuilt);
+
 /// <summary>M15 canonical road network: wear and grades over the immutable map, plus in-flight routes.</summary>
 public sealed class RoadNetworkState
 {
     public RoadNetworkState(int version, IReadOnlyList<RoadTileState> tiles, IReadOnlyList<RoadActiveRouteState> activeRoutes,
-        long? trailConnectedMinute = null, long? roadConnectedMinute = null)
+        long? trailConnectedMinute = null, long? roadConnectedMinute = null, IReadOnlyList<RoadSeasonWorkState>? seasonWork = null)
     {
         ArgumentNullException.ThrowIfNull(tiles);
         ArgumentNullException.ThrowIfNull(activeRoutes);
@@ -74,6 +77,7 @@ public sealed class RoadNetworkState
         ActiveRoutes = Array.AsReadOnly(activeRoutes.ToArray());
         TrailConnectedMinute = trailConnectedMinute;
         RoadConnectedMinute = roadConnectedMinute;
+        SeasonWork = seasonWork is null || seasonWork.Count == 0 ? null : Array.AsReadOnly(seasonWork.ToArray());
     }
 
     public int Version { get; }
@@ -83,6 +87,8 @@ public sealed class RoadNetworkState
     public long? TrailConnectedMinute { get; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public long? RoadConnectedMinute { get; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<RoadSeasonWorkState>? SeasonWork { get; }
 
     public RoadNetworkState Validate()
     {
@@ -102,6 +108,9 @@ public sealed class RoadNetworkState
             for (var index = 1; index < route.Route.Count; index++)
                 if (Math.Max(Math.Abs(route.Route[index].X - route.Route[index - 1].X), Math.Abs(route.Route[index].Y - route.Route[index - 1].Y)) != 1)
                     throw new ArgumentException("Active routes must move one tile per step.");
+        if (SeasonWork is not null && (SeasonWork.Any(x => x is null || x.SettlementId is not (1 or 2) || x.TilesBuilt <= 0) ||
+                !SeasonWork.Select(x => x.SettlementId).SequenceEqual(SeasonWork.Select(x => x.SettlementId).Distinct().Order())))
+            throw new ArgumentException("Seasonal road work must be positive, unique, and ordered by settlement.");
         return this;
     }
 }

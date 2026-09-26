@@ -12,6 +12,7 @@ public sealed partial class SimulationEngine
     private int[]? _roadWear;
     private long? _trailConnectedMinute;
     private long? _roadConnectedMinute;
+    private readonly SortedDictionary<long, int> _roadTilesBuiltThisSeason = [];
     private readonly Dictionary<TileCoordinate, IReadOnlyDictionary<TileCoordinate, long>> _siteTerrainCosts = new();
 
     /// <summary>The current graded road tiles, for observers. Raw wear is not exposed.</summary>
@@ -48,6 +49,7 @@ public sealed partial class SimulationEngine
             _activePaths[(route.CitizenId, route.ActionSequence)] = route.Route;
         _trailConnectedMinute = state.TrailConnectedMinute;
         _roadConnectedMinute = state.RoadConnectedMinute;
+        foreach (var work in state.SeasonWork ?? []) _roadTilesBuiltThisSeason[work.SettlementId] = work.TilesBuilt;
     }
 
     private RoadNetworkState CaptureRoadState()
@@ -67,7 +69,8 @@ public sealed partial class SimulationEngine
                 ? new RoadActiveRouteState(x.Id.Value, x.ActionSequence, route)
                 : null)
             .OfType<RoadActiveRouteState>().ToArray();
-        return new RoadNetworkState(1, tiles, routes, _trailConnectedMinute, _roadConnectedMinute);
+        return new RoadNetworkState(1, tiles, routes, _trailConnectedMinute, _roadConnectedMinute,
+            _roadTilesBuiltThisSeason.Select(x => new RoadSeasonWorkState(x.Key, x.Value)).ToArray());
     }
 
     private void AccrueRoadWear(TileCoordinate tile)
@@ -80,8 +83,37 @@ public sealed partial class SimulationEngine
     private void EvaluateRoadSeason()
     {
         if (CurrentMinute.Value == 0 || CurrentMinute.Value % MinutesPerMigrationSeason != 0) return;
+        RecordRoadWorkSeason();
         GradeRoadsForSeason();
+        RecordRouteConnections();
         foreach (var settlementId in MigrationSettlementIds) PlanRoadWork(settlementId);
+    }
+
+    /// <summary>One history entry per settlement for the season that just ended, and only if it paved anything.</summary>
+    private void RecordRoadWorkSeason()
+    {
+        var ended = new WorldMinute(CurrentMinute.Value - 1).ToCalendar();
+        foreach (var (settlementId, tilesBuilt) in _roadTilesBuiltThisSeason)
+            EmitHistory(HistoricalEventType.RoadWorkSeason, HistoricalImportance.Routine, SiteLocation(settlementId),
+                HistoricalEventPayloads.RoadWorkSeason(settlementId, tilesBuilt, ended.Season, ended.Year));
+        _roadTilesBuiltThisSeason.Clear();
+    }
+
+    /// <summary>Records the first time a trail, and later a road, runs unbroken between the two sites.</summary>
+    private void RecordRouteConnections()
+    {
+        if (_trailConnectedMinute is null && SitesConnectedAt(RoadGrade.Trail))
+        {
+            _trailConnectedMinute = CurrentMinute.Value;
+            EmitHistory(HistoricalEventType.RouteConnected, HistoricalImportance.Notable, World.StartingSite,
+                HistoricalEventPayloads.RouteConnected(RoadGrade.Trail));
+        }
+        if (_trailConnectedMinute is not null && _roadConnectedMinute is null && SitesConnectedAt(RoadGrade.Road))
+        {
+            _roadConnectedMinute = CurrentMinute.Value;
+            EmitHistory(HistoricalEventType.RouteConnected, HistoricalImportance.Notable, World.StartingSite,
+                HistoricalEventPayloads.RouteConnected(RoadGrade.Road));
+        }
     }
 
     internal const int RoadOrdersPerSeason = 4;
@@ -125,6 +157,9 @@ public sealed partial class SimulationEngine
         if (grades.GradeAt(order.Location) != RoadGrade.Trail) return;
         grades.SetGrade(order.Location, RoadGrade.Road);
         OnRoadNetworkChanged();
+        var settlementId = SiteIdForOrder(order);
+        _roadTilesBuiltThisSeason[settlementId] = checked(_roadTilesBuiltThisSeason.GetValueOrDefault(settlementId) + 1);
+        RecordRouteConnections();
     }
 
     /// <summary>The seasonal pass: regrade from wear with hysteresis, then fade wear by one eighth.</summary>

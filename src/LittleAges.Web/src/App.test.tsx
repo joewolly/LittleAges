@@ -516,6 +516,12 @@ describe('citizen observer', () => {
       ['HouseholdRelocated', 'Household Relocated'],
       ['FamilyVisitDeparted', 'Family Visit Departed'],
       ['FamilyVisitReturned', 'Family Visit Returned'],
+      ['TradeDeparted', 'Trade Departed'],
+      ['TradeCompleted', 'Trade Completed'],
+      ['TradeReturned', 'Trade Returned'],
+      ['TradeLost', 'Trade Lost'],
+      ['RoadWorkSeason', 'Road Work Season'],
+      ['RouteConnected', 'Route Connected'],
     ] as const
     for (const [value, label] of eventTypes) expect(screen.getByRole('option', { name: label })).toHaveAttribute('value', value)
 
