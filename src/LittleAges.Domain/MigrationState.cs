@@ -212,7 +212,8 @@ public sealed class MigrationWorldState
         IReadOnlyList<MigrationTransitPartyState>? inTransitParties = null,
         IReadOnlyList<MigrationFoundingPressureState>? foundingPressure = null,
         IReadOnlyList<MigrationHouseholdRelocationState>? lastRelocations = null,
-        long? lastVisitAttemptYear = null)
+        long? lastVisitAttemptYear = null,
+        RoadNetworkState? roads = null)
     {
         ArgumentNullException.ThrowIfNull(citizenResidences);
         ArgumentNullException.ThrowIfNull(householdResidences);
@@ -237,6 +238,7 @@ public sealed class MigrationWorldState
             ? null
             : Array.AsReadOnly(lastRelocations.OrderBy(x => x.HouseholdId).ToArray());
         LastVisitAttemptYear = lastVisitAttemptYear;
+        Roads = roads;
     }
 
     public int Version { get; }
@@ -253,6 +255,9 @@ public sealed class MigrationWorldState
     public IReadOnlyList<MigrationHouseholdRelocationState>? LastRelocations { get; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? LastVisitAttemptYear { get; }
+    /// <summary>M15 road network. Absent for M14 worlds, so their canonical JSON is unchanged.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RoadNetworkState? Roads { get; }
 
     public MigrationWorldState Validate()
     {
@@ -286,6 +291,7 @@ public sealed class MigrationWorldState
         var travelers = InTransitParties.SelectMany(x => x.CitizenIds).ToArray();
         if (travelers.Distinct().Count() != travelers.Length)
             throw new ArgumentException("A citizen cannot be in more than one migration party.");
+        Roads?.Validate();
         return this;
     }
 

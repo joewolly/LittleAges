@@ -1,6 +1,6 @@
 # M15 - Roads and intersite trade
 
-**Status:** in progress on `codex/m15-roads-trade`; phase 1 is implemented.
+**Status:** in progress on `codex/m15-roads-trade`; phases 1 and 2 are implemented.
 The rules identifier is `m15-rng1-roads1`. Tuning values marked *initial* are
 starting points to be calibrated by the phase measurements below, not settled
 rules.
@@ -104,15 +104,16 @@ about 84 wear, which is enough for a `Trail`. Streets inside a settlement carry
 far more traffic, so they will reach `Trail` too; road-building planning,
 below, makes sure the route between the sites still gets built first.
 
-Any grade change bumps a network revision. At that moment the engine must
-clear the path cache, the travel-cost cache, and every citizen's active path.
-Each traveler then re-plans from their current tile at their next step. This
-rule is required for determinism: after reopening a save, active paths are
-already re-planned from the current tile (`MoveStep` falls back to
-`FindPathCached` when `_activePaths` is empty). Re-planning at the same
-moment in an uninterrupted run keeps the two in step. Any derived completion
-estimate, such as `ActionCompletesMinute`, must be recomputed the same way in
-both cases.
+Any grade change clears the path cache and the travel-cost cache, so new
+plans see the new grades. Travelers already on the move keep their planned
+route: each living traveler's route is part of the canonical road state and
+is checkpointed, so a reopened world continues along exactly the route an
+uninterrupted run follows. Each step's timing uses the grade of the tile at
+the moment it is scheduled.
+
+Under M15, snapshot validation does not re-derive a moving citizen's step
+timing from terrain. It checks instead that the checkpointed route contains
+the citizen's tile and ends at their target.
 
 ### Building roads
 
@@ -135,8 +136,7 @@ A settlement can improve a `Trail` tile it owns into a `Road`:
 
   The route between the sites is the road-aware path at planning time.
 - **Completion.** When the order completes, the tile becomes `Road`
-  immediately and the network revision bumps, with the same cache and
-  active-path reset as above. In M15, built roads never decay. Disrepair and
+  immediately, and the derived caches are cleared as above. In M15, built roads never decay. Disrepair and
   ruins are deferred.
 
 Roads don't block building or field placement in M15.
@@ -286,12 +286,14 @@ M15 is acceptable when evidence shows:
 1. **Rules plumbing and shared step cost.** *(Done.)* Add the M15 identifier
    and the `RoadSystemsEnabled` gate. Extract one step-cost function that takes
    an optional road overlay. Prove that M14 fingerprints are unchanged.
-2. **Wear, grading, and persistence.** Add the canonical overlay, wear
-   accrual in `MoveStep`, the seasonal grading pass, and revision-driven cache
-   and active-path resets. Add the persistence migration and the reopen-parity
-   tests across a grade change.
+2. **Wear, grading, and persistence.** *(Done.)* Add the canonical road
+   state (wear, grades, and active routes) inside the M15 migration state,
+   wear accrual in `MoveStep`, the seasonal grading pass, and cache resets.
+   Road state rides in the existing `migration_state_json` column, so no
+   database migration is needed. Add reopen-parity tests across a grade
+   change.
 3. **Road building.** Add the `BuildRoad` work kind, derived ownership,
-   seasonal planning, and completion-driven resets.
+   seasonal planning, and completion-driven cache resets.
 4. **Trade journeys.** Add the trade journey kind and phases, monthly
    evaluation, lot exchange, cargo accounting, the history events, and the
    persistence migration for the new event types.
@@ -314,10 +316,7 @@ M15 is acceptable when evidence shows:
 - **Movement statistics.** `LifetimeMovementCost` records the reduced cost,
   and occupation statistics are unchanged.
 
-## Remaining risk
-
-When a save is reopened, travelers re-plan from their current tile. Parity with
-an uninterrupted run depends on A* from partway along a route giving the rest
-of the original route. Road costs create more equal-cost ties. Phase 2 must
-test reopening mid-route on graded tiles specifically. If ties diverge, the fix
-is to checkpoint each active route rather than re-derive it.
+- **Reopening mid-route.** Re-planning after a reopen relied on A* from
+  partway along a route reproducing the rest of it, which road ties make
+  fragile. M15 checkpoints each active route instead, and the reopen tests
+  across a grading pass match uninterrupted runs.

@@ -5,6 +5,33 @@ namespace LittleAges.Simulation;
 /// <summary>Validates the M14-only ownership extension against the canonical M13 entity state.</summary>
 public static class MigrationValidation
 {
+    private static void ValidateRoads(SimulationPersistenceSnapshot snapshot, MigrationWorldState state, WorldMap world,
+        Dictionary<long, Citizen> citizens)
+    {
+        if (!SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion))
+        {
+            Require(state.Roads is null, "Only M15 snapshots may carry road state.");
+            return;
+        }
+        var roads = state.Roads ?? throw new ArgumentException("M15 snapshots require road state.");
+        roads.Validate();
+        foreach (var tile in roads.Tiles)
+            Require(tile.X < world.Width && tile.Y < world.Height && world.GetTile(tile.Coordinate).Walkable,
+                "Road wear and grades must be on walkable world tiles.");
+        foreach (var route in roads.ActiveRoutes)
+        {
+            Require(citizens.TryGetValue(route.CitizenId, out var citizen) && citizen.IsAlive &&
+                    citizen.ActionSequence == route.ActionSequence,
+                "An active route must belong to a living citizen's current action.");
+            Require(route.Route.All(x => x.X < world.Width && x.Y < world.Height && world.GetTile(x).Walkable),
+                "Active routes must use walkable world tiles.");
+        }
+        Require(roads.TrailConnectedMinute is null || roads.TrailConnectedMinute <= snapshot.WorldMinute.Value,
+            "Route connection cannot be recorded in the future.");
+        Require(roads.RoadConnectedMinute is null || roads.RoadConnectedMinute <= snapshot.WorldMinute.Value,
+            "Route connection cannot be recorded in the future.");
+    }
+
     public static void Validate(SimulationPersistenceSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -47,6 +74,7 @@ public static class MigrationValidation
         var orderOwners = ValidateResidences(state.WorkOrderOwners, living.Orders.Select(x => x.Id), "work orders");
 
         var citizenById = snapshot.Citizens.ToDictionary(x => x.Id.Value);
+        ValidateRoads(snapshot, state, world, citizenById);
         foreach (var pressure in state.FoundingPressure ?? Array.Empty<MigrationFoundingPressureState>())
             Require(householdOwners.ContainsKey(pressure.HouseholdId) && pressure.SinceMinute <= snapshot.WorldMinute.Value,
                 "Migration founding pressure must reference an existing household and cannot start in the future.");

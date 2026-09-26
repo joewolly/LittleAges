@@ -843,6 +843,20 @@ public sealed record SimulationPersistenceSnapshot
         foreach (var structure in structures.Where(x => x.Status == StructureStatus.UnderConstruction)) foreach (var type in new[] { ResourceType.Wood, ResourceType.Stone }) { var required = type == ResourceType.Wood ? structure.RequiredWood : structure.RequiredStone; var delivered = type == ResourceType.Wood ? structure.DeliveredWood : structure.DeliveredStone; var transit = citizens.Where(x => x.IsAlive && x.CurrentAction == CitizenAction.HaulConstruction && x.TargetStructureId == structure.Id && x.ActionPhase == CitizenActionPhase.TransportToConstruction && x.CarriedResourceType == type).Sum(x => x.CarriedResourceQuantity); if (delivered + transit > required) throw new ArgumentException("M4 construction transit exceeds remaining material.", nameof(citizens)); }
     }
 
+    /// <summary>
+    /// M15 step timing depends on grades that can change mid-route, so it is not re-derived from terrain.
+    /// The checkpointed route must still lead from the citizen's tile to the action target.
+    /// </summary>
+    private static (string Name, int Priority, WorldMinute Due) ExpectedRoadMoveEvent(Citizen citizen, ScheduledEventSnapshot action,
+        Dictionary<long, RoadActiveRouteState> routes, WorldMinute minute)
+    {
+        if (citizen.ActionTarget is not { } target) throw new ArgumentException("Moving citizen must have a target.", nameof(citizen));
+        if (routes.TryGetValue(citizen.Id.Value, out var route) &&
+            (!route.Route.Contains(citizen.Location) || route.Route[^1] != target))
+            throw new ArgumentException("A moving citizen's active route must include its tile and end at its target.", nameof(citizen));
+        if (action.Order.DueWorldMinute < minute) throw new ArgumentException("Moving citizen next-step event is due before the snapshot minute.", nameof(citizen));
+        return (CitizenEventNames.MoveStep, CitizenEventNames.MovementPriority, action.Order.DueWorldMinute);
+    }
     private static (string Name, int Priority, WorldMinute Due) ExpectedMoveEvent(Citizen citizen, WorldMap world, WorldMinute minute)
     {
         if (citizen.ActionTarget is not { } target) throw new ArgumentException("M3 movement requires an action target.", nameof(citizen));
@@ -935,13 +949,14 @@ public sealed record SimulationPersistenceSnapshot
         var completedShelters = structures.Where(x => x.Status == StructureStatus.Complete && x.Type == StructureType.Shelter).Select(x => x.Id.Value).ToHashSet();
         if (citizens.Where(x => x.IsAlive && x.HomeStructureId is not null).GroupBy(x => x.HomeStructureId!.Value.Value).Any(group => !completedShelters.Contains(group.Key) || group.Count() > CitizenSimulationRules.ShelterCapacityPerBuilding))
             throw new ArgumentException("M5 aggregate shelter occupancy is invalid.", nameof(citizens));
-        ValidateM5GameplayEvents(citizens, events, world, minute);
+        ValidateM5GameplayEvents(citizens, events, world, minute, migrationState?.Roads);
         ValidateGlobalEvent(events, CitizenEventNames.FamilyCheck, CitizenEventNames.FamilyCheckPriority, minute);
         ValidateGlobalEvent(events, CitizenEventNames.LifecycleCheck, CitizenEventNames.LifecycleCheckPriority, minute);
     }
 
-    private static void ValidateM5GameplayEvents(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, WorldMap world, WorldMinute minute)
+    private static void ValidateM5GameplayEvents(IReadOnlyList<Citizen> citizens, IReadOnlyList<ScheduledEventSnapshot> events, WorldMap world, WorldMinute minute, RoadNetworkState? roads = null)
     {
+        var routes = roads?.ActiveRoutes.ToDictionary(x => x.CitizenId);
         var citizenIds = citizens.Select(x => x.Id.Value).ToHashSet();
         var reserved = events.Where(x => x.Name is CitizenEventNames.Decision or CitizenEventNames.MoveStep or CitizenEventNames.ActionComplete or CitizenEventNames.SurvivalCheck).ToArray();
         foreach (var citizen in citizens)
@@ -961,7 +976,8 @@ public sealed record SimulationPersistenceSnapshot
             var expected = citizen.ActionPhase switch
             {
                 CitizenActionPhase.None when citizen.CurrentAction == CitizenAction.None => (CitizenEventNames.Decision, CitizenEventNames.DecisionPriority, minute),
-                CitizenActionPhase.TravelToTarget or CitizenActionPhase.ReturnToStockpile or CitizenActionPhase.TravelToStockpile or CitizenActionPhase.TransportToConstruction => ExpectedMoveEvent(citizen, world!, minute),
+                CitizenActionPhase.TravelToTarget or CitizenActionPhase.ReturnToStockpile or CitizenActionPhase.TravelToStockpile or CitizenActionPhase.TransportToConstruction =>
+                    routes is null ? ExpectedMoveEvent(citizen, world!, minute) : ExpectedRoadMoveEvent(citizen, action, routes, minute),
                 CitizenActionPhase.Perform or CitizenActionPhase.WaitingForStorage => (CitizenEventNames.ActionComplete, CitizenEventNames.CompletionPriority, citizen.ActionCompletesMinute ?? throw new ArgumentException("M5 action completion has no due minute.", nameof(citizens))),
                 _ => throw new ArgumentException("M5 action phase is invalid for a living citizen.", nameof(citizens))
             };
@@ -1520,6 +1536,7 @@ public sealed partial class SimulationEngine
         citizen.Location = next;
         citizen.LifetimeMovementSteps = checked(citizen.LifetimeMovementSteps + 1);
         citizen.LifetimeMovementCost = checked(citizen.LifetimeMovementCost + stepCost);
+        if (RoadSystemsEnabled(SimulationRulesVersion)) AccrueRoadWear(next);
         if (MigrationSystemsEnabled(SimulationRulesVersion)) UpdateFoundingPartyPosition(citizen);
         if (next == target)
         {
@@ -2372,6 +2389,7 @@ public sealed partial class SimulationEngine
     {
         if (MigrationSystemsEnabled(SimulationRulesVersion))
         {
+            if (RoadSystemsEnabled(SimulationRulesVersion)) EvaluateRoadSeason();
             if (AgricultureSystemsEnabled(SimulationRulesVersion)) AdvanceAgricultureSeason();
             UpdateEconomy();
             foreach (var settlementId in MigrationSettlementIds)
@@ -2566,7 +2584,9 @@ public sealed partial class SimulationEngine
     private CitizenMovementPlanSnapshot? CreateMovementPlan(Citizen citizen)
     {
         if (!citizen.IsAlive || citizen.ActionTarget is not { } target || citizen.ActionPhase is not (CitizenActionPhase.TravelToTarget or CitizenActionPhase.ReturnToStockpile or CitizenActionPhase.TravelToStockpile or CitizenActionPhase.TransportToConstruction)) return null;
-        var route = FindPathCached(citizen.Location, target);
+        var route = RoadSystemsEnabled(SimulationRulesVersion) && _activePaths.TryGetValue((citizen.Id.Value, citizen.ActionSequence), out var active)
+            ? active.SkipWhile(x => x != citizen.Location).ToArray()
+            : FindPathCached(citizen.Location, target);
         if (route is null || route.Count < 2) return null;
         if (citizen.ActionCompletesMinute is not { } completes || completes <= CurrentMinute) return null;
         var costAfterNext = 0L;
