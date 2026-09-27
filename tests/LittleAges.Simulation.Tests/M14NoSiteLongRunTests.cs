@@ -58,10 +58,10 @@ public sealed class M14NoSiteLongRunTests(ITestOutputHelper output)
         }
 
         if (!SimulationEngine.RoadSystemsEnabled(rules)) return;
-        // Streets still wear and get paved around a lone site, but trade and route links need a daughter.
+        // This constrained map does not sustain its founders, so it cannot show paving
+        // (M15RoadBuildingTests covers paving before any daughter exists). It does show
+        // that route links and trade never appear without a daughter.
         var history = engine.CreatePersistenceSnapshot().HistoricalEvents;
-        Assert.Contains(engine.RoadGrades, x => x.Grade == RoadGrade.Road);
-        Assert.Contains(history, x => x.EventType == HistoricalEventType.RoadWorkSeason);
         Assert.DoesNotContain(history, x => x.EventType is HistoricalEventType.RouteConnected or HistoricalEventType.TradeDeparted);
     }
 

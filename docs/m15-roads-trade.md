@@ -423,8 +423,11 @@ deterministic report fingerprint.
   The load formula, the value table, and the targets are unchanged.
 - **No-daughter worlds.** None of the 16 seeds failed to found a daughter, so
   the constrained 100-year no-site test (`M14NoSiteLongRunTests`) now also
-  runs under M15. It checks that streets are still paved and that no trade or
-  route history appears.
+  runs under M15. Its synthetic map does not sustain the founders past the
+  first year under either M14 or M15, so it checks only that the world stays
+  single-site and that no trade or route history appears. Paving without a
+  daughter is covered by `M15RoadBuildingTests`, which pave seed 42's streets
+  before it founds its daughter.
 
 ## Acceptance evidence
 
