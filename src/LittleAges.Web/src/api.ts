@@ -108,7 +108,42 @@ export type SettlementSite = {
   stoneStored: number
 }
 
-export type SettlementDetails = Settlement & Pick<SettlementSite, 'settlementId' | 'site'>
+export const TRADE_GOODS = ['Food', 'Wood', 'Stone', 'Grain', 'Meal', 'PreservedFood', 'Fuel', 'Tool', 'Clothing', 'Medicine', 'Fiber', 'Hide'] as const
+export type TradeGood = typeof TRADE_GOODS[number]
+export type TradePhase = 'Outbound' | 'Dwell' | 'Returning'
+export type TradeCargo = { good: TradeGood; quantity: number; purpose: 'Provisions' | 'Cargo' }
+export type TradeParty = {
+  partyId: string
+  traderCitizenId: string
+  originSettlementId: string
+  destinationSettlementId: string
+  phase: TradePhase
+  location: { x: number; y: number }
+  departedMinute: number
+  load: number
+  returnGood: TradeGood
+  cargo: TradeCargo[]
+}
+export type CompletedTrade = {
+  eventId: string
+  worldMinute: number
+  partyId: string
+  traderCitizenId: string
+  originSettlementId: string
+  destinationSettlementId: string
+  outboundGood: TradeGood
+  outboundQuantity: number
+  returnGood: TradeGood
+  returnQuantity: number
+}
+
+/** M15 settlements add trade fields; older worlds omit them. */
+export type SettlementDetails = Settlement & Pick<SettlementSite, 'settlementId' | 'site'> & { tradeParties?: TradeParty[]; recentTrades?: CompletedTrade[] }
+
+export const ROAD_GRADES = ['Track', 'Trail', 'Road'] as const
+export type RoadGrade = typeof ROAD_GRADES[number]
+export type RoadTile = { x: number; y: number; grade: RoadGrade }
+export type RoadOverlay = { tiles: RoadTile[] }
 
 export type Relationship = {
   otherCitizenId: string
@@ -967,11 +1002,84 @@ export function parseSettlement(value: unknown): Settlement {
 export function parseSettlementDetails(value: unknown): SettlementDetails {
   if (!isRecord(value)) throw new Error('The server returned an invalid settlement.')
   const settlement = parseSettlement(value)
-  return {
+  const details: SettlementDetails = {
     ...settlement,
     settlementId: parsePositiveDecimalId(value.settlementId, 'The server returned an invalid settlement ID.'),
     site: parseCoordinate(value.site, 'The server returned an invalid settlement site coordinate.'),
   }
+  if (value.tradeParties !== undefined) {
+    if (!Array.isArray(value.tradeParties)) throw new Error('The server returned invalid trade parties.')
+    details.tradeParties = value.tradeParties.map(parseTradeParty)
+  }
+  if (value.recentTrades !== undefined) {
+    if (!Array.isArray(value.recentTrades)) throw new Error('The server returned invalid recent trades.')
+    details.recentTrades = value.recentTrades.map(parseCompletedTrade)
+  }
+  return details
+}
+
+function parseTradeGood(value: unknown): TradeGood {
+  if (typeof value !== 'string' || !TRADE_GOODS.includes(value as TradeGood)) throw new Error('The server returned an invalid trade good.')
+  return value as TradeGood
+}
+
+function parseTradeParty(value: unknown): TradeParty {
+  const message = 'The server returned an invalid trade party.'
+  if (!isRecord(value) || !Array.isArray(value.cargo)) throw new Error(message)
+  if (value.phase !== 'Outbound' && value.phase !== 'Dwell' && value.phase !== 'Returning') throw new Error(message)
+  return {
+    partyId: parsePositiveDecimalId(value.partyId, message),
+    traderCitizenId: parsePositiveDecimalId(value.traderCitizenId, message),
+    originSettlementId: parsePositiveDecimalId(value.originSettlementId, message),
+    destinationSettlementId: parsePositiveDecimalId(value.destinationSettlementId, message),
+    phase: value.phase,
+    location: parseCoordinate(value.location, message),
+    departedMinute: parseRequiredNonNegativeInteger(value.departedMinute, message),
+    load: parseRequiredNonNegativeInteger(value.load, message),
+    returnGood: parseTradeGood(value.returnGood),
+    cargo: value.cargo.map(entry => {
+      if (!isRecord(entry) || (entry.purpose !== 'Provisions' && entry.purpose !== 'Cargo')) throw new Error(message)
+      return { good: parseTradeGood(entry.good), quantity: parseRequiredNonNegativeInteger(entry.quantity, message), purpose: entry.purpose }
+    }),
+  }
+}
+
+function parseCompletedTrade(value: unknown): CompletedTrade {
+  const message = 'The server returned an invalid completed trade.'
+  if (!isRecord(value)) throw new Error(message)
+  return {
+    eventId: parsePositiveDecimalId(value.eventId, message),
+    worldMinute: parseRequiredNonNegativeInteger(value.worldMinute, message),
+    partyId: parsePositiveDecimalId(value.partyId, message),
+    traderCitizenId: parsePositiveDecimalId(value.traderCitizenId, message),
+    originSettlementId: parsePositiveDecimalId(value.originSettlementId, message),
+    destinationSettlementId: parsePositiveDecimalId(value.destinationSettlementId, message),
+    outboundGood: parseTradeGood(value.outboundGood),
+    outboundQuantity: parseRequiredNonNegativeInteger(value.outboundQuantity, message),
+    returnGood: parseTradeGood(value.returnGood),
+    returnQuantity: parseRequiredNonNegativeInteger(value.returnQuantity, message),
+  }
+}
+
+export function parseRoads(value: unknown): RoadOverlay {
+  const message = 'The server returned an invalid road overlay.'
+  if (!isRecord(value) || !Array.isArray(value.tiles)) throw new Error(message)
+  const tiles = value.tiles.map(entry => {
+    if (!isRecord(entry) || typeof entry.grade !== 'string' || !ROAD_GRADES.includes(entry.grade as RoadGrade)) throw new Error(message)
+    return { ...parseCoordinate(entry, message), grade: entry.grade as RoadGrade }
+  })
+  for (let index = 1; index < tiles.length; index += 1) {
+    const previous = tiles[index - 1]
+    const current = tiles[index]
+    if (current.y < previous.y || (current.y === previous.y && current.x <= previous.x)) throw new Error('The server returned road tiles out of row-major order.')
+  }
+  return { tiles }
+}
+
+/** Resolves to null for worlds without a road network (before M15). */
+export async function fetchRoads(): Promise<RoadOverlay | null> {
+  const response = await getIfFound('/api/v1/roads')
+  return response.found ? parseRoads(response.value) : null
 }
 
 export async function fetchSettlement(): Promise<Settlement> { return parseSettlement(await get('/api/v1/settlement')) }

@@ -103,6 +103,11 @@ footer { margin-top: auto; border-top: 1px solid #d8cbbb; padding-top: 17px; dis
 .history-event { padding: 16px 18px; border-left: 3px solid #a8603d; border-top: 1px solid #d8cbbb; border-right: 1px solid #d8cbbb; border-bottom: 1px solid #d8cbbb; background: rgba(250,246,238,.72); }
 .history-event-meta { display: flex; flex-wrap: wrap; gap: 8px 17px; color: #a2613d; font: 10px/1.2 'Trebuchet MS', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
 .history-event p { margin: 10px 0 7px; font-size: 1.08rem; line-height: 1.4; }
+.history-event-trade { border-left-color: #3f7c78; }
+.history-event-trade .history-event-meta { color: #2f6d69; }
+.history-event-trade.is-loss { border-left-color: #8e3b33; }
+.history-event-road { border-left-color: #77716a; background: rgba(238,233,222,.8); }
+.history-event-road .history-event-meta { color: #5e5952; }
 .history-event small { display: block; margin-top: 10px; color: #817468; font: 11px/1.3 'Trebuchet MS', sans-serif; }
 .history-links { display: flex; flex-wrap: wrap; gap: 6px 14px; color: #817468; font: 11px/1.3 'Trebuchet MS', sans-serif; }
 .biography-summary { padding: 20px; border: 1px solid #d8cbbb; background: rgba(232,220,201,.65); }

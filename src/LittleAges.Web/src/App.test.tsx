@@ -300,20 +300,20 @@ describe('citizen observer', () => {
     })
 
     renderAppWithRecords()
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(10)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(10)
 
     await act(async () => {
       requests.forEach((request, index) => request.resolve(responseFor(paths[index], 1)))
       await Promise.all(requests.map(request => request.promise))
     })
     await act(async () => { await vi.advanceTimersByTimeAsync(1999) })
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(10)
     await act(async () => { await vi.advanceTimersByTimeAsync(1) })
     await act(async () => { await Promise.resolve() })
-    expect(requests.length).toBeGreaterThan(9)
+    expect(requests.length).toBeGreaterThan(10)
     expect(paths).toContain('/api/v1/settlement')
     expect(paths.filter(path => path.endsWith('/map'))).toHaveLength(1)
   })
@@ -351,7 +351,7 @@ describe('citizen observer', () => {
     })
 
     const { unmount } = render(<App />)
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(10)
     unmount()
 
     await act(async () => {
@@ -359,7 +359,7 @@ describe('citizen observer', () => {
       await Promise.all(requests.map(request => request.promise))
       await vi.advanceTimersByTimeAsync(10000)
     })
-    expect(requests).toHaveLength(9)
+    expect(requests).toHaveLength(10)
   })
 
   it('shows settlement survival metrics and citizen survival details', async () => {

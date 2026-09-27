@@ -1,12 +1,13 @@
 import type { LivingWorld } from '../living'
 import { useLayoutEffect, useRef } from 'react'
-import type { Citizen, Map, SettlementSite, Structure } from '../api'
+import type { Citizen, Map, RoadOverlay, SettlementSite, Structure } from '../api'
+import { ROAD_RANK, ROAD_STYLES, roadSegments } from './roads'
 import { containMap } from './visuals'
 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
 const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175' }
 
-export function LegacyMap({ map, structures, citizens, living, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null }: { living?: LivingWorld | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null }) {
+export function LegacyMap({ map, structures, citizens, living, roads = null, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null }: { living?: LivingWorld | null; roads?: RoadOverlay | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const focusedSite = settlementSites.find(site => site.settlementId === focusedSettlementId) ?? null
   useLayoutEffect(() => {
@@ -45,6 +46,32 @@ export function LegacyMap({ map, structures, citizens, living, focusSettlement =
       for (let y = minY; y < maxY; y += 1) for (let x = minX; x < maxX; x += 1) {
         context.fillStyle = terrainColors[map.terrain[y * map.width + x]]
         context.fillRect(offsetX + x * scale, offsetY + y * scale, scale + 0.4, scale + 0.4)
+      }
+      if (roads) {
+        const center = (point: { x: number; y: number }) => [offsetX + (point.x + 0.5) * scale, offsetY + (point.y + 0.5) * scale] as const
+        context.lineCap = 'round'
+        const stroke = (from: { x: number; y: number }, to: { x: number; y: number }, color: string, width: number, dashed: boolean) => {
+          context.strokeStyle = color
+          context.lineWidth = Math.max(1, width * scale)
+          context.setLineDash(dashed ? [Math.max(2, scale * 0.3), Math.max(2, scale * 0.25)] : [])
+          context.beginPath()
+          context.moveTo(...center(from))
+          context.lineTo(...center(to))
+          context.stroke()
+        }
+        for (const segment of roadSegments(roads.tiles)) {
+          const style = ROAD_STYLES[segment.grade]
+          if (style.edge) stroke(segment.from, segment.to, style.edge, style.width + 0.16, false)
+          stroke(segment.from, segment.to, style.color, style.width, style.dashed)
+        }
+        context.setLineDash([])
+        for (const tile of [...roads.tiles].sort((first, second) => ROAD_RANK[first.grade] - ROAD_RANK[second.grade])) {
+          const style = ROAD_STYLES[tile.grade]
+          context.fillStyle = style.color
+          context.beginPath()
+          context.arc(...center(tile), Math.max(0.75, style.width * scale / 2), 0, Math.PI * 2)
+          context.fill()
+        }
       }
       context.strokeStyle = '#f7f0e5'
       context.lineWidth = Math.max(1, scale / 12)
@@ -99,9 +126,10 @@ export function LegacyMap({ map, structures, citizens, living, focusSettlement =
       observer?.disconnect()
       window.removeEventListener('resize', render)
     }
-  }, [citizens, map, structures, living, focusSettlement, settlementSites, selectedSettlementId, focusedSite])
+  }, [citizens, map, structures, living, roads, focusSettlement, settlementSites, selectedSettlementId, focusedSite])
 
   const siteDescription = settlementSites.length > 1 ? ` ${settlementSites.length} settlement sites are marked` : ''
+  const roadDescription = roads && roads.tiles.length > 0 ? ' Paths are drawn by grade: dashed tan tracks, brown trails, and wide gray roads.' : ''
   const focusDescription = focusedSite ? `, focused on settlement ${focusedSite.settlementId} at (${focusedSite.site.x}, ${focusedSite.site.y})` : focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`
-  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription} Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
+  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription}${roadDescription} Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
 }

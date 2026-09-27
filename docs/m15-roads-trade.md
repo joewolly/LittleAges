@@ -1,6 +1,6 @@
 # M15 - Roads and intersite trade
 
-**Status:** in progress on `codex/m15-roads-trade`; phases 1 to 4 are implemented.
+**Status:** in progress on `codex/m15-roads-trade`; phases 1 to 5 are implemented.
 The rules identifier is `m15-rng1-roads1`. Tuning values marked *initial* are
 starting points to be calibrated by the phase measurements below, not settled
 rules.
@@ -317,8 +317,9 @@ M15 is acceptable when evidence shows:
    SQLite) in every phase and after a loss, and chunk size. A 10-year seed-42
    acceptance run passes every invariant and trades on its own. The decisions
    are listed under "Phase 4 decisions" below.
-5. **Observer.** Add the road overlay route, the settlement trade fields, 2D
-   and 3D road rendering, and history rendering.
+5. **Observer.** *(Done.)* Add the road overlay route, the settlement trade
+   fields, 2D and 3D road rendering, and history rendering. The decisions are
+   listed under "Phase 5 decisions" below.
 6. **Tuning and acceptance.** Calibrate the *initial* values from multiseed
    runs, run the 10-year and 100-year acceptance, and update the README,
    `simulation-model.md`, `feature-ideas.md`, and the release notes.
@@ -366,6 +367,31 @@ M15 is acceptable when evidence shows:
   recovered. Other goods are lost, and lost Grain counts as spoiled, so Living
   validation's communal grain conservation still holds. That conservation now
   also counts Grain in transit.
+
+## Phase 5 decisions
+
+- **Road overlay route.** `GET /api/v1/roads` returns `{ tiles: [{ x, y,
+  grade }] }` in row-major order, with graded tiles only and no wear. Road
+  grades change every season, so they stay off the immutable `/map` and
+  `/world` payloads. Worlds before M15 get `404`, meaning there is no overlay,
+  and the observer draws nothing. The web client refreshes the overlay with
+  the slower settlement details.
+- **Settlement trade fields.** `GET /api/v1/settlements/{id}` adds
+  `tradeParties` (trade parties leaving or visiting the site, with phase,
+  location, load, return good, and cargo) and `recentTrades` (the 10 newest
+  `TradeCompleted` events the site took part in). Both fields are present only
+  in M15 worlds. `/settlements` and `/settlement` keep their shapes. A returning
+  party reports its trading partner as its destination, not home.
+- **Rendering.** Neighboring graded tiles are joined center to center, using
+  the lower of the two grades. Tracks are thin, dashed, and tan. Trails are
+  wider and dark brown. Roads are the widest, gray, and have a pale edge. In
+  3D they are instanced strips lifted above the terrain. The first
+  browser pass used a pale Track color and a low lift, and tracks were
+  invisible on sand. The colors and lift were then adjusted.
+- **History.** Summaries for the six new event types already came from the
+  server. The observer marks trade events in teal (and a lost trade in red)
+  and road events in gray. The Overview tab adds a "Between the settlements"
+  trade panel when the world has roads.
 
 ## Resolved design questions
 
