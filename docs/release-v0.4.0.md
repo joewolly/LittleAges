@@ -1,6 +1,9 @@
-# Little Ages v0.4.0 (Draft)
+# Little Ages v0.4.0
 
-**Status:** candidate on `codex/m15-roads-trade`; not published.
+**Status:** published on 2026-09-27 as
+[v0.4.0](https://github.com/joewolly/LittleAges/releases/tag/v0.4.0) from
+`cea2e1d`, with `LittleAges-v0.4.0-win-x64.zip` (SHA-256
+`86167e09315875228b9e0a1f6a1232f2feb46fa5cb5b81b145cf116d96243199`).
 
 ## Highlights
 
@@ -39,11 +42,3 @@ fingerprints as v0.3.1 over 100 years.
   2 to 5 times as long as M14, because the M15 worlds stay larger and busier.
 - Trade is uncommon: some worlds go a decade without a trade, because it needs
   one site to be short of what the other has in surplus.
-
-## After merge
-
-Run the manual **Windows package** workflow with version `0.4.0` and review the
-resulting `LittleAges-v0.4.0-win-x64.zip`. Then tag the merged commit as
-`v0.4.0`, publish the GitHub release with this note and the verified package,
-and confirm the published asset is available. This draft does not publish a
-tag or release.

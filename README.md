@@ -174,10 +174,8 @@ version is:
 
 ## Project status
 
-`v0.3.1` is the latest published Windows release and describes M14 with the
-harvest storage fix. M15 (roads and intersite trade) is the v0.4.0 candidate on
-`codex/m15-roads-trade`; its [draft release notes](docs/release-v0.4.0.md) are
-prepared but the release has not been published.
+`v0.4.0` is the latest published Windows release and describes M15 (roads and
+trade between the settlements); see its [release notes](docs/release-v0.4.0.md).
 
 ## License
 

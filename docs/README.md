@@ -7,8 +7,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Release notes
 
-- [`release-v0.4.0.md`](./release-v0.4.0.md) — draft release notes for the M15
-  candidate; the release has not been published.
+- [`release-v0.4.0.md`](./release-v0.4.0.md) — release notes for M15, published
+  as v0.4.0.
 - [`release-v0.3.0.md`](./release-v0.3.0.md) — release notes for M14, published
   as v0.3.0 and followed by the v0.3.1 harvest storage fix.
 
