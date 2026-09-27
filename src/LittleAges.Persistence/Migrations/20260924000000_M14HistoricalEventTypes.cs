@@ -13,7 +13,7 @@ public sealed class M14HistoricalEventTypes : Migration
     protected override void Down(MigrationBuilder migrationBuilder) =>
         migrationBuilder.Sql(RebuildHistoricalEventsSql(maxEventType: 15));
 
-    private static string RebuildHistoricalEventsSql(int maxEventType) => $$"""
+    internal static string RebuildHistoricalEventsSql(int maxEventType) => $$"""
         CREATE TABLE "historical_events_m14" (
             "id" INTEGER NOT NULL,
             "world_minute" INTEGER NOT NULL,

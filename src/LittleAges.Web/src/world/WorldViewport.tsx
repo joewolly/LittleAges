@@ -7,8 +7,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import type { MapControls as MapControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js'
-import type { Citizen, Map, Settlement, SettlementSite, Structure } from '../api'
+import type { Citizen, Map, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import { LegacyMap } from './LegacyMap'
+import { RoadScene } from './RoadScene'
 import { FarmModel, GranaryModel, MarketplaceModel } from './FarmModel'
 import { GroundContacts } from './GroundContacts'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
@@ -608,7 +609,7 @@ function useSharedAssetResources(scene: THREE.Object3D) {
   useLayoutEffect(() => trackAssetResources(gl, scene), [gl, scene])
 }
 
-function DioramaScene({ map, living, citizens, structures, settlement, settlementSites, focusedSettlementId, onFocusSettlementSite, worldMinute, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; living?: LivingWorld | null; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; settlementSites: SettlementSite[]; focusedSettlementId: string | null; onFocusSettlementSite: (id: string) => void; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
+function DioramaScene({ map, living, roads = null, citizens, structures, settlement, settlementSites, focusedSettlementId, onFocusSettlementSite, worldMinute, worldSeed, operationalSpeed, paused, reducedMotion, controlsEnabled, selectedCitizenId, onSelectCitizen, rotation, resetToken, nudge, followCitizenId, detailTier, onDetailTier, onStats }: { map: Map; living?: LivingWorld | null; roads?: RoadOverlay | null; citizens: Citizen[]; structures: Structure[]; settlement: Settlement | null; settlementSites: SettlementSite[]; focusedSettlementId: string | null; onFocusSettlementSite: (id: string) => void; worldSeed: string | null; operationalSpeed: number | null; paused: boolean; reducedMotion: boolean; controlsEnabled: boolean; selectedCitizenId: string | null; onSelectCitizen: (id: string) => void; rotation: number; resetToken: number; nudge: CameraNudge; followCitizenId: string | null; detailTier: DetailTier; onDetailTier: (tier: DetailTier) => void; onStats: (stats: PerfStats) => void; worldMinute?: number }) {
   const [presentationClock] = useState(() => new PresentationClock())
   const observedMinute = worldMinute ?? Math.max(0, ...citizens.map(c => c.movementPlan?.observedMinute ?? 0))
   useLayoutEffect(() => { presentationClock.observe(observedMinute, operationalSpeed, paused, performance.now()) }, [presentationClock, observedMinute, operationalSpeed, paused])
@@ -632,6 +633,7 @@ function DioramaScene({ map, living, citizens, structures, settlement, settlemen
       <mesh position={[0, -0.46, 0]} receiveShadow><boxGeometry args={[map.width + 2, 0.9, map.height + 2]} /><BaseMaterial /></mesh>
       <Terrain map={map} worldSeed={worldSeed} />
       <Water map={map} />
+      <RoadScene map={map} roads={roads} />
       <GroundContacts map={map} structures={structures} settlement={settlement} />
       <LivingScene map={map} world={living ?? null} />
       <GroundDetails map={map} worldSeed={worldSeed} detailTier={detailTier} />
@@ -652,6 +654,8 @@ function DioramaScene({ map, living, citizens, structures, settlement, settlemen
 
 export type WorldViewportProps = {
   living?: LivingWorld | null
+  /** M15 road overlay; null for worlds without roads. */
+  roads?: RoadOverlay | null
   map: Map
   citizens: Citizen[]
   structures: Structure[]
@@ -728,7 +732,7 @@ export function WorldViewport(props: WorldViewportProps) {
       <button type="button" onClick={focusSelectedSettlement} disabled={selectedSite === null}>Focus site</button>
     </div>}
     <div className="world-stage">
-      {fallback ? <LegacyMap living={props.living} focusSettlement={!!props.living && !wholeMap} settlementSites={settlementSites} selectedSettlementId={selectedSite?.settlementId ?? null} focusedSettlementId={wholeMap ? null : focusedSettlementId} map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
+      {fallback ? <LegacyMap living={props.living} roads={props.roads} focusSettlement={!!props.living && !wholeMap} settlementSites={settlementSites} selectedSettlementId={selectedSite?.settlementId ?? null} focusedSettlementId={wholeMap ? null : focusedSettlementId} map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setFallback(true)}>
         <Canvas dpr={[1, 1.5]} shadows frameloop={reducedMotion ? 'demand' : 'always'} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05 }}>
           <ContextLossGuard onLoss={() => setFallback(true)} />
           <DioramaScene {...props} settlementSites={settlementSites} focusedSettlementId={focusedSettlementId} onFocusSettlementSite={focusSettlementSite} controlsEnabled={props.controlsEnabled !== false} reducedMotion={reducedMotion} rotation={rotation} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} detailTier={effectiveDetailTier} onDetailTier={setDetailTier} onStats={setStats} />

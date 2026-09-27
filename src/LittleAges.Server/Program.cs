@@ -248,13 +248,27 @@ app.MapGet("/api/v1/settlements/{id}", (string id, SimulationHost simulationHost
     var settlements = simulationHost.Observation.Settlements;
     if (settlements.Count == 0) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     var settlement = settlements.FirstOrDefault(item => item.SettlementId == value);
-    return settlement is null
-        ? Results.NotFound()
-        : Results.Ok(settlement.Summary with
-        {
-            SettlementId = value.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            Site = settlement.Site
-        });
+    if (settlement is null) return Results.NotFound();
+    var observation = simulationHost.Observation;
+    return Results.Ok(settlement.Summary with
+    {
+        SettlementId = id,
+        Site = settlement.Site,
+        TradeParties = observation.TradeParties?.Where(party => party.OriginSettlementId == id || party.DestinationSettlementId == id).ToArray(),
+        RecentTrades = observation.TradeParties is null ? null : (observation.History?.Events ?? [])
+            .Where(item => item.EventType == HistoricalEventType.TradeCompleted)
+            .Select(ServerCompletedTradeSnapshot.From)
+            .Where(trade => trade.OriginSettlementId == id || trade.DestinationSettlementId == id)
+            .OrderByDescending(trade => trade.WorldMinute).ThenByDescending(trade => long.Parse(trade.EventId, System.Globalization.CultureInfo.InvariantCulture))
+            .Take(RecentTradeLimit).ToArray()
+    });
+});
+app.MapGet("/api/v1/roads", (SimulationHost simulationHost) =>
+{
+    var observation = simulationHost.Observation;
+    if (observation.Map is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    // Worlds before M15 have no road network, so they have no overlay to observe.
+    return observation.Roads is null ? Results.NotFound() : Results.Ok(observation.Roads);
 });
 app.MapGet("/api/v1/structures", (SimulationHost simulationHost) =>
 {
@@ -342,6 +356,7 @@ static long? ParseNonNegative(string? value) => long.TryParse(value, System.Glob
 
 public partial class Program
 {
+    private const int RecentTradeLimit = 10;
 }
 
 namespace LittleAges.Server

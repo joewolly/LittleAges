@@ -8,7 +8,7 @@ public sealed class M14MigrationHistoryContractTests
     [Fact]
     public void MigrationEventTypesAppendWithoutChangingExistingValuesOrSchemaVersion()
     {
-        Assert.Equal(Enumerable.Range(1, 22), Enum.GetValues<HistoricalEventType>().Select(value => (int)value));
+        Assert.Equal(Enumerable.Range(1, 22), Enum.GetValues<HistoricalEventType>().Select(value => (int)value).Take(22));
         Assert.Equal(2, (int)HistoricalEventType.SettlementFounded);
         Assert.Equal(15, (int)HistoricalEventType.SeasonStarted);
         Assert.Equal(16, (int)HistoricalEventType.ExpeditionDeparted);

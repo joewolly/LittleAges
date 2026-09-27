@@ -17,6 +17,15 @@ public sealed class M6HistoryContractTests
         (HistoricalEventType.FamilyVisitDeparted, 21),
         (HistoricalEventType.FamilyVisitReturned, 22)
     ];
+    private static readonly (HistoricalEventType Type, int Value)[] M15HistoricalEventValues =
+    [
+        (HistoricalEventType.TradeDeparted, 23),
+        (HistoricalEventType.TradeCompleted, 24),
+        (HistoricalEventType.TradeReturned, 25),
+        (HistoricalEventType.TradeLost, 26),
+        (HistoricalEventType.RoadWorkSeason, 27),
+        (HistoricalEventType.RouteConnected, 28)
+    ];
     private static readonly int[] HistoricalImportanceValues = [0, 1, 2, 3, 4, 5];
     private static readonly int[] HistoricalOriginValues = [1, 2];
 
@@ -25,9 +34,9 @@ public sealed class M6HistoryContractTests
     {
         var historicalEventValues = Enum.GetValues<HistoricalEventType>().Select(value => (int)value).ToArray();
         Assert.Equal(HistoricalEventValues, historicalEventValues.Take(HistoricalEventValues.Length));
-        Assert.Equal(M14HistoricalEventValues.Select(value => value.Value),
+        Assert.Equal(M14HistoricalEventValues.Concat(M15HistoricalEventValues).Select(value => value.Value),
             historicalEventValues.Skip(HistoricalEventValues.Length));
-        foreach (var (type, value) in M14HistoricalEventValues)
+        foreach (var (type, value) in M14HistoricalEventValues.Concat(M15HistoricalEventValues))
             Assert.Equal(value, (int)type);
         Assert.Equal(HistoricalImportanceValues,
             Enum.GetValues<HistoricalImportance>().Select(value => (int)value));

@@ -10,7 +10,7 @@ public sealed partial class SimulationEngine
     {
         if (!MigrationSystemsEnabled(SimulationRulesVersion) ||
             _migrationState?.DaughterSettlement is null ||
-            _migrationState.InTransitParties.Count != 0 ||
+            HasNonTradeMigrationParty ||
             CurrentMinute.Value % MinutesPerMigrationSeason != 0)
             return;
 
@@ -36,6 +36,7 @@ public sealed partial class SimulationEngine
                 .Where(x => x.IsAlive && x.HouseholdId == household.Id)
                 .OrderBy(x => x.Id.Value).ToArray();
             if (members.Length == 0 || !members.Any(x => x.AgeYears(CurrentMinute) >= 18) ||
+                members.Any(x => FoundingPartyForCitizen(x.Id.Value) is not null) ||
                 HasMigrationWorkOrBarterObligations(household.Id.Value, members))
                 continue;
             var provisionPerTraveler = FoundingProvisionFood(CurrentMinute.Value);
@@ -62,7 +63,7 @@ public sealed partial class SimulationEngine
             WithdrawRelocatingHouseholdGoods(household.Id.Value, cargo);
             var party = new MigrationTransitPartyState(_counters.AllocateMigrationPartyId(), household.Id.Value,
                 origin, destination, members[0].Location, destinationSite, members.Select(x => x.Id.Value).ToArray(),
-                cargo, checked((int)SimulationEngine.RemainingPathCost(representativePath, World)),
+                cargo, checked((int)TravelPathCost(representativePath)),
                 CurrentMinute.Value, journeyKind: MigrationJourneyKind.Relocation);
             SetMigrationParty(party);
             foreach (var member in members) StartFoundingTravel(member, destinationSite);

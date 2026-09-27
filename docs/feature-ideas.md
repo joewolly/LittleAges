@@ -44,10 +44,12 @@ from the simulation without inventing events.
 
 - **Migration and second settlements.** Implemented in [M14](m14-migration.md),
   with one autonomous daughter settlement, seasonal household migration, and
-  family visits. New worlds use M14 by default; existing saves keep their
-  recorded rules.
-- **Roads and trade routes.** Repeated travel could justify paths and exchange
-  between settlements, making geography matter to prosperity and contact.
+  family visits. Existing M14 saves keep their recorded rules.
+- **Roads and trade routes.** Implemented in [M15](m15-roads-trade.md): worn
+  tracks and trails from foot traffic, roads paved with household stone, and
+  monthly trader journeys between the two settlements; new worlds use M15 by
+  default. Road decay, ruins,
+  dynamic prices, and caravans remain open ideas.
 - **Visitors and newcomers.** Travelers could bring skills, goods, and stories
   from beyond the starting settlement, then choose whether to stay.
 - **Disasters and recovery.** Fires, floods, or severe seasons could destroy

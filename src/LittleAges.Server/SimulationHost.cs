@@ -379,9 +379,54 @@ public sealed record ServerSettlementSnapshot
 
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public WorldStartingSiteSnapshot? Site { get; init; }
+
+    /// <summary>M15 settlement detail only: trade parties leaving or visiting this site.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<ServerTradePartySnapshot>? TradeParties { get; init; }
+
+    /// <summary>M15 settlement detail only: the newest completed exchanges this site took part in.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<ServerCompletedTradeSnapshot>? RecentTrades { get; init; }
 }
 
 public sealed record ServerSettlementSiteSnapshot(long SettlementId, WorldStartingSiteSnapshot Site, ServerSettlementSnapshot Summary);
+
+/// <summary>M15 road overlay for observers: graded tiles only, in row-major order. Raw wear is not published.</summary>
+public sealed record ServerRoadsSnapshot(IReadOnlyList<ServerRoadTileSnapshot> Tiles);
+public sealed record ServerRoadTileSnapshot(int X, int Y, RoadGrade Grade);
+
+public sealed record ServerTradeCargoSnapshot(MigrationCargoGood Good, long Quantity, MigrationCargoPurpose Purpose);
+public sealed record ServerTradePartySnapshot(string PartyId, string TraderCitizenId, string OriginSettlementId,
+    string DestinationSettlementId, MigrationVisitPhase Phase, WorldStartingSiteSnapshot Location, long DepartedMinute,
+    int Load, MigrationCargoGood ReturnGood, IReadOnlyList<ServerTradeCargoSnapshot> Cargo)
+{
+    public static ServerTradePartySnapshot From(MigrationTransitPartyState party) => new(
+        party.Id.ToString(CultureInfo.InvariantCulture),
+        party.CitizenIds[0].ToString(CultureInfo.InvariantCulture),
+        party.OriginSettlementId.ToString(CultureInfo.InvariantCulture),
+        // A returning party's canonical destination is home; observers see the trading partner throughout.
+        (party.Returning ? 3 - party.OriginSettlementId : party.DestinationSettlementId!.Value).ToString(CultureInfo.InvariantCulture),
+        party.VisitPhase!.Value,
+        new WorldStartingSiteSnapshot(party.Location.X, party.Location.Y),
+        party.DepartedMinute,
+        party.TradeLoad!.Value,
+        party.TradeReturnGood!.Value,
+        Array.AsReadOnly(party.Cargo.Select(static stack => new ServerTradeCargoSnapshot(stack.Good, stack.Quantity, stack.Purpose)).ToArray()));
+}
+
+public sealed record ServerCompletedTradeSnapshot(string EventId, long WorldMinute, string PartyId, string TraderCitizenId,
+    string OriginSettlementId, string DestinationSettlementId, string OutboundGood, int OutboundQuantity, string ReturnGood, int ReturnQuantity)
+{
+    public static ServerCompletedTradeSnapshot From(ServerHistoricalEventSnapshot item)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(item.PayloadJson);
+        var payload = document.RootElement;
+        return new(item.EventId, item.WorldMinute, payload.GetProperty("partyId").GetString()!, payload.GetProperty("traderId").GetString()!,
+            payload.GetProperty("originSettlementId").GetString()!, payload.GetProperty("destinationSettlementId").GetString()!,
+            payload.GetProperty("outboundGood").GetString()!, payload.GetProperty("outboundQuantity").GetInt32(),
+            payload.GetProperty("returnGood").GetString()!, payload.GetProperty("returnQuantity").GetInt32());
+    }
+}
 
 public sealed record ServerObservationSnapshot
 {
@@ -395,8 +440,10 @@ public sealed record ServerObservationSnapshot
     {
     }
 
-    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null, System.Text.Json.JsonElement? living = null, IEnumerable<ServerSettlementSiteSnapshot>? settlements = null)
+    public ServerObservationSnapshot(ServerStatusSnapshot status, IEnumerable<ServerCitizenSnapshot>? citizens, ServerSettlementSnapshot? settlement, IEnumerable<ServerStructureSnapshot>? structures = null, ServerMapSnapshot? map = null, IEnumerable<RelationshipState>? relationships = null, IEnumerable<Household>? households = null, HistoryReadSnapshot? history = null, long revision = 0, GrowthObservation? growth = null, AgricultureObservation? agriculture = null, EconomyObservation? economy = null, System.Text.Json.JsonElement? living = null, IEnumerable<ServerSettlementSiteSnapshot>? settlements = null, ServerRoadsSnapshot? roads = null, IEnumerable<ServerTradePartySnapshot>? tradeParties = null)
     {
+        Roads = roads is null ? null : new ServerRoadsSnapshot(Array.AsReadOnly(roads.Tiles.ToArray()));
+        TradeParties = tradeParties is null ? null : Array.AsReadOnly(tradeParties.OrderBy(x => long.Parse(x.PartyId, CultureInfo.InvariantCulture)).ToArray());
         ArgumentNullException.ThrowIfNull(status);
         ArgumentOutOfRangeException.ThrowIfNegative(revision);
         Revision = revision;
@@ -432,6 +479,10 @@ public sealed record ServerObservationSnapshot
     public IReadOnlyList<RelationshipState> Relationships { get; }
     public IReadOnlyList<Household> Households { get; }
     public IReadOnlyList<ServerSettlementSiteSnapshot> Settlements { get; }
+    /// <summary>M15 only; null for worlds without road systems.</summary>
+    public ServerRoadsSnapshot? Roads { get; }
+    /// <summary>M15 only; null for worlds without road systems.</summary>
+    public IReadOnlyList<ServerTradePartySnapshot>? TradeParties { get; }
     public ServerHistorySnapshot? History { get; }
     public GrowthObservation? Growth { get; }
     public AgricultureObservation? Agriculture { get; }
@@ -1031,8 +1082,15 @@ public sealed partial class SimulationHost : BackgroundService
             _consecutiveCheckpointFailures,
             Paused: Volatile.Read(ref _paused) != 0,
             OperationalSpeed: Volatile.Read(ref _operationalSpeed));
+        var roadsEnabled = engine is not null && SimulationEngine.RoadSystemsEnabled(engine.SimulationRulesVersion);
+        var roads = roadsEnabled
+            ? new ServerRoadsSnapshot(engine!.RoadGrades.Select(static tile => new ServerRoadTileSnapshot(tile.Coordinate.X, tile.Coordinate.Y, tile.Grade)).ToArray())
+            : null;
+        var tradeParties = roadsEnabled
+            ? migration!.InTransitParties.Where(static party => party.JourneyKind == MigrationJourneyKind.Trade).Select(ServerTradePartySnapshot.From).ToArray()
+            : null;
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation(), settlementSites);
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation(), settlementSites, roads, tradeParties);
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)

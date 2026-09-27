@@ -94,10 +94,10 @@ explicitly return to loopback.
 
 Growing Settlement and Living Settlement saves retain their own rules during
 upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`,
-`m13-rng1-unified1`, `m14-rng1-migration1`, `v02-rng1-living1`, and
-`v02-rng1-living2`; installing it does not convert one civilization or Living
-Settlement rules version into another. New worlds keep the configured
-`NewWorldRules`, with M14 as the application default. M12 remains a historical
+`m13-rng1-unified1`, `m14-rng1-migration1`, `m15-rng1-roads1`,
+`v02-rng1-living1`, and `v02-rng1-living2`; installing it does not convert one
+civilization or Living Settlement rules version into another. New worlds keep
+the configured `NewWorldRules`, with M15 as the application default. M12 remains a historical
 rules boundary for existing worlds. Living2 is an opt-in rule for newly created
 worlds; existing living1 worlds continue under their saved living1 rules.
 
@@ -132,7 +132,7 @@ Useful supported installer parameters are:
 ```
 
 The installer does not expose simulation rules as an option. Fresh worlds use
-the current `m14-rng1-migration1` rules boundary; earlier rules remain
+the current `m15-rng1-roads1` rules boundary; earlier rules remain
 compatibility boundaries for existing persisted worlds.
 
 ## Uninstall

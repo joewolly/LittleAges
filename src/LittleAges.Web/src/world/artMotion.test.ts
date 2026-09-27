@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { citizenAnimation, setAnimationPlayback } from './artMotion'
-import type { LivingOrder } from '../living'
+import { livingLabel, livingWorkStage, type LivingOrder } from '../living'
 
 describe('authoritative activity presentation', () => {
   it('depicts living work and cargo from the authoritative order', () => {
@@ -12,6 +12,14 @@ describe('authoritative activity presentation', () => {
     expect(citizenAnimation({ ...citizen, actionPhase: 'TravelToTarget' }, { ...work, phase: 'Deliver', cargoInTransit: true, cargo: [{ good: 'Grain', quantity: 60 }] })).toBe('Carry')
     expect(citizenAnimation({ ...citizen, actionPhase: 'TravelToTarget' }, work)).toBe('Walk')
     expect(work.cargo).toEqual([])
+  })
+  it('presents M15 road building as construction carrying stone', () => {
+    const road: LivingOrder = { id: '1', kind: 'BuildRoad', location: { x: 1, y: 1 }, citizenId: '1', subjectId: null, technique: null, phase: 'Work', workDone: 60, requiredWork: 120, blockedReason: '', ingredients: [{ resource: 'Stone', quantity: 2 }], cargo: [] }
+    const citizen = { currentAction: 'LivingWork', actionPhase: 'Perform', carriedResource: null } as const
+    expect(citizenAnimation(citizen, road)).toBe('Build')
+    expect(citizenAnimation({ ...citizen, actionPhase: 'TravelToTarget' }, { ...road, phase: 'Travel' })).toBe('Carry')
+    expect(livingLabel(road.kind)).toBe('Build Road')
+    expect(livingWorkStage({ ...road, phase: 'Travel', suppliesDelivered: true })).toBe('Going to the work site')
   })
   it('walks to a build or rest target instead of playing a work or rest pose in transit', () => {
     for (const currentAction of ['Build', 'Rest', 'Socialize'] as const) {

@@ -12,7 +12,8 @@ public sealed partial class SimulationEngine
         LivingTechnique? technique = null, int work = 120, long? settlementId = null, params LivingIngredient[] ingredients)
     {
         var siteId = settlementId ?? SiteIdForLocation(location);
-        var existing = OrdersAt(siteId).FirstOrDefault(x => x.Kind == kind && x.SubjectId == subject && x.Technique == technique);
+        var existing = OrdersAt(siteId).FirstOrDefault(x => x.Kind == kind && x.SubjectId == subject && x.Technique == technique &&
+            (kind != LivingWorkKind.BuildRoad || x.Location == location));
         if (existing is not null) { existing.Priority = priority; return; }
         var siteOrders = OrdersAt(siteId).ToArray();
         if (siteOrders.Length >= Math.Max(32, PopulationAt(siteId) * 4))
@@ -161,7 +162,8 @@ public sealed partial class SimulationEngine
             .Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
     }
     private int OutputQuantity(LivingWorkKind kind) => LivingWorkDefinitions.OutputQuantity(kind, SimulationRulesVersion);
-    private bool HasOutputSpace(LivingWorkOrder order) => order.Produced || OutputQuantity(order.Kind) <=
+    // Work with no output always fits; skip the whole-site storage sum.
+    private bool HasOutputSpace(LivingWorkOrder order) => order.Produced || OutputQuantity(order.Kind) == 0 || OutputQuantity(order.Kind) <=
         (MigrationSystemsEnabled(SimulationRulesVersion) ? LivingFreeStorageAt(SiteIdForOrder(order)) : LivingFreeStorage) + order.Ingredients.Sum(x => x.Quantity);
     private void ProduceLiving(Citizen citizen, LivingWorkOrder order)
     {
@@ -220,6 +222,7 @@ public sealed partial class SimulationEngine
             case LivingWorkKind.BuildHearth: CompleteLivingFacility(citizen, order, LivingFacilityKind.Hearth); break;
             case LivingWorkKind.BuildLoom: CompleteLivingFacility(citizen, order, LivingFacilityKind.Loom); break;
             case LivingWorkKind.BuildCareHouse: CompleteLivingFacility(citizen, order, LivingFacilityKind.CareHouse); break;
+            case LivingWorkKind.BuildRoad: CompleteRoadTile(order); break;
             case LivingWorkKind.Hunt:
                 var animal = state.Animals.Single(x => x.Id == order.SubjectId);
                 // Wildlife moves independently; a missed hunt costs time, not an invented yield.

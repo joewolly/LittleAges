@@ -28,7 +28,13 @@ public enum HistoricalEventType : int
     DaughterSettlementFounded = 19,
     HouseholdRelocated = 20,
     FamilyVisitDeparted = 21,
-    FamilyVisitReturned = 22
+    FamilyVisitReturned = 22,
+    TradeDeparted = 23,
+    TradeCompleted = 24,
+    TradeReturned = 25,
+    TradeLost = 26,
+    RoadWorkSeason = 27,
+    RouteConnected = 28
 }
 
 public enum HistoricalImportance : int
@@ -158,7 +164,7 @@ public sealed record HistoricalEvent
     {
         WorldIdValidation.RequirePositive(Id.Value, nameof(Id));
         if (WorldMinute < 0 || WorldMinute > currentMinute) throw new ArgumentException("Historical event minute is outside the world timeline.");
-        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.FamilyVisitReturned) throw new ArgumentException("Historical event type is unsupported.");
+        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.RouteConnected) throw new ArgumentException("Historical event type is unsupported.");
         if (!Enum.IsDefined(Importance) || Importance is < HistoricalImportance.Debug or > HistoricalImportance.Historic) throw new ArgumentException("Historical event importance is unsupported.");
         if (!Enum.IsDefined(Origin) || Origin is not (HistoricalEventOrigin.Live or HistoricalEventOrigin.MigrationBackfill)) throw new ArgumentException("Historical event origin is unsupported.");
         if (SchemaVersion != CurrentSchemaVersion) throw new NotSupportedException($"Historical event schema version '{SchemaVersion}' is not supported.");
@@ -193,7 +199,17 @@ public sealed record HistoricalEvent
             case HistoricalEventType.ResourceShortageStarted:
             case HistoricalEventType.ResourceShortageEnded:
             case HistoricalEventType.SeasonStarted:
+            case HistoricalEventType.RoadWorkSeason:
+            case HistoricalEventType.RouteConnected:
                 if (citizens.Length != 0 || structures.Length != 0) throw new ArgumentException("This historical event cannot have entity links.");
+                break;
+            case HistoricalEventType.TradeDeparted:
+            case HistoricalEventType.TradeCompleted:
+            case HistoricalEventType.TradeReturned:
+            case HistoricalEventType.TradeLost:
+                RequireRoles(citizens, "subject", 1, 1);
+                if (structures.Length != 0) throw new ArgumentException("Trade events cannot have structure links.");
+                if (citizens[0].CitizenId.Value != CanonicalPayloadId("traderId")) throw new ArgumentException("Trade events must link their trader as the subject.");
                 break;
             case HistoricalEventType.ExpeditionDeparted:
             case HistoricalEventType.ExpeditionReturned:
@@ -266,6 +282,13 @@ public sealed record HistoricalEvent
         HistoricalEventPayloads.Validate(EventType, PayloadJson);
         using var document = JsonDocument.Parse(PayloadJson);
         return document.RootElement.GetProperty(propertyName).GetInt32();
+    }
+
+    private long CanonicalPayloadId(string propertyName)
+    {
+        HistoricalEventPayloads.Validate(EventType, PayloadJson);
+        using var document = JsonDocument.Parse(PayloadJson);
+        return long.Parse(document.RootElement.GetProperty(propertyName).GetString()!, CultureInfo.InvariantCulture);
     }
 }
 
@@ -449,6 +472,21 @@ public static class HistoricalEventPayloads
         FamilyVisit(visitorId, relativeId, originSettlementId, destinationSettlementId);
     public static string FamilyVisitReturned(long visitorId, long relativeId, long originSettlementId, long destinationSettlementId) =>
         FamilyVisit(visitorId, relativeId, originSettlementId, destinationSettlementId);
+    public static string TradeDeparted(long partyId, long traderId, long originSettlementId, long destinationSettlementId,
+        MigrationCargoGood outboundGood, int outboundQuantity, MigrationCargoGood returnGood) =>
+        $"{TradeJourney(partyId, traderId, originSettlementId, destinationSettlementId)},\"outboundGood\":{Good(outboundGood)},\"outboundQuantity\":{Count(outboundQuantity)},\"returnGood\":{Good(RequireDistinctGoods(returnGood, outboundGood))}}}";
+    public static string TradeCompleted(long partyId, long traderId, long originSettlementId, long destinationSettlementId,
+        MigrationCargoGood outboundGood, int outboundQuantity, MigrationCargoGood returnGood, int returnQuantity) =>
+        $"{TradeJourney(partyId, traderId, originSettlementId, destinationSettlementId)},\"outboundGood\":{Good(outboundGood)},\"outboundQuantity\":{Count(outboundQuantity)},\"returnGood\":{Good(RequireDistinctGoods(returnGood, outboundGood))},\"returnQuantity\":{Count(returnQuantity)}}}";
+    public static string TradeReturned(long partyId, long traderId, long originSettlementId, long destinationSettlementId, bool exchanged) =>
+        $"{TradeJourney(partyId, traderId, originSettlementId, destinationSettlementId)},\"exchanged\":{(exchanged ? "true" : "false")}}}";
+    public static string TradeLost(long partyId, long traderId, long originSettlementId, long destinationSettlementId) =>
+        $"{TradeJourney(partyId, traderId, originSettlementId, destinationSettlementId)}}}";
+    public static string RoadWorkSeason(long settlementId, int tilesBuilt, WorldSeason season, long year) =>
+        $"{{\"settlementId\":\"{Id(RequirePositiveId(settlementId, nameof(settlementId)))}\",\"tilesBuilt\":{Count(tilesBuilt)},\"season\":{JsonSerializer.Serialize(season.ToString())},\"year\":{year.ToString(CultureInfo.InvariantCulture)}}}";
+    public static string RouteConnected(RoadGrade grade) => grade is RoadGrade.Trail or RoadGrade.Road
+        ? $"{{\"grade\":{JsonSerializer.Serialize(grade.ToString())}}}"
+        : throw new ArgumentOutOfRangeException(nameof(grade), grade, "Only trail and road connections are recorded.");
 
     /// <summary>Validates the event-specific canonical JSON representation.</summary>
     public static void Validate(HistoricalEventType eventType, string payloadJson)
@@ -558,6 +596,41 @@ public static class HistoricalEventPayloads
                         FamilyVisit(RequiredPositiveId(root, "visitorId"), RequiredPositiveId(root, "relativeId"),
                             RequiredPositiveId(root, "originSettlementId"), RequiredPositiveId(root, "destinationSettlementId")));
                     break;
+                case HistoricalEventType.TradeDeparted:
+                    RequireCanonical(payloadJson, root, [.. TradeJourneyFields, "outboundGood", "outboundQuantity", "returnGood"], () =>
+                        TradeDeparted(RequiredPositiveId(root, "partyId"), RequiredPositiveId(root, "traderId"),
+                            RequiredPositiveId(root, "originSettlementId"), RequiredPositiveId(root, "destinationSettlementId"),
+                            RequiredCargoGood(root, "outboundGood"), RequiredPositiveInt(root, "outboundQuantity"), RequiredCargoGood(root, "returnGood")));
+                    break;
+                case HistoricalEventType.TradeCompleted:
+                    RequireCanonical(payloadJson, root, [.. TradeJourneyFields, "outboundGood", "outboundQuantity", "returnGood", "returnQuantity"], () =>
+                        TradeCompleted(RequiredPositiveId(root, "partyId"), RequiredPositiveId(root, "traderId"),
+                            RequiredPositiveId(root, "originSettlementId"), RequiredPositiveId(root, "destinationSettlementId"),
+                            RequiredCargoGood(root, "outboundGood"), RequiredPositiveInt(root, "outboundQuantity"),
+                            RequiredCargoGood(root, "returnGood"), RequiredPositiveInt(root, "returnQuantity")));
+                    break;
+                case HistoricalEventType.TradeReturned:
+                    RequireCanonical(payloadJson, root, [.. TradeJourneyFields, "exchanged"], () =>
+                        TradeReturned(RequiredPositiveId(root, "partyId"), RequiredPositiveId(root, "traderId"),
+                            RequiredPositiveId(root, "originSettlementId"), RequiredPositiveId(root, "destinationSettlementId"),
+                            RequiredBoolean(root, "exchanged")));
+                    break;
+                case HistoricalEventType.TradeLost:
+                    RequireCanonical(payloadJson, root, TradeJourneyFields, () =>
+                        TradeLost(RequiredPositiveId(root, "partyId"), RequiredPositiveId(root, "traderId"),
+                            RequiredPositiveId(root, "originSettlementId"), RequiredPositiveId(root, "destinationSettlementId")));
+                    break;
+                case HistoricalEventType.RoadWorkSeason:
+                    RequireCanonical(payloadJson, root, ["settlementId", "tilesBuilt", "season", "year"], () =>
+                        RoadWorkSeason(RequiredPositiveId(root, "settlementId"), RequiredPositiveInt(root, "tilesBuilt"),
+                            RequiredSeason(root, "season"), RequiredNonNegativeLong(root, "year")));
+                    break;
+                case HistoricalEventType.RouteConnected:
+                    RequireCanonical(payloadJson, root, ["grade"], () =>
+                        RouteConnected(Enum.TryParse<RoadGrade>(RequiredString(root, "grade"), ignoreCase: false, out var grade) && Enum.IsDefined(grade)
+                            ? grade
+                            : throw new ArgumentException("Payload field 'grade' is not a canonical road grade.")));
+                    break;
                 default:
                     throw new ArgumentException("Historical event type is unsupported.", nameof(eventType));
             }
@@ -593,6 +666,20 @@ public static class HistoricalEventPayloads
         $"{{\"partyId\":\"{Id(RequirePositiveId(partyId, nameof(partyId)))}\",\"householdId\":\"{Id(RequirePositiveId(householdId, nameof(householdId)))}\",\"originSettlementId\":\"{Id(RequirePositiveId(originSettlementId, nameof(originSettlementId)))}\",\"destinationX\":{RequireNonNegativeInt(destinationX, nameof(destinationX)).ToString(CultureInfo.InvariantCulture)},\"destinationY\":{RequireNonNegativeInt(destinationY, nameof(destinationY)).ToString(CultureInfo.InvariantCulture)},\"travelerCount\":{RequirePositiveInt(travelerCount, nameof(travelerCount)).ToString(CultureInfo.InvariantCulture)}}}";
     private static string FamilyVisit(long visitorId, long relativeId, long originSettlementId, long destinationSettlementId) =>
         $"{{\"visitorId\":\"{Id(RequirePositiveId(visitorId, nameof(visitorId)))}\",\"relativeId\":\"{Id(RequirePositiveId(relativeId, nameof(relativeId)))}\",\"originSettlementId\":\"{Id(RequireDistinctSettlementIds(originSettlementId, destinationSettlementId))}\",\"destinationSettlementId\":\"{Id(RequirePositiveId(destinationSettlementId, nameof(destinationSettlementId)))}\"}}";
+    private static readonly string[] TradeJourneyFields = ["partyId", "traderId", "originSettlementId", "destinationSettlementId"];
+    private static string TradeJourney(long partyId, long traderId, long originSettlementId, long destinationSettlementId) =>
+        $"{{\"partyId\":\"{Id(RequirePositiveId(partyId, nameof(partyId)))}\",\"traderId\":\"{Id(RequirePositiveId(traderId, nameof(traderId)))}\",\"originSettlementId\":\"{Id(RequireDistinctSettlementIds(originSettlementId, destinationSettlementId))}\",\"destinationSettlementId\":\"{Id(RequirePositiveId(destinationSettlementId, nameof(destinationSettlementId)))}\"";
+    private static string Good(MigrationCargoGood good) => Enum.IsDefined(good)
+        ? JsonSerializer.Serialize(good.ToString())
+        : throw new ArgumentOutOfRangeException(nameof(good));
+    private static string Count(int value) => RequirePositiveInt(value, nameof(value)).ToString(CultureInfo.InvariantCulture);
+    private static MigrationCargoGood RequireDistinctGoods(MigrationCargoGood returnGood, MigrationCargoGood outboundGood) =>
+        returnGood != outboundGood ? returnGood : throw new ArgumentException("A trade must exchange two different goods.");
+    private static MigrationCargoGood RequiredCargoGood(JsonElement root, string name) =>
+        Enum.TryParse<MigrationCargoGood>(RequiredString(root, name), ignoreCase: false, out var value) && Enum.IsDefined(value) &&
+        value.ToString() == RequiredString(root, name)
+            ? value
+            : throw new ArgumentException($"Payload field '{name}' is not a canonical good.");
     private static long RequireDistinctSettlementIds(long originSettlementId, long destinationSettlementId)
     {
         RequirePositiveId(originSettlementId, nameof(originSettlementId));

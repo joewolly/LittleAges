@@ -90,7 +90,7 @@ public enum MigrationCargoGood
 }
 
 public enum MigrationCargoPurpose { Provisions = 1, Cargo = 2 }
-public enum MigrationJourneyKind { Founding = 0, Relocation = 1, Visit = 2 }
+public enum MigrationJourneyKind { Founding = 0, Relocation = 1, Visit = 2, Trade = 3 }
 public enum MigrationVisitPhase { Outbound = 1, Dwell = 2, Returning = 3 }
 
 /// <summary>Continuous founding pressure recorded for one household.</summary>
@@ -110,7 +110,8 @@ public sealed class MigrationTransitPartyState
         IReadOnlyList<long> citizenIds, IReadOnlyList<MigrationCargoStackState> cargo,
         int remainingPathCost, long departedMinute, bool returning = false, bool foundingAdultArrived = false,
         MigrationJourneyKind journeyKind = MigrationJourneyKind.Founding, long? visitRelativeId = null,
-        MigrationVisitPhase? visitPhase = null, long? visitDwellEndsMinute = null)
+        MigrationVisitPhase? visitPhase = null, long? visitDwellEndsMinute = null,
+        MigrationCargoGood? tradeReturnGood = null, int? tradeLoad = null)
     {
         ArgumentNullException.ThrowIfNull(citizenIds);
         ArgumentNullException.ThrowIfNull(cargo);
@@ -130,6 +131,8 @@ public sealed class MigrationTransitPartyState
         VisitRelativeId = visitRelativeId;
         VisitPhase = visitPhase;
         VisitDwellEndsMinute = visitDwellEndsMinute;
+        TradeReturnGood = tradeReturnGood;
+        TradeLoad = tradeLoad;
     }
 
     public long Id { get; }
@@ -153,6 +156,12 @@ public sealed class MigrationTransitPartyState
     public MigrationVisitPhase? VisitPhase { get; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? VisitDwellEndsMinute { get; }
+    /// <summary>M15 trade only: the good the trader was sent to bring home.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MigrationCargoGood? TradeReturnGood { get; }
+    /// <summary>M15 trade only: the most trade cargo the trader can carry, fixed from the route at departure.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TradeLoad { get; }
 
     public MigrationTransitPartyState Validate()
     {
@@ -170,10 +179,10 @@ public sealed class MigrationTransitPartyState
                 : DestinationSettlementId is null || (!Returning && DestinationSettlementId == OriginSettlementId) ||
                   (Returning && DestinationSettlementId != OriginSettlementId)))
             throw new ArgumentException("Migration founding and relocation destinations are inconsistent.");
-        if (JourneyKind == MigrationJourneyKind.Visit
-            ? CitizenIds.Count != 1 || VisitRelativeId is not > 0 || CitizenIds.Contains(VisitRelativeId.Value) ||
-              VisitPhase is null || !Enum.IsDefined(VisitPhase.Value) || FoundingAdultArrived ||
-              Cargo.Any(x => x.Good != MigrationCargoGood.Food || x.Purpose != MigrationCargoPurpose.Provisions) ||
+        // Visits and trade journeys are single-traveler round trips that share the outbound, dwell, and return phases.
+        var roundTrip = JourneyKind is MigrationJourneyKind.Visit or MigrationJourneyKind.Trade;
+        if (roundTrip
+            ? CitizenIds.Count != 1 || VisitPhase is null || !Enum.IsDefined(VisitPhase.Value) || FoundingAdultArrived ||
               VisitPhase switch
               {
                   MigrationVisitPhase.Outbound => Returning || VisitDwellEndsMinute is not null,
@@ -181,8 +190,21 @@ public sealed class MigrationTransitPartyState
                   MigrationVisitPhase.Returning => !Returning || VisitDwellEndsMinute is not null,
                   _ => true
               }
-            : VisitRelativeId is not null || VisitPhase is not null || VisitDwellEndsMinute is not null)
+            : VisitPhase is not null || VisitDwellEndsMinute is not null)
             throw new ArgumentException("Migration visit party state is inconsistent.");
+        if (JourneyKind == MigrationJourneyKind.Visit
+            ? VisitRelativeId is not > 0 || CitizenIds.Contains(VisitRelativeId.Value) ||
+              Cargo.Any(x => x.Good != MigrationCargoGood.Food || x.Purpose != MigrationCargoPurpose.Provisions)
+            : VisitRelativeId is not null)
+            throw new ArgumentException("Migration visit party state is inconsistent.");
+        var tradeCargo = Cargo.Where(x => x.Purpose == MigrationCargoPurpose.Cargo).ToArray();
+        if (JourneyKind == MigrationJourneyKind.Trade
+            ? TradeReturnGood is not { } returnGood || !Enum.IsDefined(returnGood) || TradeLoad is not > 0 ||
+              Cargo.Any(x => x.Purpose == MigrationCargoPurpose.Provisions && x.Good != MigrationCargoGood.Food) ||
+              tradeCargo.Select(x => x.Good).Distinct().Count(x => x != returnGood) > 1 ||
+              tradeCargo.Sum(x => x.Quantity) > TradeLoad
+            : TradeReturnGood is not null || TradeLoad is not null)
+            throw new ArgumentException("Migration trade party state is inconsistent.");
         return this;
     }
 }
@@ -212,7 +234,8 @@ public sealed class MigrationWorldState
         IReadOnlyList<MigrationTransitPartyState>? inTransitParties = null,
         IReadOnlyList<MigrationFoundingPressureState>? foundingPressure = null,
         IReadOnlyList<MigrationHouseholdRelocationState>? lastRelocations = null,
-        long? lastVisitAttemptYear = null)
+        long? lastVisitAttemptYear = null,
+        RoadNetworkState? roads = null)
     {
         ArgumentNullException.ThrowIfNull(citizenResidences);
         ArgumentNullException.ThrowIfNull(householdResidences);
@@ -237,6 +260,7 @@ public sealed class MigrationWorldState
             ? null
             : Array.AsReadOnly(lastRelocations.OrderBy(x => x.HouseholdId).ToArray());
         LastVisitAttemptYear = lastVisitAttemptYear;
+        Roads = roads;
     }
 
     public int Version { get; }
@@ -253,6 +277,9 @@ public sealed class MigrationWorldState
     public IReadOnlyList<MigrationHouseholdRelocationState>? LastRelocations { get; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? LastVisitAttemptYear { get; }
+    /// <summary>M15 road network. Absent for M14 worlds, so their canonical JSON is unchanged.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RoadNetworkState? Roads { get; }
 
     public MigrationWorldState Validate()
     {
@@ -286,6 +313,7 @@ public sealed class MigrationWorldState
         var travelers = InTransitParties.SelectMany(x => x.CitizenIds).ToArray();
         if (travelers.Distinct().Count() != travelers.Length)
             throw new ArgumentException("A citizen cannot be in more than one migration party.");
+        Roads?.Validate();
         return this;
     }
 
@@ -324,7 +352,7 @@ public sealed class MigrationWorldState
         new(value.Id, value.HouseholdId, value.OriginSettlementId, value.DestinationSettlementId, value.Location,
             value.DestinationSite, value.CitizenIds, value.Cargo, value.RemainingPathCost, value.DepartedMinute,
             value.Returning, value.FoundingAdultArrived, value.JourneyKind, value.VisitRelativeId, value.VisitPhase,
-            value.VisitDwellEndsMinute);
+            value.VisitDwellEndsMinute, value.TradeReturnGood, value.TradeLoad);
 
     internal static MigrationTransitPartyState ClonePartyForRead(MigrationTransitPartyState value) => CloneParty(value);
 }

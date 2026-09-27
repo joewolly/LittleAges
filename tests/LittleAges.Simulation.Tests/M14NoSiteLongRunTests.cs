@@ -11,11 +11,13 @@ public sealed class M14NoSiteLongRunTests(ITestOutputHelper output)
     private const long FoundingTravelCost = 32;
     private static readonly (int X, int Y)[] Directions = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
 
-    [Fact]
-    public void Valid160WorldWithoutReachableFoundingSiteRemainsSingleSiteForOneHundredYears()
+    [Theory]
+    [InlineData(SimulationEngine.MigrationSimulationRulesVersion)]
+    [InlineData(SimulationEngine.RoadsSimulationRulesVersion)]
+    public void Valid160WorldWithoutReachableFoundingSiteRemainsSingleSiteForOneHundredYears(string rules)
     {
         var seed = new WorldSeed(42);
-        var initial = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.MigrationSimulationRulesVersion);
+        var initial = new SimulationEngine(seed, simulationRulesVersion: rules);
         var initialSnapshot = initial.CreatePersistenceSnapshot();
         var constrained = CreateNoSiteSnapshot(initial, initialSnapshot);
         var engine = new SimulationEngine(constrained);
@@ -51,8 +53,16 @@ public sealed class M14NoSiteLongRunTests(ITestOutputHelper output)
                 engine = resumed;
             }
 
-            output.WriteLine($"year={year} minute={engine.CurrentMinute.Value} living={engine.LivingPopulation} total={engine.TotalCitizenCount} fingerprint={engine.World.Fingerprint}");
+            output.WriteLine($"year={year} minute={engine.CurrentMinute.Value} living={engine.LivingPopulation} total={engine.TotalCitizenCount} fingerprint={engine.World.Fingerprint}" +
+                $" roads={engine.RoadGrades.Count(x => x.Grade == RoadGrade.Road)}");
         }
+
+        if (!SimulationEngine.RoadSystemsEnabled(rules)) return;
+        // Streets still wear and get paved around a lone site, but trade and route links need a daughter.
+        var history = engine.CreatePersistenceSnapshot().HistoricalEvents;
+        Assert.Contains(engine.RoadGrades, x => x.Grade == RoadGrade.Road);
+        Assert.Contains(history, x => x.EventType == HistoricalEventType.RoadWorkSeason);
+        Assert.DoesNotContain(history, x => x.EventType is HistoricalEventType.RouteConnected or HistoricalEventType.TradeDeparted);
     }
 
     private static SimulationPersistenceSnapshot CreateNoSiteSnapshot(SimulationEngine initial, SimulationPersistenceSnapshot snapshot)

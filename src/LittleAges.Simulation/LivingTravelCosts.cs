@@ -19,7 +19,7 @@ internal sealed class LivingTravelCosts : IReadOnlyDictionary<TileCoordinate, lo
         Array.Fill(_costs, long.MaxValue);
     }
 
-    public static LivingTravelCosts Compute(WorldMap world, TileCoordinate start)
+    public static LivingTravelCosts Compute(WorldMap world, TileCoordinate start, RoadGradeMap? roads = null)
     {
         var result = new LivingTravelCosts(world);
         if (!world.GetTile(start).Walkable) return result;
@@ -44,7 +44,7 @@ internal sealed class LivingTravelCosts : IReadOnlyDictionary<TileCoordinate, lo
                 var tile = world.GetTile(x, y);
                 if (!tile.Walkable) continue;
                 var index = y * world.Width + x;
-                var cost = checked(currentCost + (dx == 0 || dy == 0 ? 10L : 14L) * tile.MovementCost);
+                var cost = checked(currentCost + TravelCost.Step(dx == 0 || dy == 0, tile, roads));
                 if (cost >= result._costs[index]) continue;
                 if (result._costs[index] == long.MaxValue) result.Count++;
                 result._costs[index] = cost;

@@ -76,7 +76,8 @@ public sealed partial class SimulationEngine
 
         _migrationState = new MigrationWorldState(1, citizenResidence, householdResidence, structureResidence,
             facilityResidence, workOrderResidence, prior?.DaughterSettlement, prior?.InTransitParties,
-            prior?.FoundingPressure, prior?.LastRelocations, prior?.LastVisitAttemptYear);
+            prior?.FoundingPressure, prior?.LastRelocations, prior?.LastVisitAttemptYear,
+            RoadSystemsEnabled(SimulationRulesVersion) ? CaptureRoadState() : null);
         return _migrationState;
     }
 
@@ -85,6 +86,7 @@ public sealed partial class SimulationEngine
         var daughter = _migrationState?.DaughterSettlement;
         _daughterSettlementRuntime = daughter?.CommunalStock.ToSettlementState();
         _daughterLivingGoodsRuntime = daughter?.LivingGoods.ToList();
+        InitializeRoadRuntime(_migrationState?.Roads);
     }
 
     private void SyncMigrationDaughterStocks()
@@ -209,8 +211,8 @@ public sealed partial class SimulationEngine
     private long SiteIdForLocation(TileCoordinate location)
     {
         if (!MigrationSystemsEnabled(SimulationRulesVersion) || _migrationState?.DaughterSettlement is not { } daughter) return 1;
-        var firstCosts = GetTravelCostsCached(World.StartingSite);
-        var secondCosts = GetTravelCostsCached(daughter.Site);
+        var firstCosts = SiteOwnershipCosts(World.StartingSite);
+        var secondCosts = SiteOwnershipCosts(daughter.Site);
         var firstReachable = firstCosts.TryGetValue(location, out var firstCost);
         var secondReachable = secondCosts.TryGetValue(location, out var secondCost);
         if (!firstReachable) return secondReachable ? MigrationDaughterSettlementState.SettlementId : NearestByManhattan();

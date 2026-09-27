@@ -86,6 +86,8 @@ public static class LivingValidation
             Require(!order.Produced || order.Phase == LivingWorkPhase.Deliver, "Produced work must be delivered.");
             Require(!order.CargoInTransit || order.Produced && order.CitizenId is not null && order.Cargo.Count > 0, "Cargo in transit requires a worker and produced goods.");
             Require(order.Technique is not null == (order.Kind is LivingWorkKind.Teach or LivingWorkKind.Experiment), "Technique references belong to learning work.");
+            Require(order.Kind != LivingWorkKind.BuildRoad || SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion) && order.SubjectId is null,
+                "Road building is M15 work on a tile, not a subject.");
             Require(order.Cargo!.All(x => Enum.IsDefined(x.Good) && x.Quantity > 0) && (order.Cargo.Count == 0 || order.Produced) && (!order.Produced || order.Reserved && order.WorkDone == order.RequiredWork), "Work cargo or completion is invalid.");
             if (order.CitizenId is { } id)
             {
@@ -159,6 +161,7 @@ public static class LivingValidation
                 state.Orders.Sum(x => x.Cargo.Where(y => y.Good == LivingGood.Grain).Sum(y => y.Quantity) +
                     (x.Reserved && !x.Produced ? x.Ingredients.Where(y => y.Resource == nameof(LivingGood.Grain)).Sum(y => y.Quantity) : 0L)) +
                 (migration?.DaughterSettlement?.LivingGoods.SingleOrDefault(x => x.Good == LivingGood.Grain)?.Quantity ?? 0) +
+                (migration?.InTransitParties.SelectMany(x => x.Cargo).Where(x => x.Good == MigrationCargoGood.Grain).Sum(x => x.Quantity) ?? 0L) +
                 state.CommunalGrainConsumed + state.CommunalGrainSpoiled;
             Require(grainAccounted == state.CommunalGrainHarvested, "Unified communal grain stock, escrow, consumption, and spoilage must conserve harvests.");
         }

@@ -1,14 +1,15 @@
 # M14 — Migration and second settlement rules
 
-**Status:** implemented; `m14-rng1-migration1` is the current default for new
-worlds. Existing saves keep their recorded rules and behavior. The final
+**Status:** implemented; `m14-rng1-migration1` was the new-world default until
+[M15](m15-roads-trade.md) replaced it. Existing saves keep their recorded rules
+and behavior. The final
 seed-17 and seed-42 100-year Release acceptance runs are complete; see the
 measured status below.
 
 ## Compatibility and scope
 
 M14 extends the merged M13 rules with migration and one autonomous daughter
-settlement. Newly created worlds default to `m14-rng1-migration1`. Existing
+settlement. Newly created worlds defaulted to `m14-rng1-migration1` until M15. Existing
 saves keep their recorded rules and behavior; migrating an existing world to
 M14 is out of scope. Earlier M13 design and
 acceptance records remain historical evidence for M13 and are not rewritten by

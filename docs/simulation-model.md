@@ -550,3 +550,32 @@ the historical event/statistics/memory totals without adding reporting data to
 canonical state. Bounded 250/500 synthetic-adult scale fixtures measure engine
 advance, read-snapshot, and server projection costs separately; they are
 non-persistent one-day tests and do not represent 100/500-year runs.
+
+## M15 roads and trade contract
+
+Later rules versions have their own contracts: M14 in
+[`m14-migration.md`](m14-migration.md) and M15 in
+[`m15-roads-trade.md`](m15-roads-trade.md). M15 (`m15-rng1-roads1`) keeps
+every M14 system and adds:
+
+- a canonical road overlay: per-tile integer wear and a grade (`None`, `Track`,
+  `Trail`, `Road`), stored inside the migration state and checkpointed with
+  each moving citizen's planned route;
+- one step-cost rule that scales terrain cost by grade (100, 90, 75, and 50
+  percent). Without an overlay it gives the unchanged M14 cost, so earlier rules
+  keep their fingerprints;
+- a seasonal pass that regrades tiles from wear with hysteresis and fades wear
+  by one eighth. Built roads never fade;
+- `BuildRoad` work that turns a settlement's own `Trail` tiles into `Road`,
+  starting with the route between the sites, paid for with 2 Stone that can be
+  bought from households;
+- monthly trade journeys (`MigrationJourneyKind.Trade`) that swap one site's
+  surplus for the other's shortfall in whole equal-value lots, up to a load set
+  by the route's grade;
+- history events `TradeDeparted`, `TradeCompleted`, `TradeReturned`,
+  `TradeLost`, `RoadWorkSeason`, and `RouteConnected`, and a read-only
+  `GET /api/v1/roads` overlay for the observer.
+
+The headless report adds an "M15 roads and trade" summary for M15 worlds. It
+is operational evidence and is not part of the deterministic report
+fingerprint.
