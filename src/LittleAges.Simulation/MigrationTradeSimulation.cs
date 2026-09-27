@@ -41,6 +41,10 @@ public sealed partial class SimulationEngine
         _ => throw new ArgumentOutOfRangeException(nameof(good), good, null)
     };
 
+    /// <summary>Stock above this is surplus a settlement will trade away.</summary>
+    internal static long TradeSurplusFloor(MigrationCargoGood good, int population) =>
+        checked(TradeTarget(good, population) * 3 / 2);
+
     /// <summary>The smallest whole lot where both sides have exactly equal value.</summary>
     internal static (int Outbound, int Return) TradeLot(MigrationCargoGood outbound, MigrationCargoGood returned)
     {
@@ -131,7 +135,7 @@ public sealed partial class SimulationEngine
         var destinationPopulation = PopulationAt(destination);
         long OriginStock(MigrationCargoGood good) => TradeStock(origin, good) - (good == MigrationCargoGood.Food ? provisions : 0);
         long Short(long stock, MigrationCargoGood good, int population) => Math.Max(0, TradeTarget(good, population) - stock);
-        long Surplus(long stock, MigrationCargoGood good, int population) => Math.Max(0, stock - 2 * TradeTarget(good, population));
+        long Surplus(long stock, MigrationCargoGood good, int population) => Math.Max(0, stock - TradeSurplusFloor(good, population));
 
         var pairs = new List<(MigrationCargoGood Outbound, MigrationCargoGood Return, long Priority, long Lots)>();
         foreach (var returned in TradedGoods)
@@ -181,7 +185,7 @@ public sealed partial class SimulationEngine
         var lots = new[]
         {
             carried / outboundLot,
-            Math.Max(0, TradeStock(destination, returned) - 2 * TradeTarget(returned, population)) / returnLot,
+            Math.Max(0, TradeStock(destination, returned) - TradeSurplusFloor(returned, population)) / returnLot,
             Math.Max(0, TradeTarget(outbound, population) - TradeStock(destination, outbound)) / outboundLot
         }.Min();
         if (returnLot > outboundLot) lots = Math.Min(lots, Math.Max(0, load - carried) / (returnLot - outboundLot));

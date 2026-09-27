@@ -20,9 +20,15 @@ public sealed class M15RoadBuildingTests
     {
         var unstocked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: Roads);
         unstocked.AdvanceUntil(new WorldMinute(Planning));
-        Assert.True(unstocked.Settlement.StoneStored < StockedStone);
+        // The commons stay below the paving reserve, but stone can be bought from households, as construction does.
+        Assert.True(unstocked.Settlement.StoneStored < SimulationEngine.RoadStoneReserve(unstocked.LivingPopulation));
         Assert.Contains(unstocked.RoadGrades, x => x.Grade == RoadGrade.Trail);
-        Assert.Empty(RoadOrders(unstocked));
+        Assert.NotEmpty(RoadOrders(unstocked));
+        var roadsAtPlanning = unstocked.RoadGrades.Count(x => x.Grade == RoadGrade.Road);
+        unstocked.AdvanceUntil(new WorldMinute(Planning + WorldCalendar.MinutesPerDay));
+        MigrationValidation.Validate(unstocked.CreatePersistenceSnapshot());
+        Assert.True(unstocked.RoadGrades.Count(x => x.Grade == RoadGrade.Road) > roadsAtPlanning);
+        Assert.Contains(unstocked.CaptureEconomy()!.PublicSupplyTrades, x => x.Resource == ResourceType.Stone);
 
         var engine = Stocked(new WorldSeed(42), new WorldMinute(Planning));
         var snapshot = engine.CreatePersistenceSnapshot();
@@ -54,18 +60,20 @@ public sealed class M15RoadBuildingTests
         var ordered = RoadOrders(engine).Select(x => x.Location).ToHashSet();
         var stone = engine.Settlement.StoneStored;
         Assert.Equal(StockedStone, stone);
-        Assert.DoesNotContain(engine.RoadGrades, x => x.Grade == RoadGrade.Road);
+        var before = engine.RoadGrades.Where(x => x.Grade == RoadGrade.Road).Select(x => x.Coordinate).ToHashSet();
+        Assert.DoesNotContain(ordered, before.Contains);
 
         engine.AdvanceUntil(new WorldMinute(Planning + WorldCalendar.MinutesPerDay));
         var snapshot = engine.CreatePersistenceSnapshot();
         MigrationValidation.Validate(snapshot);
 
         Assert.Empty(RoadOrders(engine));
-        Assert.Equal(ordered, engine.RoadGrades.Where(x => x.Grade == RoadGrade.Road).Select(x => x.Coordinate).ToHashSet());
-        Assert.All(snapshot.MigrationState!.Roads!.Tiles.Where(x => x.Grade == RoadGrade.Road), x => Assert.Contains(x.Coordinate, ordered));
+        var paved = engine.RoadGrades.Where(x => x.Grade == RoadGrade.Road).Select(x => x.Coordinate).ToHashSet();
+        paved.ExceptWith(before);
+        Assert.Equal(ordered, paved);
         Assert.Equal(stone - ordered.Count * 2, engine.Settlement.StoneStored);
-        Assert.Equal([new RoadSeasonWorkState(1, ordered.Count)], snapshot.MigrationState.Roads.SeasonWork!);
-        Assert.DoesNotContain(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RoadWorkSeason);
+        Assert.Equal([new RoadSeasonWorkState(1, ordered.Count)], snapshot.MigrationState!.Roads!.SeasonWork!);
+        Assert.DoesNotContain(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RoadWorkSeason && x.WorldMinute > Planning);
     }
 
     [Fact]
@@ -73,7 +81,7 @@ public sealed class M15RoadBuildingTests
     {
         var engine = Stocked(new WorldSeed(42), new WorldMinute(Planning + Season + 1));
         var snapshot = engine.CreatePersistenceSnapshot();
-        var recorded = Assert.Single(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RoadWorkSeason);
+        var recorded = Assert.Single(snapshot.HistoricalEvents, x => x.EventType == HistoricalEventType.RoadWorkSeason && x.WorldMinute > Planning);
         Assert.Equal(Planning + Season, recorded.WorldMinute);
         Assert.Equal(HistoricalImportance.Routine, recorded.Importance);
         Assert.Equal(engine.World.StartingSite, recorded.Location);

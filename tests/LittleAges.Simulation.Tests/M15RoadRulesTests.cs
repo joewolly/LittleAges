@@ -9,9 +9,9 @@ public sealed class M15RoadRulesTests
     private const string Roads = SimulationEngine.RoadsSimulationRulesVersion;
 
     [Fact]
-    public void M15IncludesEveryM14SystemAndStaysOptInForNewWorlds()
+    public void M15IncludesEveryM14SystemAndIsTheNewWorldDefault()
     {
-        Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(Roads, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.True(SimulationEngine.MigrationSystemsEnabled(Roads));
         Assert.True(SimulationEngine.UnifiedSimulationRulesEnabled(Roads));
         Assert.True(SimulationEngine.LivingSystemsEnabled(Roads));

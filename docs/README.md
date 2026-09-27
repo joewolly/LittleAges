@@ -7,13 +7,18 @@ historical or design context rather than a claim about the current runtime.
 
 ## Release notes
 
-- [`release-v0.3.0.md`](./release-v0.3.0.md) — draft release notes for the M14
-  candidate in PR #15; the release has not been published.
+- [`release-v0.4.0.md`](./release-v0.4.0.md) — draft release notes for the M15
+  candidate; the release has not been published.
+- [`release-v0.3.0.md`](./release-v0.3.0.md) — release notes for M14, published
+  as v0.3.0 and followed by the v0.3.1 harvest storage fix.
 
 ## Current implementation
 
-- [`m14-migration.md`](./m14-migration.md) — implemented M14 rules contract and
-  current new-world default for migration and a second settlement; long-horizon
+- [`m15-roads-trade.md`](./m15-roads-trade.md) — M15 rules contract and current
+  new-world default for worn trails, paved roads, and trade between the two
+  settlements, with the phase 6 calibration and acceptance evidence.
+- [`m14-migration.md`](./m14-migration.md) — implemented M14 rules contract for
+  migration and a second settlement (the previous default); long-horizon
   acceptance status is documented there.
 - [`living-settlement-v0.2.md`](./living-settlement-v0.2.md) — opt-in successor
   rules, including the `living1` and opt-in new-world `living2` identifiers,

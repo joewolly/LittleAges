@@ -1,9 +1,8 @@
 # M15 - Roads and intersite trade
 
-**Status:** in progress on `codex/m15-roads-trade`; phases 1 to 5 are implemented.
-The rules identifier is `m15-rng1-roads1`. Tuning values marked *initial* are
-starting points to be calibrated by the phase measurements below, not settled
-rules.
+**Status:** implemented on `codex/m15-roads-trade`; `m15-rng1-roads1` is the
+new-world default. Phase 6 calibrated the values once marked *initial*; the
+measurements are under "Phase 6 calibration" and "Acceptance evidence".
 
 ## Intent
 
@@ -24,11 +23,10 @@ decline.
 
 ## Compatibility and scope
 
-Until the phase 6 acceptance runs pass, M15 is opt-in: select it with
-`--rules m15-rng1-roads1` in the headless runner or with the server's
-`NewWorldRules` setting. `m14-rng1-migration1` stays the new-world default until
-then, following the precedent set by `living2`. Existing saves keep their
-recorded rules and behavior, and M14 worlds stay M14. Migrating an existing
+After the phase 6 acceptance runs, `m15-rng1-roads1` became the new-world
+default. `m14-rng1-migration1` can still be selected with `--rules` in the
+headless runner or with the server's `NewWorldRules` setting. Existing saves
+keep their recorded rules and behavior, and M14 worlds stay M14. Migrating an existing
 world to M15 is out of scope. M15 includes every M14 system:
 `MigrationSystemsEnabled` and `UnifiedSimulationRulesEnabled` return true for
 both identifiers, and a new `RoadSystemsEnabled` returns true only for M15.
@@ -128,8 +126,11 @@ A settlement can improve a `Trail` tile it owns into a `Road`:
   minutes, at priority 1800 (*initial*), so food, fuel, and shelter work come
   first.
 - **Planning.** Each season, right after the grading pass, each settlement
-  tops its pending road orders up to 4 (*initial*). It plans nothing when its
-  communal Stone is below `10 + 2 × population` (*initial*). It chooses among
+  tops its pending road orders up to 4. It plans nothing when its communal
+  Stone is below `10 + 2 × population` and no household can sell it Stone
+  (the same test construction uses). A worker who claims a road order while
+  the commons hold less than its 2 Stone buys the difference from a household
+  with communal Food, as construction does. It chooses among
   its own `Trail` tiles in this order:
   1. tiles on the current route between the two sites;
   2. then any other tile, highest wear first;
@@ -171,7 +172,9 @@ the same targets the Living economy already plans against: grain, fuel, tools,
 clothing, medicine, and preserved food, plus Food, Wood, and Stone commons.
 
 - A site is **short** of a good when its stock is below the target.
-- A site has a **surplus** of a good when its stock exceeds twice the target.
+- A site has a **surplus** of a good when its stock exceeds one and a half
+  times the target (rounded down). The first draft used twice the target; see
+  "Phase 6 calibration".
 
 A trade is possible when the origin has a surplus of a good the destination is
 short of, and the destination has a surplus of a good the origin is short of.
@@ -320,9 +323,10 @@ M15 is acceptable when evidence shows:
 5. **Observer.** *(Done.)* Add the road overlay route, the settlement trade
    fields, 2D and 3D road rendering, and history rendering. The decisions are
    listed under "Phase 5 decisions" below.
-6. **Tuning and acceptance.** Calibrate the *initial* values from multiseed
-   runs, run the 10-year and 100-year acceptance, and update the README,
-   `simulation-model.md`, `feature-ideas.md`, and the release notes.
+6. **Tuning and acceptance.** *(Done.)* Road work buys its stone from
+   households, the surplus threshold is calibrated, the 10-year and 100-year
+   acceptance runs pass, and M15 became the new-world default. See "Phase 6
+   calibration" and "Acceptance evidence" below.
 
 ## Phase 4 decisions
 
@@ -393,6 +397,69 @@ M15 is acceptable when evidence shows:
   and road events in gray. The Overview tab adds a "Between the settlements"
   trade panel when the world has roads.
 
+## Phase 6 calibration
+
+Measured with 10-year headless runs of seeds 1 to 14, 17, and 42. The headless
+report now has an "M15 roads and trade" section (grade counts, paving by
+settlement, connection minutes, and trade totals). It is not part of the
+deterministic report fingerprint.
+
+- **Paving.** With stone bought from households, every seed paves at the
+  4-orders-a-season cap from the first season with a `Trail`. By year 10 the
+  worlds have 90 to 216 `Road` tiles, 13 to 206 `Trail` tiles, and 48 to 370
+  `Track` tiles.
+- **Route between the sites.** Every measured seed founded its daughter around
+  year 5, 2 to 5 tiles from the original site. A `Trail` and then a `Road`
+  connect the sites within about a year of founding, well inside the 10 to 20
+  year goal. The wear thresholds, decay, and route-first paving stay at their
+  initial values.
+- **Trade volume.** Trade is limited by one site being short of what the other
+  has in surplus, not by the load. Over the 10 years, seeds made 0 to 10
+  trips, and seeds 6, 8, 9, and 11 made none. The load is 90 on most routes,
+  because the short route is paved quickly, but no trade carried more than 44
+  units. Lowering the surplus threshold from 2 to 1.5 times the target made
+  lots 1.5 to 2.8 times larger and cut trips that came back unsold (seed 4
+  went from 6 of 10 trips trading to 6 of 6) without changing any population.
+  The load formula, the value table, and the targets are unchanged.
+- **No-daughter worlds.** None of the 16 seeds failed to found a daughter, so
+  the constrained 100-year no-site test (`M14NoSiteLongRunTests`) now also
+  runs under M15. It checks that streets are still paved and that no trade or
+  route history appears.
+
+## Acceptance evidence
+
+- **M14 is unchanged.** 100-year M14 runs of seeds 17 and 42 on this branch and
+  on `v0.3.1` give identical survival, settlement, social, and history
+  fingerprints and the same event counts. The headless deterministic report
+  fingerprint differs only because the per-type history table now lists the
+  six M15 event types with a count of 0.
+- **100-year M15 acceptance.** Seeds 17 and 42, with a year-30 SQLite
+  checkpoint, pass every mandatory invariant and canonical equivalence.
+
+  | Seed | Living at year 100 (site 1 / 2) | Peak | Road tiles | Trades departed / completed / lost |
+  | ---: | ---: | ---: | ---: | ---: |
+  | 17 | 52 (25 / 27) | 58 | 754 | 43 / 42 / 0 |
+  | 42 | 28 (19 / 9) | 35 | 773 | 22 / 16 / 0 |
+
+  The same seeds under M14 end with 12 and 2 living citizens. By year 100,
+  almost every `Trail` has been paved. On seed 17 the average trade carries 50
+  units and the largest reaches the 90-unit road load.
+- **Performance.** On an idle machine, 10-year runs process events as fast as
+  M14 on seed 42 (57,700 vs 57,500 per second). On seed 17 the run takes about
+  a third longer (148 s vs 111 s) for nearly the same number of events. Phase 6 removed one hot spot: work that produces nothing
+  no longer sums the whole site's storage to check for output space. That
+  change leaves every fingerprint unchanged. Most of the remaining cost comes
+  from recomputing travel costs, which every grade change and road completion
+  clears. Over 100 years, M15 worlds stay larger and busier, so full runs take
+  longer: 5,705 s vs 2,639 s for seed 42, and 11,588 s vs 2,390 s for seed 17,
+  with 2 to 2.6 times as many events. Cheaper travel-cost updates are a known
+  follow-up.
+- **Observer.** In a live seed-42 world at year 9, the server returned 146
+  `Road`, 52 `Trail`, and 89 `Track` tiles, and gray roads showed in both the
+  3D view and the 2D map.
+- **Tests.** The non-long .NET suite and the web checks (lint, typecheck, 188
+  tests, and build) pass.
+
 ## Resolved design questions
 
 - **Streets vs. the route between the sites.** The first draft halved wear
@@ -406,14 +473,11 @@ M15 is acceptable when evidence shows:
 - **Movement statistics.** `LifetimeMovementCost` records the reduced cost,
   and occupation statistics are unchanged.
 
-- **Stone for paving (open, phase 6).** In unmodified early runs, roads are
-  never planned. Seeds 17 and 42 have more than 30 `Trail` tiles by the
-  second season boundary, but communal Stone stays between 0 and 12 against a
-  reserve of 50. The shared non-food storage is full of household-owned goods,
-  so the commons cannot grow, while households hold hundreds of Stone between
-  them. Phase 6 should either count stone that can be procured from
-  households, as construction already does, or lower the reserve. It should
-  then confirm that paving happens in the multiseed runs.
+- **Stone for paving (resolved in phase 6).** Before phase 6, roads were never
+  planned. Communal Stone stayed between 0 and 12 against a reserve of 50,
+  because shared storage was full of household-owned goods, while households
+  held hundreds of Stone. Road work now buys Stone from households the way
+  construction does, as described under "Building roads".
 
 - **Reopening mid-route.** Re-planning after a reopen relied on A* from
   partway along a route reproducing the rest of it, which road ties make

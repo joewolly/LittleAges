@@ -12,9 +12,11 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
-New worlds default to `m14-rng1-migration1`, which adds deterministic
-migration and a daughter settlement; existing saves keep their recorded rules
-and behavior. See the [M14 rules contract](docs/m14-migration.md).
+New worlds default to `m15-rng1-roads1`. It keeps M14's deterministic
+migration and daughter settlement and adds worn trails, paved roads, and trade
+between the two settlements. Existing saves keep their recorded rules and
+behavior. See the [M15 rules contract](docs/m15-roads-trade.md) and the
+[M14 rules contract](docs/m14-migration.md).
 
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
 adds coordinated work, farming and production, personal lives, weather and
@@ -148,7 +150,7 @@ run:
 ```powershell
 dotnet run --project .\src\LittleAges.Headless\LittleAges.Headless.csproj `
   --configuration Release --no-build -- acceptance `
-  --seed 42 --years 100 --rules m14-rng1-migration1 `
+  --seed 42 --years 100 --rules m15-rng1-roads1 `
   --checkpoint-year 30 --database .\artifacts\acceptance.db `
   --output .\artifacts
 ```
@@ -172,9 +174,10 @@ version is:
 
 ## Project status
 
-`v0.2.0` is the latest published Windows release and describes M13. M14 is the
-v0.3.0 candidate in PR #15; its [draft release notes](docs/release-v0.3.0.md)
-are prepared but the release has not been published.
+`v0.3.1` is the latest published Windows release and describes M14 with the
+harvest storage fix. M15 (roads and intersite trade) is the v0.4.0 candidate on
+`codex/m15-roads-trade`; its [draft release notes](docs/release-v0.4.0.md) are
+prepared but the release has not been published.
 
 ## License
 

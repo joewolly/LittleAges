@@ -267,6 +267,8 @@ public sealed record HeadlessReport
     public string? SettlementMetricsScope { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public MigrationReadSnapshot? Migration { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public HeadlessRoadSummary? Roads { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyDictionary<long, int> LivingResidentCountsBySettlement { get; init; } = new Dictionary<long, int>();
     public IReadOnlyList<HeadlessEvidence> Evidence { get; init; } = Array.Empty<HeadlessEvidence>();
@@ -470,6 +472,7 @@ public static class HeadlessRunner
             Living = engine.CreateLivingObservation(),
             SettlementMetricsScope = migration is null ? null : "FoodStored, WoodStored, and StoneStored describe settlement 1 only; Migration.Settlements reports each site's stocks and local capacity.",
             Migration = migration,
+            Roads = SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion) ? HeadlessRoadSummary.Build(engine, historyEvents) : null,
             LivingResidentCountsBySettlement = migration is null ? new Dictionary<long, int>() :
                 MigrationValidation.GetLivingResidentCountsBySettlement(snapshot, migration),
             Evidence = HeadlessFactEvidence.Build(snapshot),
@@ -743,6 +746,22 @@ public static class HeadlessReportSerialization
                     .Append(site.StorageCapacity.ToString(CultureInfo.InvariantCulture)).AppendLine(" |");
             }
             AddRow(builder, "In-transit parties", migration.InTransitParties.Count.ToString(CultureInfo.InvariantCulture));
+        }
+        if (report.Roads is { } roads)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## M15 roads and trade");
+            builder.AppendLine();
+            AddRow(builder, "Track / trail / road tiles", $"{roads.TrackTiles.ToString(CultureInfo.InvariantCulture)} / {roads.TrailTiles.ToString(CultureInfo.InvariantCulture)} / {roads.RoadTiles.ToString(CultureInfo.InvariantCulture)}");
+            AddRow(builder, "Road tiles built by settlement", string.Join(", ", roads.RoadTilesBuiltBySettlement.Select(x => $"{x.Key.ToString(CultureInfo.InvariantCulture)}: {x.Value.ToString(CultureInfo.InvariantCulture)}")));
+            AddRow(builder, "Trail / road connection minute", $"{FormatOptional(roads.TrailConnectedMinute)} / {FormatOptional(roads.RoadConnectedMinute)}");
+            AddRow(builder, "Trades departed / completed / lost", $"{roads.TradesDeparted.ToString(CultureInfo.InvariantCulture)} / {roads.TradesCompleted.ToString(CultureInfo.InvariantCulture)} / {roads.TradesLost.ToString(CultureInfo.InvariantCulture)}");
+            AddRow(builder, "Outbound quantity mean / max", $"{roads.MeanOutboundQuantity.ToString("F1", CultureInfo.InvariantCulture)} / {roads.MaxOutboundQuantity.ToString(CultureInfo.InvariantCulture)}");
+            AddRow(builder, "Goods traded (outbound > return)", string.Join(", ", roads.TradePairs.Select(x => $"{x.Key} x{x.Value.ToString(CultureInfo.InvariantCulture)}")));
+
+            static string FormatOptional(long? minute) => minute is { } value
+                ? $"{value.ToString(CultureInfo.InvariantCulture)} (year {(value / WorldCalendar.MinutesPerYear).ToString(CultureInfo.InvariantCulture)})"
+                : "none";
         }
         AddRow(builder, "Historical events / statistics / memories", $"{report.HistoricalEventTotal.ToString(CultureInfo.InvariantCulture)} / {report.StatisticsCount.ToString(CultureInfo.InvariantCulture)} / {report.MemoryCount.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Shortage starts / ends", $"{report.ShortageStarts.ToString(CultureInfo.InvariantCulture)} / {report.ShortageEnds.ToString(CultureInfo.InvariantCulture)}");

@@ -162,7 +162,8 @@ public sealed partial class SimulationEngine
             .Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
     }
     private int OutputQuantity(LivingWorkKind kind) => LivingWorkDefinitions.OutputQuantity(kind, SimulationRulesVersion);
-    private bool HasOutputSpace(LivingWorkOrder order) => order.Produced || OutputQuantity(order.Kind) <=
+    // Work with no output always fits; skip the whole-site storage sum.
+    private bool HasOutputSpace(LivingWorkOrder order) => order.Produced || OutputQuantity(order.Kind) == 0 || OutputQuantity(order.Kind) <=
         (MigrationSystemsEnabled(SimulationRulesVersion) ? LivingFreeStorageAt(SiteIdForOrder(order)) : LivingFreeStorage) + order.Ingredients.Sum(x => x.Quantity);
     private void ProduceLiving(Citizen citizen, LivingWorkOrder order)
     {

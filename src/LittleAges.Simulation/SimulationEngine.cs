@@ -1086,7 +1086,7 @@ public sealed partial class SimulationEngine
     public const string AgricultureSimulationRulesVersion = "m10-rng1-agriculture1";
     public const string BarterSimulationRulesVersion = "m11-rng1-barter1";
     public const string SpacedSimulationRulesVersion = "m12-rng1-spaced1";
-    public const string CurrentSimulationRulesVersion = MigrationSimulationRulesVersion;
+    public const string CurrentSimulationRulesVersion = RoadsSimulationRulesVersion;
     public const string LivingSimulationRulesVersion = "v02-rng1-living1";
     public const string Living2SimulationRulesVersion = "v02-rng1-living2";
     public const string UnifiedSimulationRulesVersion = "m13-rng1-unified1";

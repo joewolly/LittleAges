@@ -112,6 +112,9 @@ public sealed partial class SimulationEngine
         foreach (var choice in choices)
         {
             var order = choice.Order;
+            // Like construction, road work buys its stone from households when the commons are short.
+            if (!order.Reserved && order.Kind == LivingWorkKind.BuildRoad && settlement.StoneStored < order.Ingredients.Sum(x => x.Quantity))
+                ProcurePublicMaterial(citizen, ResourceType.Stone, order.Ingredients.Sum(x => x.Quantity) - settlement.StoneStored);
             if (!order.Reserved && !Reserve(order)) continue;
             order.CitizenId = citizen.Id.Value;
             order.ClaimedMinute = CurrentMinute.Value;

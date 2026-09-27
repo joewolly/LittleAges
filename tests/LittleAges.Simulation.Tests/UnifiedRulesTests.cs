@@ -8,9 +8,9 @@ namespace LittleAges.Simulation.Tests;
 public sealed class UnifiedRulesTests
 {
     [Fact]
-    public void M14IsCurrentDefaultWhileM13RemainsExplicitlyAvailable()
+    public void M15IsCurrentDefaultWhileM13RemainsExplicitlyAvailable()
     {
-        Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
 
         var m13 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.UnifiedSimulationRulesVersion);
 

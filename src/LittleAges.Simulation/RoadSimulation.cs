@@ -125,7 +125,7 @@ public sealed partial class SimulationEngine
     {
         var population = PopulationAt(settlementId);
         if (population == 0 || !SettlementKnows(settlementId, LivingTechnique.Toolmaking) ||
-            SettlementFor(settlementId).StoneStored < RoadStoneReserve(population)) return;
+            SettlementFor(settlementId).StoneStored < RoadStoneReserve(population) && !CanProcure(settlementId, ResourceType.Stone)) return;
         var pending = OrdersAt(settlementId).Where(x => x.Kind == LivingWorkKind.BuildRoad).Select(x => x.Location).ToHashSet();
         var capacity = RoadOrdersPerSeason - pending.Count;
         if (capacity <= 0) return;
