@@ -3,6 +3,8 @@
 [![CI](https://github.com/joewolly/LittleAges/actions/workflows/ci.yml/badge.svg)](https://github.com/joewolly/LittleAges/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/joewolly/LittleAges?display_name=tag)](https://github.com/joewolly/LittleAges/releases)
 
+![Alt](https://repobeats.axiom.co/api/embed/7883a23b28fcb1218f487b813d43caee7097fb1c.svg "Repobeats analytics image")
+
 **A persistent autonomous civilization simulation.** Start with a handful of
 people, leave them alone, and come back later to discover what happened.
 
