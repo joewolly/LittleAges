@@ -1,150 +1,141 @@
-# v0.1 Graphics Direction — Historical Mobile-Builder Diorama
+# Graphics Direction — Painted 2D Isometric Village
 
-Status: local cartoon art-slice revision, pending visual review. The earlier
-v0.1.0 diorama remains the historical release baseline. This
-document does not amend the preserved v0.1 simulation or product contract.
+Status: local implementation, pending visual review. This replaces the earlier
+React Three Fiber diorama (the v0.1.0–v0.4.0 historical baseline). It does not
+amend the simulation or product contract.
 
 ## Intent
 
-The world view is a rounded, saturated historical miniature with the readable,
-chunky hierarchy of a polished mobile builder. Roof layers, timber, faces,
-clothing, foliage, and grounded shading establish the quality bar. The reference is presentation
-clarity, not another game's assets or visual identity. Little Ages remains an
-observer, not a second simulation and not an order-entry surface.
+The world view is a cozy, painted isometric village with the chunky, readable
+hierarchy of a polished mobile builder: bright lit faces, stone plinths, thatch,
+timber and tile, soft ground shadows, and teal-and-gold banners as the Little
+Ages accent. The reference is presentation clarity, not another game's assets
+or visual identity. Little Ages remains an observer, not a second simulation
+and not an order-entry surface.
 
-React Three Fiber presents immutable server observations. Connected clients
-consume compact SignalR live frames while REST bootstraps and recovers the
-observer; neither transport carries simulation authority. Cosmetic
-variation is derived from the world seed, coordinates, and stable decimal
-entity IDs. Cosmetic values are neither persisted nor fingerprinted.
+The view presents immutable server observations. Connected clients consume
+compact SignalR live frames while REST bootstraps and recovers the observer;
+neither transport carries simulation authority. Cosmetic variation (resource
+size, decorative forest, villager clothing) is derived from the world seed,
+coordinates, and stable decimal entity IDs with the FNV-1a `stableVisualHash`.
+Cosmetic values are neither persisted nor fingerprinted.
 
 ## Scene contract
 
-- One tile is one scene unit. Domain X/Y maps to scene X/Z; Y is up.
-- Normalized canonical elevation is compressed to at most three scene units.
-- The complete 160×160 terrain is one indexed mesh. Water is a separate batched
-  surface and resource nodes are instanced by type.
-- The initial orthographic camera frames structures when any exist, keeping
-  distant gatherers from pulling the settlement off-center. Before the first
-  structure it remains anchored on the starting site.
-- Pointer drag pans, the wheel zooms, buttons and `R` rotate in 90-degree steps,
-  arrow keys pan, and selecting a living citizen enables follow mode.
-- Moving citizen observations may include a non-persisted `movementPlan` made
-  from the canonical pathfinder's current tile and remaining route. At 1, 5,
-  and 10 min/s the visual clock advances over those timed segments. Pause
-  freezes the current render position; reduced motion snaps; 50 min/s uses a
-  short presentation cross-fade instead of frantic route playback. A changed
-  action sequence or incompatible route reconciles to authority without
-  inventing a path.
-- Reduced-motion mode renders on demand and does not play citizen clips.
-- A readable 2D canvas remains available when WebGL is unavailable or loses its
-  context.
+- Fixed-angle isometric projection (`src/world/iso/projection.ts`). A world tile
+  is a diamond two units wide and one unit tall; world tile coordinates are tile
+  centres. There is no camera rotation.
+- The ground is flat. Canonical elevation only lightens high ground slightly, so
+  low land keeps its full colour.
+- The 160×160 terrain is drawn in cached 16×16-tile chunks, rasterized once per
+  zoom level and season. Sprites (buildings, resources, decorative trees, fields,
+  facilities, animals, villagers, settlement-site markers) are bucketed by chunk,
+  culled to the screen, and depth-sorted by `x + y`.
+- The initial camera frames structures when any exist, keeping distant gatherers
+  from pulling the settlement off-centre. Before the first structure it stays on
+  the starting site. Home zoom shows about 7 tiles across on a phone and 16 on a
+  wide desktop.
+- Pointer drag pans, the wheel or a pinch zooms around the pointer, arrow keys
+  pan, `+`/`−` zoom, tapping a villager selects them, and following a selected
+  villager keeps the camera on them.
+- Citizens move along the non-persisted `movementPlan` from the canonical
+  pathfinder. At 1, 5 and 10 min/s the visual clock advances over those timed
+  segments; faster speeds, pause and reduced motion snap to authority without
+  inventing a path. Resting citizens walk to their shelter's door and disappear
+  indoors.
+- Seasons follow the world calendar (four 90-day seasons in a 360-day year).
+  Each season has its own ground palette and sprite set: spring blossom, summer
+  gold wheat, autumn leaves and hay bales, winter snow on roofs, fields and pines,
+  with an iced river.
+- Weather (`Rain`, `ColdSpell`) is a light screen overlay that never hides the map.
+- Map overview switches to the top-down records map (`LegacyMap`), which is also
+  used when a 2D canvas is unavailable.
+
+## Shelter tiers
+
+Every Shelter shares one look, read from facts the simulation already records.
+Each input only grows, so a settlement never visibly slips back a tier
+(`src/world/iso/tiers.ts`):
+
+| Tier | Look | Shown when |
+|---|---|---|
+| 1 | Hide tent | at founding |
+| 2 | Round hut | a living citizen knows Cultivation |
+| 3 | Wattle cottage | a living citizen knows Toolmaking and a Workshop is complete |
+| 4 | Timber longhouse | the citizens, living and dead, have 150,000 lifetime minutes of woodcutting (about year 5 for seed 42) |
+| 5 | Stone house | the citizens, living and dead, have 400,000 lifetime minutes of stoneworking (about year 20 for seed 42) |
+
+Worlds without living-settlement rules have no techniques; a completed Workshop
+stands in for both techniques there. The tier is presentation only and changes
+no rule, save, or history.
 
 ## Art and asset contract
 
-The repository-owned kit is generated by
-[`scripts/build-diorama-assets.py`](../scripts/build-diorama-assets.py). Blender
-source is under `art/diorama`; optimized runtime GLBs are under the web
-application's public assets.
+All art is original and repository-owned, drawn procedurally as SVG by
+[`scripts/sprite_art.py`](../scripts/sprite_art.py) with the small isometric
+painter in [`scripts/sprite_iso.py`](../scripts/sprite_iso.py). Regenerate with
+Python 3.10+ and no third-party packages:
 
-Runtime assets use glTF 2.0/GLB, stable ground-centered pivots, one tile per
-Blender unit, painted color/ambient-occlusion atlases, and compact indexed geometry. Each
-model uses one atlas: 1024 pixels for buildings and 512 for resources and the
-villager. Texture color is procedurally authored and baked with Cycles AO; it
-is original repository-owned art, not an imported asset pack. The
-villager kit provides Idle, Walk, Carry, Gather, Build, Socialize, and Rest clip
-domains. Terrain tint, prop placement, clothing, scale, and accessories use a
-stable FNV-1a-derived visual hash rather than `Math.random`.
+```powershell
+python scripts/build-sprite-assets.py
+```
 
-The initial compressed GLB set must remain below 5 MB. The current generated
-seven-model Meshopt/WebP kit totals 1,105,956 bytes. The generated
-`art-manifest.json` supplies the runtime byte display. Resource GLBs are actually
-instanced in spatial chunks, with coarse geometry only at distant views.
-Normalized integer positions are decoded before applying exported transforms.
+It writes `src/LittleAges.Web/public/assets/sprites/<season|people|common>/*.svg`
+and `src/LittleAges.Web/src/world/sprite-manifest.json`, which records each
+sprite's size and the image point that sits on its tile centre, in projection
+units. Do not hand-edit generated sprites or the manifest.
+
+Villagers are chibi figures in twelve looks (eight adult, four grey-haired for
+elders) and eight clothing colours, each with a standing and a mid-stride frame.
+A citizen's look comes from a stable hash of the world seed and citizen ID.
+Walkers alternate frames with a slight bob and turn to face their direction of
+travel; carried food, wood or stone is a separate layer held in the hands.
+
+The kit is 315 sprites and about 2.2 MB of SVG. A session preloads one season's
+ground art (about 360 KB) and the shared markers; villager sprites load only as
+the citizens that use them appear. Sprites are
+rasterized at the current zoom and cached, so they stay sharp when zoomed. A light
+saturation, brightness and contrast boost is baked in at that step, so it costs
+nothing per frame; weather overlays still draw on top.
+
+## Game HUD
+
+The shell uses a chunky, outlined game style: Lilita One for titles, numbers and
+buttons, Nunito for reading, both bundled as OFL-licensed `@fontsource` packages
+so a local install never fetches fonts from the network (`src/hud.css`,
+`src/world/Hud.tsx`).
+
+- Top left: the settlement badge with season, weather, temperature, the living
+  age, and progress toward the next season.
+- Top right: Food, Wood and Stone meters against shared storage capacity, and a
+  Citizens meter showing how many are housed.
+- Bottom right: Reset view, Follow selected, and Map overview buttons.
+- Selected villager: a parchment card with life stage, occupation, current
+  activity, carried goods, and four need bars (Fed, Rested, Sheltered, Company;
+  needs run from 0, met, to 10000, critical), with Follow and Open record.
+- Bottom bar: world time, population, Pause, speed, and the Records button.
+- Meters are `role="meter"` with spoken values; icons are decorative.
 
 ## Performance and accessibility
 
 - Canvas device-pixel ratio is capped at 1.5.
-- The normal settlement target is 60 FPS with a 45 FPS acceptance floor on a
-  recent integrated-GPU 1080p laptop.
-- Adaptive decline reduces distant resource detail and disables dynamic shadows.
-  Nearby resources remain present, with baked occlusion and soft contact patches.
-- Development builds display FPS, draw calls, triangles, and detail tier.
-- The page is a `100dvh` game shell. Observer records are a five-tab DOM panel:
-  Overview, Citizens, Buildings, History, and Statistics. At desktop widths it
-  docks and reframes the scene; at tablet widths it overlays; on phones it is a
-  full-screen records view. Only the selected citizen's detail is emphasized.
+- The view redraws only while something changes: camera movement, walking
+  villagers, following, rain, or new observations.
+- Development builds (or `?diagnostics`) display FPS, p95 frame time, sprites
+  drawn, ground chunks, season, and Shelter tier.
+- The page is a `100dvh` game shell. Observer records remain a tabbed DOM panel.
 - All operational controls and record-heavy inspection remain accessible DOM.
   The world canvas never owns the only path to citizen information.
-
-### Historical v0.1.0 visual verification
-
-The refreshed scene was browser-checked at 1920×1080, 1512×699, 1024×768, and
-390×844 with the fixed seed, scene camera, and authoritative server. The checked
-layouts preserve the controls and selected-citizen HUD, dock the desktop ledger,
-overlay it on tablets, and provide the intended full-screen mobile records view.
-The repository hero and mobile captures are direct outputs from those checks.
-
-The headless software-rendered runs remained below the geometry budgets: the
-390×844 close view reported 108 draw calls and 103,730 triangles, while the
-1024×768 view reported 137 draw calls and 106,186 triangles. Those SwiftShader
-runs are useful structural evidence, not the 45 FPS integrated-GPU acceptance
-measurement. The hardware frame-rate floor and memory trace therefore remain
-explicit hands-on release checks rather than falsely claimed automated results.
 
 ## Explicit boundaries
 
 This work adds no gameplay endpoint, deterministic rule, pathfinding behavior,
-database migration, canonical history, weather, ecology, road, AI narration,
-or direct-control system. Existing persistence and fingerprint goldens remain
-the compatibility gate.
+database migration, canonical history, or direct-control system. Existing
+persistence and fingerprint goldens remain the compatibility gate.
 
-## Cartoon art-study workflow
+## Art-study workflow
 
 Run the web dev server and open `/?art-slice`. This development-only entry loads
 typed observation fixtures through the production viewport without any server
 connection, persistence writes, or saved-world mutation. Production builds
 exclude the fixture module and its stylesheet.
-
-The fixed scene includes shelter, workshop, stockpile, construction scaffolding,
-food/wood/stone resources, a shoreline, and nine villagers showing all seven
-animation domains. Pause freezes the local fixture clock. The villager selector,
-follow control, zoom, pan, and quarter-turn controls support repeatable inspection.
-The scene is a presentation fixture, not evidence of simulated construction or
-resource production. Verify live observations separately against an isolated server.
-
-Regeneration:
-
-1. Run `scripts/build-diorama-assets.py` with Blender 5.2 or newer. Source models
-   are defined in `scripts/diorama_art.py`; build/export source is retained in Blender.
-2. Run `node scripts/optimize-diorama-assets.mjs` after the web dependencies are
-   installed. It optimizes, validates, checks animation domains and the byte budget,
-   and writes the runtime manifest.
-3. Run frontend tests, lint, typecheck, and build. Compare the same fixed scene,
-   inspect the live viewport, and check pause, reduced motion, rotation, zoom,
-   selection/follow, mobile framing, and WebGL context loss.
-
-No API, persistence, canonical map, pathfinding, or simulation changes accompany
-this art revision. Terrain blending and water shading affect presentation only.
-The integrated-GPU 45 FPS floor still requires a measurement on that hardware;
-headless capture timing on a discrete GPU does not establish it.
-
-### Local art-slice verification (September 19, 2026)
-
-- 123 frontend tests passed, including normalized Meshopt transform and animation
-  phase/pause regressions. Lint, typecheck, production build, and diff checks passed.
-- Seven optimized GLBs: 1,105,956 bytes; zero glTF validation errors or warnings.
-- Playwright/Edge checked 1512x982, 390x844, and reduced motion at 1024x768.
-  Verified pause, quarter-turns, zoom, keyboard/drag pan, selection/follow, 2D/3D
-  switching, and fallback after forced WebGL context loss.
-- Full-detail art study: 75 draw calls / 219,542 triangles; mobile: 74 / 217,736.
-- Isolated live server: full detail reached 100 calls / 458,142 triangles; reduced
-  detail reached 67 / 260,690. Live bootstrap, operational pause, follow, citizen
-  records, and connection after reload passed without application runtime errors.
-- The browser logged the pre-existing missing `/favicon.ico` (404). No art assets
-  were missing. Existing Vite large-chunk and Three.js test-runner deprecation
-  notices remain informational.
-- The capture host used an NVIDIA RTX 3060 Ti; headless captures reported roughly
-  25-33 FPS. This is not a passing integrated-GPU hardware acceptance measurement.
-- The development detail selector can hold Full lighting or Reduced for review;
-  Automatic matches the normal observer's adaptive behavior.

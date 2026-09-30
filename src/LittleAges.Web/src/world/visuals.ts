@@ -107,6 +107,22 @@ export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovement
   return worldToScene(map, last.x, last.y, lift)
 }
 
+/** World-tile position along a movement plan, with the same brisk-step pacing as the scene version. */
+export function worldPointAlongMovementPlan(plan: CitizenMovementPlan, visualMinute: number, speed: number | null = null): WorldPoint {
+  const first = plan.waypoints[0]
+  if (visualMinute <= (plan.segmentStartedMinute ?? first.arriveMinute)) return { x: first.x, y: first.y }
+  for (let index = 1; index < plan.waypoints.length; index += 1) {
+    const next = plan.waypoints[index]
+    if (visualMinute > next.arriveMinute) continue
+    const previous = plan.waypoints[index - 1]
+    const start = index === 1 ? plan.segmentStartedMinute ?? previous.arriveMinute : previous.arriveMinute
+    const progress = presentationSegmentProgress(start, next.arriveMinute, visualMinute, speed)
+    return { x: previous.x + (next.x - previous.x) * progress, y: previous.y + (next.y - previous.y) * progress }
+  }
+  const last = plan.waypoints[plan.waypoints.length - 1]
+  return { x: last.x, y: last.y }
+}
+
 export function shouldInterpolateCitizen(previous: Citizen, current: Citizen, operationalSpeed: number | null, reducedMotion: boolean): boolean {
   if (reducedMotion || operationalSpeed === null || operationalSpeed > 10 || previous.actionSequence !== current.actionSequence) return false
   const dx = current.location.x - previous.location.x

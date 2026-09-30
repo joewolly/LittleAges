@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Citizen, Map, Structure } from '../api'
 import { WorldViewport } from './WorldViewport'
+import { SEASONS, type Season } from './iso/seasons'
 import './artSlice.css'
 
 // Isolated presentation fixture. This module is imported only by the Vite DEV
@@ -36,7 +37,7 @@ export function ArtSlice() {
   const [paused, setPaused] = useState(false)
   const [minute, setMinute] = useState(0)
   const [selected, setSelected] = useState<string | null>('4')
-  const [detail, setDetail] = useState<'full' | 'reduced' | 'auto'>('full')
+  const [season, setSeason] = useState<Season>('spring')
   useEffect(() => {
     if (paused) return
     const timer = window.setInterval(() => setMinute(value => value + 0.1), 100)
@@ -50,9 +51,9 @@ export function ArtSlice() {
     location: { x: fromX, y: 24 }, movementPlan: { actionSequence: leg + 1, observedMinute: minute, waypoints: [{ x: fromX, y: 24, arriveMinute: start }, { x: toX, y: 24, arriveMinute: start + 8 }] } })
   return <main className="art-study">
     <header className="art-study-header"><strong>Little Ages · Art study</strong><span>Isolated presentation scene</span><button onClick={() => setPaused(value => !value)}>{paused ? 'Resume' : 'Pause'}</button>
-      <label>Detail <select value={detail} onChange={event => setDetail(event.target.value as typeof detail)}><option value="full">Full lighting</option><option value="reduced">Reduced</option><option value="auto">Automatic</option></select></label>
+      <label>Season <select value={season} onChange={event => setSeason(event.target.value as Season)}>{SEASONS.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}</select></label>
       <label>Villager <select value={selected ?? ''} onChange={event => setSelected(event.target.value)}>{citizens.map(citizen => <option key={citizen.citizenId} value={citizen.citizenId}>{citizen.name} · {citizen.currentAction}</option>)}</select></label>
     </header>
-    <WorldViewport map={map} citizens={citizens} structures={structures} settlement={null} worldSeed="42" operationalSpeed={1} paused={paused} selectedCitizenId={selected} onSelectCitizen={setSelected} previewDetailTier={detail === 'auto' ? undefined : detail} />
+    <WorldViewport map={map} citizens={citizens} structures={structures} settlement={null} worldSeed="42" operationalSpeed={1} paused={paused} selectedCitizenId={selected} onSelectCitizen={setSelected} previewSeason={season} />
   </main>
 }
