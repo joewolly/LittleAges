@@ -2,7 +2,10 @@ import { Component, useState, type ReactNode } from 'react'
 import type { Citizen, Map, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import type { LivingWorld } from '../living'
 import { livingLabel, livingWorkStage } from '../living'
+import { HudIcon, ResourceMeters, SettlementBadge, VillagerCard } from './Hud'
 import { IsoWorld, type CameraNudge, type IsoStats } from './IsoWorld'
+import { carriedSprite } from './iso/scene'
+import { citizenPaletteIndex } from './visuals'
 import type { Season } from './iso/seasons'
 import { LegacyMap } from './LegacyMap'
 import { restingHome } from './presentation'
@@ -61,6 +64,8 @@ export function WorldViewport(props: WorldViewportProps) {
   const selectedSite = settlementSites.find(site => site.settlementId === selectedSettlementId) ?? settlementSites[0] ?? null
   const selectedWork = props.living?.orders.find(order => order.citizenId === selected?.citizenId)
   const effectiveFollowCitizenId = followCitizenId !== null && props.citizens.some(citizen => citizen.citizenId === followCitizenId && citizen.isAlive) ? followCitizenId : null
+  const following = selected !== null && effectiveFollowCitizenId === selected.citizenId
+  const toggleFollow = () => setFollowCitizenId(current => current === selected?.citizenId ? null : selected?.citizenId ?? null)
   const issueNudge = (x: number, z: number, zoom = 0) => setNudge(previous => ({ x, z, zoom, sequence: previous.sequence + 1 }))
   const focusSettlementSite = (settlementId: string) => {
     setSelectedSettlementId(settlementId)
@@ -82,26 +87,31 @@ export function WorldViewport(props: WorldViewportProps) {
   }
 
   return <section className="world-viewport" aria-labelledby="world-heading" tabIndex={0} onKeyDown={onKeyDown}>
-    <div className="world-title"><span>Living diorama</span><h2 id="world-heading">The settlement grounds</h2>{props.living && <p className="living-weather">{props.living.age} · {livingLabel(props.living.weather)} · {props.living.temperature}°C</p>}<p>{overview && props.living ? 'Gold fields are ready to harvest · outlined sites have active work' : 'Drag to pan · scroll or pinch to zoom · tap a villager to follow their day'}</p></div>
-    <div className="world-toolbar" aria-label="World camera controls">
-      <button type="button" onClick={() => { setResetToken(value => value + 1); setFollowCitizenId(null); setFocusedSettlementId(null) }}>Reset view</button>
-      <button type="button" disabled={selected === null || !selected.isAlive} onClick={() => setFollowCitizenId(current => current === selected?.citizenId ? null : selected?.citizenId ?? null)}>{effectiveFollowCitizenId === selected?.citizenId ? 'Unfollow' : 'Follow selected'}</button>
-      <button type="button" onClick={() => setOverview(value => !value)}>{overview ? 'Village view' : 'Map overview'}</button>
-      {overview && props.living && <button type="button" onClick={() => setWholeMap(value => !value)}>{wholeMap ? 'Settlement view' : 'Whole map'}</button>}
-    </div>
+    <div className="world-hud-top">
+      <SettlementBadge worldMinute={props.worldMinute ?? 0} living={props.living} hint={overview && props.living ? 'Gold fields are ready to harvest · outlined sites have active work' : 'Drag to pan · scroll or pinch to zoom · tap a villager to follow their day'} />
+      <div className="world-hud-right">
+        <ResourceMeters settlement={props.settlement} />
     {settlementSites.length > 1 && <div className="world-site-control" aria-label="Settlement site controls">
       <label>Settlement site<select aria-label="Settlement site" value={selectedSite?.settlementId ?? ''} onChange={event => setSelectedSettlementId(event.target.value)}>
         {settlementSites.map(site => <option key={site.settlementId} value={site.settlementId}>Settlement {site.settlementId} · ({site.site.x}, {site.site.y})</option>)}
       </select></label>
       {selectedSite && <output aria-live="polite">Population {selectedSite.livingPopulation.toLocaleString()} · Food {selectedSite.foodStored.toLocaleString()} · Wood {selectedSite.woodStored.toLocaleString()} · Stone {selectedSite.stoneStored.toLocaleString()}</output>}
-      <button type="button" onClick={focusSelectedSettlement} disabled={selectedSite === null}>Focus site</button>
+      <button type="button" className="hud-button hud-button-teal" onClick={focusSelectedSettlement} disabled={selectedSite === null}>Focus site</button>
     </div>}
+      </div>
+    </div>
+    <div className="world-toolbar" aria-label="World camera controls">
+      <button type="button" className="hud-button hud-button-cream" onClick={() => { setResetToken(value => value + 1); setFollowCitizenId(null); setFocusedSettlementId(null) }}><HudIcon name="target" />Reset view</button>
+      <button type="button" className="hud-button hud-button-cream" disabled={selected === null || !selected.isAlive} onClick={toggleFollow}><HudIcon name="eye" />{following ? 'Unfollow' : 'Follow selected'}</button>
+      <button type="button" className="hud-button hud-button-blue" onClick={() => setOverview(value => !value)}><HudIcon name={overview ? 'home' : 'map'} />{overview ? 'Village view' : 'Map overview'}</button>
+      {overview && props.living && <button type="button" className="hud-button hud-button-blue" onClick={() => setWholeMap(value => !value)}><HudIcon name="expand" />{wholeMap ? 'Settlement view' : 'Whole map'}</button>}
+    </div>
     <div className="world-stage">
       {overview ? <LegacyMap living={props.living} roads={props.roads} focusSettlement={!!props.living && !wholeMap} settlementSites={settlementSites} selectedSettlementId={selectedSite?.settlementId ?? null} focusedSettlementId={wholeMap ? null : focusedSettlementId} map={props.map} citizens={props.citizens} structures={props.structures} /> : <SceneBoundary onError={() => setOverview(true)}>
         <IsoWorld map={props.map} living={props.living} roads={props.roads} citizens={props.citizens} structures={props.structures} settlement={props.settlement} settlementSites={settlementSites} focusedSettlementId={focusedSettlementId} onFocusSettlementSite={focusSettlementSite} worldSeed={props.worldSeed} worldMinute={props.worldMinute ?? 0} operationalSpeed={props.operationalSpeed} paused={props.paused} reducedMotion={reducedMotion} controlsEnabled={props.controlsEnabled !== false} selectedCitizenId={props.selectedCitizenId} onSelectCitizen={props.onSelectCitizen} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} onStats={diagnosticsEnabled ? setStats : undefined} previewSeason={import.meta.env.DEV ? props.previewSeason : undefined} />
       </SceneBoundary>}
     </div>
-    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
+    {selected && <VillagerCard citizen={selected} activity={selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`} portrait={`/assets/sprites/people/villager-${citizenPaletteIndex(props.worldSeed, selected.citizenId)}-${carriedSprite(selected, selectedWork)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} />}
     {diagnosticsEnabled && !overview && stats && <output className="world-perf" aria-label="World view performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · {stats.sprites} sprites · {stats.chunks} ground chunks · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {stats.season} · shelter tier {stats.tier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom. All citizen details remain available in Observer records.</span>
   </section>

@@ -443,3 +443,23 @@ def site_marker(c, x, y, col=TEAL):
     c.shadow(x, y, 0.3, 0.3, op=0.3)
     c.cyl(x, y, 0, 0.22, 0.12, STONE)
     banner(c, x, y, 0.12, 1.4, col=col)
+
+
+# ---------------------------------------------------------------- HUD icons
+def icon_food(c, x, y):
+    c.cyl(x, y, 0, 0.42, 0.3, '#b9854a', top='#8a5a32')
+    for dx, dy in [(-0.12, 0.05), (0.14, -0.06), (0.02, 0.16), (0.0, -0.05)]:
+        c.blob(x+dx, y+dy, 0.42, 0.16, '#e0443a', hi=0.6)
+    c.blob(x+0.12, y+0.22, 0.38, 0.14, '#f0b43c', hi=0.5)
+
+def icon_wood(c, x, y):
+    c.log((x-0.5, y+0.25, 0.22), (x+0.5, y+0.25, 0.22), 0.22, WOOD)
+    c.log((x-0.5, y-0.2, 0.22), (x+0.5, y-0.2, 0.22), 0.22, '#955a32')
+    c.log((x-0.45, y+0.02, 0.58), (x+0.45, y+0.02, 0.58), 0.22, '#b06c3e')
+
+def icon_stone(c, x, y):
+    rocks(c, x, y, 1.3)
+
+def icon_people(c, x, y):
+    villager(c, x-0.25, y+0.25, cloth='#c0503a', s=2.2)
+    villager(c, x+0.25, y-0.25, cloth='#3d7fc4', s=2.2)

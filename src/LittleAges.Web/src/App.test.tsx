@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
@@ -212,10 +212,10 @@ describe('citizen observer', () => {
     renderAppWithRecords('Living')
     expect(await screen.findByRole('heading', { name: 'A world at work' })).toBeInTheDocument()
     expect(screen.getByText(/Agrarian life/)).toHaveTextContent('Cold Spell')
-    expect(screen.getByText('120')).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).getByText('120')).toBeInTheDocument()
     harvested = 240
     await act(async () => { liveMock.state.emitReconnecting(); liveMock.state.emitReconnected() })
-    expect(await screen.findByText('240')).toBeInTheDocument()
+    expect(await within(screen.getByRole('dialog')).findByText('240')).toBeInTheDocument()
   })
 
   it('renders the citizen list after successful polling', async () => {
@@ -380,7 +380,7 @@ describe('citizen observer', () => {
     expect(screen.getAllByText('Shelter').length).toBeGreaterThan(0)
     expect(screen.getByText('Buildings complete')).toBeInTheDocument()
     expect(screen.getByText('Exposure grace')).toBeInTheDocument()
-    expect(screen.getByText('Food')).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).getByText('Food')).toBeInTheDocument()
     expect(screen.getAllByText('Wood').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Stone').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))

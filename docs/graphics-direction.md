@@ -89,6 +89,24 @@ The kit is 140 sprites and about 1.4 MB of SVG; a session loads one season
 (about 360 KB) plus the shared people and markers (about 220 KB). Sprites are
 rasterized at the current zoom and cached, so they stay sharp when zoomed.
 
+## Game HUD
+
+The shell uses a chunky, outlined game style: Lilita One for titles, numbers and
+buttons, Nunito for reading, both bundled as OFL-licensed `@fontsource` packages
+so a local install never fetches fonts from the network (`src/hud.css`,
+`src/world/Hud.tsx`).
+
+- Top left: the settlement badge with season, weather, temperature, the living
+  age, and progress toward the next season.
+- Top right: Food, Wood and Stone meters against shared storage capacity, and a
+  Citizens meter showing how many are housed.
+- Bottom right: Reset view, Follow selected, and Map overview buttons.
+- Selected villager: a parchment card with life stage, occupation, current
+  activity, carried goods, and four need bars (Fed, Rested, Sheltered, Company;
+  needs run from 0, met, to 10000, critical), with Follow and Open record.
+- Bottom bar: world time, population, Pause, speed, and the Records button.
+- Meters are `role="meter"` with spoken values; icons are decorative.
+
 ## Performance and accessibility
 
 - Canvas device-pixel ratio is capped at 1.5.

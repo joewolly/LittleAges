@@ -9,7 +9,7 @@
 people, leave them alone, and come back later to discover what happened.
 
 <p align="center">
-  <img src="docs/assets/readme/hero.png" alt="Little Ages observer interface showing the quiet-motion landing view" width="100%" />
+  <img src="docs/assets/readme/hero.png" alt="Little Ages observer showing a painted isometric village with longhouses, granaries, farms and roads, storage meters, and a selected villager card" width="100%" />
 </p>
 
 ## Overview
@@ -40,12 +40,12 @@ loop, and the UI cannot invent events or mutate gameplay state.
 ## See the application
 
 These images are captures of the real observer UI running against disposable,
-deterministic worlds. The scene is now the application: an orthographic
-storybook diorama with route-smoothed citizens and a responsive, tabbed record
-ledger instead of a scrolling document page.
+deterministic worlds (seed 42, year 5). The scene is the application: a painted
+isometric village with route-smoothed citizens, a game-style HUD of storage
+meters and villager cards, and a responsive, tabbed record ledger.
 
 <p align="center">
-  <img src="docs/assets/readme/mobile.png" alt="Little Ages historical diorama and compact observer controls at a mobile viewport" width="28%" />
+  <img src="docs/assets/readme/mobile.png" alt="Little Ages painted village and compact game HUD at a mobile viewport" width="28%" />
 </p>
 <p align="center"><sub>The same authoritative world at a 390 × 844 mobile viewport</sub></p>
 

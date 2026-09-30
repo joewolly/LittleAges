@@ -98,7 +98,8 @@ def build():
             save(manifest, season, name, draw(name, point(0.5, 0.5)(fn), season), 1.0)
     art.SEASON = 'spring'
     for name, fn in {'animal': lambda c, x, y: art.animal(c, x, y), 'predator': lambda c, x, y: art.animal(c, x, y, True),
-                     'site': lambda c, x, y: art.site_marker(c, x, y), 'site-selected': lambda c, x, y: art.site_marker(c, x, y, art.GOLD)}.items():
+                     'site': lambda c, x, y: art.site_marker(c, x, y), 'site-selected': lambda c, x, y: art.site_marker(c, x, y, art.GOLD),
+                     'icon-food': art.icon_food, 'icon-wood': art.icon_wood, 'icon-stone': art.icon_stone, 'icon-people': art.icon_people}.items():
         save(manifest, 'common', name, draw(name, point(0.5, 0.5)(fn), 'spring'), 1.0)
     for index, clothing in enumerate(VILLAGER_CLOTHING):
         for carried in CARRIED:

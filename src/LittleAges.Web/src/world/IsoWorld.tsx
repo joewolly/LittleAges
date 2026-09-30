@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Citizen, Map as WorldMap, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
-import type { LivingOrder, LivingWorld } from '../living'
+import type { LivingWorld } from '../living'
 import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
 import { ROAD_STYLES, roadSegments } from './roads'
 import { citizenPaletteIndex, worldPointAlongMovementPlan } from './visuals'
 import { clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt, type IsoCamera } from './iso/projection'
-import { animalSprites, buildStaticScene, cameraFocus, siteSprites, sortByDepth, type SceneSprite } from './iso/scene'
+import { animalSprites, buildStaticScene, cameraFocus, carriedSprite, siteSprites, sortByDepth, type SceneSprite } from './iso/scene'
 import { TERRAIN_PALETTES, seasonAt, type Season } from './iso/seasons'
 import { SpriteKit, spriteKeysFor, spritePlacement, zoomBucket } from './iso/sprites'
 import { CHUNK_TILES, drawTerrainChunk, type TerrainChunk } from './iso/terrain'
@@ -42,17 +42,6 @@ export type IsoWorldProps = {
 
 const MAX_DEVICE_PIXEL_RATIO = 1.5
 const MAX_CACHED_CHUNKS = 64
-const FOOD_GOODS = new Set(['Food', 'Meal', 'Grain', 'PreservedFood'])
-const WOOD_GOODS = new Set(['Wood', 'Fuel'])
-
-function carriedSprite(citizen: Citizen, order: LivingOrder | undefined): string {
-  const carried = citizen.carriedResource ?? (order?.cargoInTransit ? order.cargo[0]?.good : order?.phase === 'Travel' && !order.suppliesDelivered ? order.ingredients[0]?.resource : null)
-  if (!carried) return 'empty'
-  if (FOOD_GOODS.has(carried)) return 'food'
-  if (WOOD_GOODS.has(carried)) return 'wood'
-  return carried === 'Stone' ? 'stone' : 'empty'
-}
-
 function lifeStageScale(citizen: Citizen): number {
   switch (citizen.lifeStage) {
     case 'YoungChild': case 'Young Child': return 0.6

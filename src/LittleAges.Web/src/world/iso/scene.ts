@@ -1,5 +1,5 @@
-import type { Map as WorldMap, Settlement, SettlementSite, Structure } from '../../api'
-import type { LivingWorld } from '../../living'
+import type { Citizen, Map as WorldMap, Settlement, SettlementSite, Structure } from '../../api'
+import type { LivingOrder, LivingWorld } from '../../living'
 import { detailVariant, stableVisualHash } from '../visuals'
 import type { Season } from './seasons'
 import { seasonalKey } from './sprites'
@@ -117,4 +117,16 @@ export function animalSprites(living: LivingWorld | null | undefined): SceneSpri
 
 export function sortByDepth(sprites: SceneSprite[]): SceneSprite[] {
   return sprites.sort((first, second) => first.depth - second.depth || first.y - second.y)
+}
+
+const FOOD_GOODS = new Set(['Food', 'Meal', 'Grain', 'PreservedFood'])
+const WOOD_GOODS = new Set(['Wood', 'Fuel'])
+
+/** Which villager sprite variant shows what a citizen is carrying right now. */
+export function carriedSprite(citizen: Citizen, order: LivingOrder | undefined): string {
+  const carried = citizen.carriedResource ?? (order?.cargoInTransit ? order.cargo[0]?.good : order?.phase === 'Travel' && !order.suppliesDelivered ? order.ingredients[0]?.resource : null)
+  if (!carried) return 'empty'
+  if (FOOD_GOODS.has(carried)) return 'food'
+  if (WOOD_GOODS.has(carried)) return 'wood'
+  return carried === 'Stone' ? 'stone' : 'empty'
 }
