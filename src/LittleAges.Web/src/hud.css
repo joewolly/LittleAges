@@ -181,3 +181,8 @@ button.hud-button:disabled, .world-hud button:disabled { filter: grayscale(.8); 
   .observer-records-toggle .hud-icon { width: 22px; height: 22px; }
   .world-hud button { padding-inline: 12px; }
 }
+
+/* Keep the chunky gradient when older hover/focus rules for viewport buttons would flatten it. */
+.world-viewport button.hud-button:hover, .world-viewport button.hud-button:focus-visible {
+  background: linear-gradient(180deg, var(--hud-top, #fff6de) 0%, var(--hud-mid, #ecd9a8) 55%, var(--hud-low, #b89a5c) 100%);
+}

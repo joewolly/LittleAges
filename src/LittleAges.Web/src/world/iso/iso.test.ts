@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Citizen, Map as WorldMap, Structure } from '../../api'
 import type { LivingWorld } from '../../living'
 import { MAX_ZOOM, MIN_ZOOM, clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt } from './projection'
-import { buildStaticScene, cameraFocus, fieldSprite, structureSprite } from './scene'
+import { buildStaticScene, cameraFocus, fieldSprite, structureSprite, villagerLook, villagerSprite } from './scene'
 import { seasonAt } from './seasons'
 import { spriteKeysFor, spritePlacement } from './sprites'
 import { MASONRY_MINUTES, TIMBER_MINUTES, shelterTier } from './tiers'
@@ -81,10 +81,27 @@ describe('seasons', () => {
     for (const season of ['spring', 'summer', 'autumn', 'winter'] as const) {
       const keys = new Set(spriteKeysFor(season))
       for (const name of ['shelter-1', 'shelter-5', 'stockpile', 'workshop', 'granary', 'marketplace', 'construction', 'farm-harvest', 'field-ripe', 'hearth', 'loom', 'carehouse', 'oak-1', 'oak-3', 'pine', 'berry', 'rocks']) expect(keys.has(`${season}/${name}`)).toBe(true)
-      expect(keys.has('people/villager-7-stone')).toBe(true)
+      expect(keys.has('people/carry-stone')).toBe(true)
+      expect([...keys].some(key => key.startsWith('people/villager-'))).toBe(false)
       expect(keys.has('common/site-selected')).toBe(true)
     }
     expect(spritePlacement('spring/shelter-3')?.anchorY).toBeGreaterThan(0)
+  })
+})
+
+describe('villagers', () => {
+  it('gives each citizen a stable look, with grey-haired looks for elders', () => {
+    const adult = { citizenId: '12', lifeStage: 'Adult' } as Citizen
+    const elder = { citizenId: '12', lifeStage: 'Elder' } as Citizen
+    expect(villagerLook('42', adult)).toBe(villagerLook('42', adult))
+    expect(villagerLook('42', adult)).toBeLessThan(8)
+    expect(villagerLook('42', elder)).toBeGreaterThanOrEqual(8)
+    const ids = Array.from({ length: 60 }, (_, i) => villagerLook('42', { citizenId: String(i + 1), lifeStage: 'Adult' } as Citizen))
+    expect(new Set(ids).size).toBe(8)
+    for (const frame of [0, 1] as const) {
+      expect(spritePlacement(villagerSprite('42', adult, frame))).not.toBeNull()
+      expect(spritePlacement(villagerSprite('42', elder, frame))).not.toBeNull()
+    }
   })
 })
 

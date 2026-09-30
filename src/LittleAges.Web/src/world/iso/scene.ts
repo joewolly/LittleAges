@@ -1,13 +1,13 @@
 import type { Citizen, Map as WorldMap, Settlement, SettlementSite, Structure } from '../../api'
 import type { LivingOrder, LivingWorld } from '../../living'
-import { detailVariant, stableVisualHash } from '../visuals'
+import { citizenPaletteIndex, detailVariant, stableVisualHash } from '../visuals'
 import type { Season } from './seasons'
 import { seasonalKey } from './sprites'
 import { CHUNK_TILES, isForested, isWilderness, terrainAt } from './terrain'
 import type { ShelterTier } from './tiers'
 
-/** One sprite placed on the map. `x`/`y` are world tile coordinates of its ground anchor. */
-export type SceneSprite = { key: string; x: number; y: number; scale: number; depth: number; ground?: boolean }
+/** One sprite placed on the map. `x`/`y` are world tile coordinates of its ground anchor; `lift` raises it in units; `overlay` draws on top with the same placement. */
+export type SceneSprite = { key: string; x: number; y: number; scale: number; depth: number; ground?: boolean; flip?: boolean; lift?: number; overlay?: string }
 
 const CROP_SPRITES: Record<string, string> = { Fallow: 'farm-fallow', Planted: 'farm-planted', Growing: 'farm-growing', Harvest: 'farm-harvest', Dormant: 'farm-dormant' }
 const FACILITY_SPRITES: Record<string, string> = { Hearth: 'hearth', Loom: 'loom', CareHouse: 'carehouse' }
@@ -129,4 +129,18 @@ export function carriedSprite(citizen: Citizen, order: LivingOrder | undefined):
   if (FOOD_GOODS.has(carried)) return 'food'
   if (WOOD_GOODS.has(carried)) return 'wood'
   return carried === 'Stone' ? 'stone' : 'empty'
+}
+
+const ADULT_LOOKS = 8
+const ELDER_LOOKS = 4
+
+/** A citizen's stable face, hair and skin: one of eight adult looks, or one of four grey-haired looks for elders. */
+export function villagerLook(worldSeed: string | null, citizen: Citizen): number {
+  const hash = stableVisualHash(worldSeed ?? 'unknown-world', 'citizen-look', citizen.citizenId)
+  return citizen.lifeStage === 'Elder' ? ADULT_LOOKS + hash % ELDER_LOOKS : hash % ADULT_LOOKS
+}
+
+/** The villager body sprite for a citizen, standing (frame 0) or mid-stride (frame 1). */
+export function villagerSprite(worldSeed: string | null, citizen: Citizen, frame: 0 | 1 = 0): string {
+  return `people/villager-${villagerLook(worldSeed, citizen)}-${citizenPaletteIndex(worldSeed, citizen.citizenId)}-${frame}`
 }

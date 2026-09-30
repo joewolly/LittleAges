@@ -85,8 +85,15 @@ and `src/LittleAges.Web/src/world/sprite-manifest.json`, which records each
 sprite's size and the image point that sits on its tile centre, in projection
 units. Do not hand-edit generated sprites or the manifest.
 
-The kit is 140 sprites and about 1.4 MB of SVG; a session loads one season
-(about 360 KB) plus the shared people and markers (about 220 KB). Sprites are
+Villagers are chibi figures in twelve looks (eight adult, four grey-haired for
+elders) and eight clothing colours, each with a standing and a mid-stride frame.
+A citizen's look comes from a stable hash of the world seed and citizen ID.
+Walkers alternate frames with a slight bob and turn to face their direction of
+travel; carried food, wood or stone is a separate layer held in the hands.
+
+The kit is 315 sprites and about 2.2 MB of SVG. A session preloads one season's
+ground art (about 360 KB) and the shared markers; villager sprites load only as
+the citizens that use them appear. Sprites are
 rasterized at the current zoom and cached, so they stay sharp when zoomed. A light
 saturation, brightness and contrast boost is baked in at that step, so it costs
 nothing per frame; weather overlays still draw on top.

@@ -17,9 +17,9 @@ export function seasonalKey(season: Season, name: string): string {
   return `${season}/${name}`
 }
 
-/** Every sprite a season needs: its own ground art plus the season-independent people and markers. */
+/** Sprites to preload for a season: its ground art and the shared markers. Villagers load on first use. */
 export function spriteKeysFor(season: Season): string[] {
-  return Object.keys(placements).filter(key => key.startsWith(`${season}/`) || key.startsWith('people/') || key.startsWith('common/'))
+  return Object.keys(placements).filter(key => key.startsWith(`${season}/`) || key.startsWith('common/') || key.startsWith('people/carry-'))
 }
 
 /** Rasterized sprites are bucketed by half-octaves of zoom so zooming reuses bitmaps without blurring. */
@@ -59,7 +59,10 @@ export class SpriteKit {
 
   /** A bitmap of `key` drawn at `bucket` device pixels per unit, or null until the SVG has loaded. */
   raster(key: string, bucket: number): Raster | null {
-    if (!this.ready.has(key)) return null
+    if (!this.ready.has(key)) {
+      if (placements[key]) this.load([key])
+      return null
+    }
     const cacheKey = `${key}@${bucket}`
     const cached = this.rasters.get(cacheKey)
     if (cached) return cached

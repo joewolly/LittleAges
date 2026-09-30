@@ -3,9 +3,9 @@ import type { Citizen, Map as WorldMap, RoadOverlay, Settlement, SettlementSite,
 import type { LivingWorld } from '../living'
 import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
 import { ROAD_STYLES, roadSegments } from './roads'
-import { citizenPaletteIndex, worldPointAlongMovementPlan } from './visuals'
+import { stableVisualHash, worldPointAlongMovementPlan } from './visuals'
 import { clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt, type IsoCamera } from './iso/projection'
-import { animalSprites, buildStaticScene, cameraFocus, carriedSprite, siteSprites, sortByDepth, type SceneSprite } from './iso/scene'
+import { animalSprites, buildStaticScene, cameraFocus, carriedSprite, siteSprites, sortByDepth, villagerSprite, type SceneSprite } from './iso/scene'
 import { TERRAIN_PALETTES, seasonAt, type Season } from './iso/seasons'
 import { SpriteKit, spriteKeysFor, spritePlacement, zoomBucket } from './iso/sprites'
 import { CHUNK_TILES, drawTerrainChunk, type TerrainChunk } from './iso/terrain'
@@ -51,7 +51,7 @@ function lifeStageScale(citizen: Citizen): number {
   }
 }
 
-type CitizenPose = { x: number; y: number; visible: boolean }
+type CitizenPose = { x: number; y: number; visible: boolean; walking: boolean; facingRight: boolean }
 
 /**
  * The painted 2D settlement. It only draws server observations: every position
@@ -149,7 +149,7 @@ export function IsoWorld(props: IsoWorldProps) {
         if (home) target = doorway(home)
         const pose = poses.get(citizen.citizenId)
         if (!pose || current.reducedMotion) {
-          poses.set(citizen.citizenId, { x: target.x, y: target.y, visible: home === null })
+          poses.set(citizen.citizenId, { x: target.x, y: target.y, visible: home === null, walking: false, facingRight: false })
           continue
         }
         if (!pose.visible && !home) {
@@ -163,7 +163,13 @@ export function IsoWorld(props: IsoWorldProps) {
         const blend = 1 - Math.exp(-Math.min(delta, 0.1) * (plan ? 18 : 12))
         const dx = target.x - pose.x
         const dy = target.y - pose.y
-        if (dx * dx + dy * dy > 0.00001) { pose.x += dx * blend; pose.y += dy * blend; moving = true }
+        pose.walking = dx * dx + dy * dy > 0.0004
+        if (dx * dx + dy * dy > 0.00001) {
+          // Screen x grows with (x - y); only turn on a clear sideways step to avoid flicker.
+          const sideways = dx - dy
+          if (Math.abs(sideways) > 0.02) pose.facingRight = sideways > 0
+          pose.x += dx * blend; pose.y += dy * blend; moving = true
+        }
         if (home && dx * dx + dy * dy < 0.01) pose.visible = false
       }
       for (const id of [...poses.keys()]) if (!seen.has(id)) poses.delete(id)
@@ -255,8 +261,11 @@ export function IsoWorld(props: IsoWorldProps) {
         const pose = posesRef.current.get(citizen.citizenId)
         if (!pose || !pose.visible) continue
         if (citizen.citizenId === selected) selectedPose = pose
-        const key = `people/villager-${citizenPaletteIndex(current.worldSeed, citizen.citizenId)}-${carriedSprite(citizen, livingOrders.get(citizen.citizenId))}`
-        visible.push({ key, x: pose.x, y: pose.y, scale: lifeStageScale(citizen), depth: pose.x + pose.y + 0.3 })
+        const phase = stableVisualHash(citizen.citizenId) % 1000
+        const frame = pose.walking && !current.reducedMotion ? (Math.floor((now + phase) / 170) % 2) as 0 | 1 : 0
+        const bob = pose.walking && !current.reducedMotion ? Math.abs(Math.sin((now + phase) / 170 * Math.PI)) * 0.05 : 0
+        const carried = carriedSprite(citizen, livingOrders.get(citizen.citizenId))
+        visible.push({ key: villagerSprite(current.worldSeed, citizen, frame), x: pose.x, y: pose.y, scale: lifeStageScale(citizen), depth: pose.x + pose.y + 0.3, flip: pose.facingRight, lift: bob, overlay: carried === 'empty' ? undefined : `people/carry-${carried}` })
       }
       if (selectedPose) {
         const c = project(selectedPose.x, selectedPose.y)
@@ -271,9 +280,15 @@ export function IsoWorld(props: IsoWorldProps) {
         const placement = spritePlacement(sprite.key)
         const raster = placement ? kit.raster(sprite.key, bucket) : null
         if (!placement || !raster) continue
-        const anchor = project(sprite.x, sprite.y)
+        const anchor = project(sprite.x, sprite.y, sprite.lift ?? 0)
         const unit = camera.zoom * sprite.scale
-        context.drawImage(raster, anchor.x - placement.anchorX * unit, anchor.y - placement.anchorY * unit, placement.width * unit, placement.height * unit)
+        const layers: Array<[typeof placement, HTMLCanvasElement]> = [[placement, raster]]
+        const overlayPlacement = sprite.overlay ? spritePlacement(sprite.overlay) : null
+        const overlayRaster = sprite.overlay && overlayPlacement ? kit.raster(sprite.overlay, bucket) : null
+        if (overlayPlacement && overlayRaster) layers.push([overlayPlacement, overlayRaster])
+        if (sprite.flip) { context.save(); context.translate(anchor.x, 0); context.scale(-1, 1); context.translate(-anchor.x, 0) }
+        for (const [layer, bitmap] of layers) context.drawImage(bitmap, anchor.x - layer.anchorX * unit, anchor.y - layer.anchorY * unit, layer.width * unit, layer.height * unit)
+        if (sprite.flip) context.restore()
         drawnSprites += 1
       }
       if (selectedPose) {

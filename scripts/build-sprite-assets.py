@@ -26,7 +26,6 @@ MANIFEST = ROOT / 'src/LittleAges.Web/src/world/sprite-manifest.json'
 S = 40
 SEASONS = ['spring', 'summer', 'autumn', 'winter']
 VILLAGER_CLOTHING = ['#b95f4b', '#536f88', '#d09a48', '#6d8150', '#876390', '#3f7c78', '#9a704d', '#b77774']
-CARRIED = [None, 'wood', 'stone', 'food']
 
 # name: (draw(canvas, x, y), footprint (w, d) in tiles, size of the footprint's longest side on the map in tiles)
 STRUCTURES = {
@@ -101,11 +100,16 @@ def build():
                      'site': lambda c, x, y: art.site_marker(c, x, y), 'site-selected': lambda c, x, y: art.site_marker(c, x, y, art.GOLD),
                      'icon-food': art.icon_food, 'icon-wood': art.icon_wood, 'icon-stone': art.icon_stone, 'icon-people': art.icon_people}.items():
         save(manifest, 'common', name, draw(name, point(0.5, 0.5)(fn), 'spring'), 1.0)
-    for index, clothing in enumerate(VILLAGER_CLOTHING):
-        for carried in CARRIED:
-            name = f'villager-{index}-{carried or "empty"}'
-            fn = lambda c, x, y, clothing=clothing, carried=carried: art.villager(c, x, y, cloth=clothing, carry=carried, s=1.3)
-            save(manifest, 'people', name, draw(name, point(0.5, 0.5)(fn), 'spring'), 1.0)
+    looks = len(art.LOOKS) + len(art.ELDER_LOOKS)
+    for look in range(looks):
+        for index, clothing in enumerate(VILLAGER_CLOTHING):
+            for frame in (0, 1):
+                name = f'villager-{look}-{index}-{frame}'
+                fn = lambda c, x, y, clothing=clothing, look=look, frame=frame: art.person(c, x, y, cloth=clothing, look=look, frame=frame)
+                save(manifest, 'people', name, draw(name, point(0.5, 0.5)(fn), 'spring'), 1.0, pad=2)
+    for item in ('wood', 'stone', 'food'):
+        fn = lambda c, x, y, item=item: art.carried_item(c, x, y, item)
+        save(manifest, 'people', f'carry-{item}', draw(f'carry-{item}', point(0.5, 0.5)(fn), 'spring'), 1.0, pad=2)
     MANIFEST.write_text(json.dumps({'tileHalfWidth': 1, 'sprites': manifest}, indent=1, sort_keys=True) + '\n', encoding='utf-8')
     total = sum(p.stat().st_size for p in OUTPUT.rglob('*.svg'))
     print(f'{len(manifest)} sprites, {total:,} bytes')

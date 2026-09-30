@@ -461,5 +461,119 @@ def icon_stone(c, x, y):
     rocks(c, x, y, 1.3)
 
 def icon_people(c, x, y):
-    villager(c, x-0.25, y+0.25, cloth='#c0503a', s=2.2)
-    villager(c, x+0.25, y-0.25, cloth='#3d7fc4', s=2.2)
+    person(c, x-0.25, y+0.25, cloth='#c0503a', look=3, s=2.2)
+    person(c, x+0.25, y-0.25, cloth='#3d7fc4', look=0, s=2.2)
+
+
+# ---------------------------------------------------------------- people
+SKIN_TONES = ['#f6d2b0', '#eec39a', '#dcaa7a', '#bf8a5e', '#96623f', '#6e4631']
+HAIR_COLOURS = ['#3b2416', '#6b3f1f', '#a8662c', '#d9a441', '#1f1a17', '#8f3a1f']
+GREY_HAIR = ['#d9d4cc', '#c4bdb3', '#ece8e1']
+# (skin, hair colour, style) for the eight adult looks; elders reuse skins with grey hair.
+LOOKS = [(0, 1, 'short'), (2, 0, 'long'), (4, 4, 'short'), (1, 3, 'bun'), (3, 5, 'long'), (5, 4, 'bun'), (1, 2, 'short'), (3, 0, 'long')]
+ELDER_LOOKS = [(0, 0, 'beard'), (2, 1, 'bun'), (4, 2, 'beard'), (1, 0, 'bun')]
+INK = '#2a1a0e'
+TROUSERS = '#5b4436'
+
+
+def _stroke_line(c, a, b, colour, width):
+    """A round-capped limb with a dark outline, in screen pixels."""
+    d = f'M{a[0]:.1f},{a[1]:.1f} L{b[0]:.1f},{b[1]:.1f}'
+    c.items.append(f'<path d="{d}" stroke="{INK}" stroke-width="{width + 2.4:.1f}" stroke-linecap="round" fill="none"/>')
+    c.items.append(f'<path d="{d}" stroke="{colour}" stroke-width="{width:.1f}" stroke-linecap="round" fill="none"/>')
+    c._track([a, b])
+
+
+def person(c, x, y, cloth='#3d7fc4', look=0, frame=0, s=1.3):
+    """A chibi villager facing the viewer's lower left. Frame 1 is mid-stride."""
+    elder = look >= len(LOOKS)
+    skin_i, hair_i, style = ELDER_LOOKS[(look - len(LOOKS)) % len(ELDER_LOOKS)] if elder else LOOKS[look % len(LOOKS)]
+    skin = SKIN_TONES[skin_i]
+    hair = GREY_HAIR[hair_i % len(GREY_HAIR)] if elder else HAIR_COLOURS[hair_i]
+    gx, gy = c.P(x, y, 0)
+    k = c.S * s / 1.3 * 0.62   # pixels per "figure unit"; the figure is about 1.55 of these tall
+    c.shadow(x, y, 0.2 * s / 1.3, 0.2 * s / 1.3, op=0.35)
+    # legs and boots; in the stride frame the front leg reaches forward and the back leg lifts
+    for side, (dx, lift) in ((-1, (-0.05 if frame else 0, 0)), (1, (0.05 if frame else 0, 0.035 if frame else 0))):
+        hip = (gx + side * 0.07 * k, gy - 0.30 * k)
+        foot = (gx + side * 0.07 * k + dx * k, gy - 0.04 * k - lift * k)
+        _stroke_line(c, hip, foot, TROUSERS, 0.11 * k)
+        c.circle2((foot[0] - 0.015 * k, foot[1] + 0.02 * k), 0.065 * k, '#3a2618', stroke=INK, sw=1.4)
+    # tunic: a tapered, lit smock with a belt and collar
+    top, hem = gy - 0.86 * k, gy - 0.26 * k
+    g = c.grad([(0, shade(cloth, 0.3)), (0.5, cloth), (1, shade(cloth, -0.32))])
+    body = (f'M{gx - 0.17 * k:.1f},{top + 0.06 * k:.1f} Q{gx:.1f},{top - 0.05 * k:.1f} {gx + 0.17 * k:.1f},{top + 0.06 * k:.1f} '
+            f'L{gx + 0.25 * k:.1f},{hem - 0.02 * k:.1f} Q{gx:.1f},{hem + 0.09 * k:.1f} {gx - 0.25 * k:.1f},{hem - 0.02 * k:.1f} Z')
+    c.path(body, fill=g, stroke=INK, sw=1.6)
+    c._track([(gx - 0.26 * k, top - 0.06 * k), (gx + 0.26 * k, hem + 0.1 * k)])
+    belt_y = gy - 0.46 * k
+    c.path(f'M{gx - 0.215 * k:.1f},{belt_y:.1f} Q{gx:.1f},{belt_y + 0.05 * k:.1f} {gx + 0.215 * k:.1f},{belt_y:.1f}', stroke='#5a3a1e', sw=3.2)
+    c.circle2((gx - 0.02 * k, belt_y + 0.025 * k), 0.035 * k, GOLD, stroke=INK, sw=0.9)
+    c.path(f'M{gx - 0.07 * k:.1f},{top + 0.02 * k:.1f} L{gx - 0.01 * k:.1f},{top + 0.12 * k:.1f} L{gx + 0.06 * k:.1f},{top + 0.02 * k:.1f}', stroke=shade(cloth, 0.45), sw=2.0)
+    # arms end in hands held a little forward, ready to carry
+    for side in (-1, 1):
+        shoulder = (gx + side * 0.18 * k, top + 0.1 * k)
+        hand = (gx + side * 0.14 * k - 0.03 * k, gy - 0.5 * k)
+        _stroke_line(c, shoulder, hand, shade(cloth, -0.12), 0.1 * k)
+        c.circle2(hand, 0.055 * k, skin, stroke=INK, sw=1.2)
+    # head: big, round, softly lit, turned slightly toward the viewer's left
+    hx, hy, r = gx - 0.01 * k, gy - 1.16 * k, 0.34 * k
+    if style == 'long':
+        c.path(f'M{hx - r * 1.05:.1f},{hy:.1f} Q{hx - r * 1.15:.1f},{hy + r * 1.25:.1f} {hx - r * 0.55:.1f},{hy + r * 1.2:.1f} '
+               f'L{hx + r * 0.55:.1f},{hy + r * 1.2:.1f} Q{hx + r * 1.15:.1f},{hy + r * 1.25:.1f} {hx + r * 1.05:.1f},{hy:.1f} Z', fill=hair, stroke=INK, sw=1.4)
+    for side in (-1, 1):
+        c.circle2((hx + side * r * 0.98, hy + r * 0.12), r * 0.2, shade(skin, -0.08), stroke=INK, sw=1.1)
+    face = c.grad([(0, shade(skin, 0.3)), (0.6, skin), (1, shade(skin, -0.22))], radial=True)
+    c.circle2((hx, hy), r, face, stroke=INK, sw=1.6)
+    if style == 'beard':
+        c.path(f'M{hx - r * 0.8:.1f},{hy + r * 0.25:.1f} Q{hx - r * 0.7:.1f},{hy + r * 1.25:.1f} {hx:.1f},{hy + r * 1.3:.1f} '
+               f'Q{hx + r * 0.7:.1f},{hy + r * 1.25:.1f} {hx + r * 0.8:.1f},{hy + r * 0.25:.1f} Q{hx:.1f},{hy + r * 0.75:.1f} {hx - r * 0.8:.1f},{hy + r * 0.25:.1f} Z',
+               fill=hair, stroke=INK, sw=1.3)
+    # face, shifted a touch left: eyes with a glint, rosy cheeks, a small smile
+    fx = hx - r * 0.1
+    for side in (-1, 1):
+        ex, ey = fx + side * r * 0.36, hy + r * 0.08
+        c.items.append(f'<ellipse cx="{ex:.1f}" cy="{ey:.1f}" rx="{r * 0.1:.1f}" ry="{r * 0.15:.1f}" fill="{INK}"/>')
+        c.circle2((ex + r * 0.035, ey - r * 0.05), r * 0.045, '#ffffff')
+        c.circle2((ex + side * r * 0.1, ey + r * 0.3), r * 0.12, '#f28b82', op=0.45)
+    if style != 'beard':
+        c.path(f'M{fx - r * 0.14:.1f},{hy + r * 0.42:.1f} Q{fx:.1f},{hy + r * 0.55:.1f} {fx + r * 0.14:.1f},{hy + r * 0.42:.1f}', stroke=INK, sw=1.4)
+    # hair cap with a fringe; a bun sits on top
+    cap = (f'M{hx - r * 1.02:.1f},{hy + r * 0.05:.1f} Q{hx - r * 1.05:.1f},{hy - r * 1.12:.1f} {hx:.1f},{hy - r * 1.08:.1f} '
+           f'Q{hx + r * 1.05:.1f},{hy - r * 1.12:.1f} {hx + r * 1.02:.1f},{hy + r * 0.05:.1f} '
+           f'Q{hx + r * 0.75:.1f},{hy - r * 0.45:.1f} {hx + r * 0.3:.1f},{hy - r * 0.38:.1f} '
+           f'Q{hx:.1f},{hy - r * 0.2:.1f} {hx - r * 0.2:.1f},{hy - r * 0.45:.1f} '
+           f'Q{hx - r * 0.65:.1f},{hy - r * 0.35:.1f} {hx - r * 1.02:.1f},{hy + r * 0.05:.1f} Z')
+    if elder and style == 'beard':
+        cap = (f'M{hx - r * 1.0:.1f},{hy - r * 0.05:.1f} Q{hx - r * 0.95:.1f},{hy - r * 0.6:.1f} {hx - r * 0.55:.1f},{hy - r * 0.75:.1f} '
+               f'L{hx - r * 0.45:.1f},{hy - r * 0.45:.1f} Q{hx - r * 0.75:.1f},{hy - r * 0.3:.1f} {hx - r * 1.0:.1f},{hy - r * 0.05:.1f} Z '
+               f'M{hx + r * 1.0:.1f},{hy - r * 0.05:.1f} Q{hx + r * 0.95:.1f},{hy - r * 0.6:.1f} {hx + r * 0.55:.1f},{hy - r * 0.75:.1f} '
+               f'L{hx + r * 0.45:.1f},{hy - r * 0.45:.1f} Q{hx + r * 0.75:.1f},{hy - r * 0.3:.1f} {hx + r * 1.0:.1f},{hy - r * 0.05:.1f} Z')
+    c.path(cap, fill=hair, stroke=INK, sw=1.4)
+    c.path(f'M{hx - r * 0.55:.1f},{hy - r * 0.85:.1f} Q{hx - r * 0.2:.1f},{hy - r * 1.0:.1f} {hx + r * 0.1:.1f},{hy - r * 0.95:.1f}', stroke=shade(hair, 0.35), sw=2.0, op=0.8)
+    if style == 'bun':
+        c.circle2((hx + r * 0.1, hy - r * 1.12), r * 0.36, hair, stroke=INK, sw=1.4)
+        c.circle2((hx + r * 0.02, hy - r * 1.2), r * 0.12, shade(hair, 0.35), op=0.7)
+    c._track([(hx - r * 1.3, hy - r * 1.6), (hx + r * 1.3, hy + r * 1.4)])
+
+
+def carried_item(c, x, y, item, s=1.3):
+    """Goods held in both hands, drawn on the same origin as person() so they line up."""
+    gx, gy = c.P(x, y, 0)
+    k = c.S * s / 1.3 * 0.62
+    cx, cy = gx - 0.04 * k, gy - 0.52 * k
+    if item == 'wood':
+        for i, dy in enumerate((0.06, -0.06)):
+            a, b = (cx - 0.22 * k, cy + dy * k + 0.04 * k), (cx + 0.22 * k, cy + dy * k - 0.06 * k)
+            _stroke_line(c, a, b, ['#a0643a', '#b87a45'][i], 0.1 * k)
+            c.circle2(a, 0.05 * k, '#e9c48a', stroke=INK, sw=1.0)
+    elif item == 'stone':
+        q = 0.7
+        c.path(f'M{cx - 0.2 * q * k:.1f},{cy + 0.1 * q * k:.1f} L{cx - 0.16 * q * k:.1f},{cy - 0.1 * q * k:.1f} L{cx + 0.02 * q * k:.1f},{cy - 0.18 * q * k:.1f} '
+               f'L{cx + 0.2 * q * k:.1f},{cy - 0.06 * q * k:.1f} L{cx + 0.18 * q * k:.1f},{cy + 0.12 * q * k:.1f} Z', fill='#b5b0a7', stroke=INK, sw=1.4)
+        c.path(f'M{cx - 0.16 * q * k:.1f},{cy - 0.1 * q * k:.1f} L{cx + 0.02 * q * k:.1f},{cy - 0.18 * q * k:.1f} L{cx + 0.2 * q * k:.1f},{cy - 0.06 * q * k:.1f} L{cx + 0.02 * q * k:.1f},{cy:.1f} Z', fill='#d4d0c8')
+    elif item == 'food':
+        c.path(f'M{cx - 0.17 * k:.1f},{cy - 0.03 * k:.1f} L{cx + 0.17 * k:.1f},{cy - 0.03 * k:.1f} L{cx + 0.13 * k:.1f},{cy + 0.11 * k:.1f} L{cx - 0.13 * k:.1f},{cy + 0.11 * k:.1f} Z', fill='#c28a4c', stroke=INK, sw=1.3)
+        for dx, col in ((-0.08, '#e0443a'), (0.01, '#f0b43c'), (0.09, '#e0443a')):
+            c.circle2((cx + dx * k, cy - 0.06 * k), 0.055 * k, col, stroke=INK, sw=0.9)
+    c._track([(cx - 0.4 * k, cy - 0.3 * k), (cx + 0.4 * k, cy + 0.3 * k)])

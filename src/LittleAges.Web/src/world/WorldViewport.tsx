@@ -4,8 +4,7 @@ import type { LivingWorld } from '../living'
 import { livingLabel, livingWorkStage } from '../living'
 import { HudIcon, ResourceMeters, SettlementBadge, VillagerCard } from './Hud'
 import { IsoWorld, type CameraNudge, type IsoStats } from './IsoWorld'
-import { carriedSprite } from './iso/scene'
-import { citizenPaletteIndex } from './visuals'
+import { villagerSprite } from './iso/scene'
 import type { Season } from './iso/seasons'
 import { LegacyMap } from './LegacyMap'
 import { restingHome } from './presentation'
@@ -111,7 +110,7 @@ export function WorldViewport(props: WorldViewportProps) {
         <IsoWorld map={props.map} living={props.living} roads={props.roads} citizens={props.citizens} structures={props.structures} settlement={props.settlement} settlementSites={settlementSites} focusedSettlementId={focusedSettlementId} onFocusSettlementSite={focusSettlementSite} worldSeed={props.worldSeed} worldMinute={props.worldMinute ?? 0} operationalSpeed={props.operationalSpeed} paused={props.paused} reducedMotion={reducedMotion} controlsEnabled={props.controlsEnabled !== false} selectedCitizenId={props.selectedCitizenId} onSelectCitizen={props.onSelectCitizen} resetToken={resetToken} nudge={nudge} followCitizenId={effectiveFollowCitizenId} onStats={diagnosticsEnabled ? setStats : undefined} previewSeason={import.meta.env.DEV ? props.previewSeason : undefined} />
       </SceneBoundary>}
     </div>
-    {selected && <VillagerCard citizen={selected} activity={selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`} portrait={`/assets/sprites/people/villager-${citizenPaletteIndex(props.worldSeed, selected.citizenId)}-${carriedSprite(selected, selectedWork)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} />}
+    {selected && <VillagerCard citizen={selected} activity={selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`} portrait={`/assets/sprites/${villagerSprite(props.worldSeed, selected)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} />}
     {diagnosticsEnabled && !overview && stats && <output className="world-perf" aria-label="World view performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · {stats.sprites} sprites · {stats.chunks} ground chunks · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {stats.season} · shelter tier {stats.tier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom. All citizen details remain available in Observer records.</span>
   </section>
