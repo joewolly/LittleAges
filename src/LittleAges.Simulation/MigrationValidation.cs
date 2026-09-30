@@ -61,7 +61,7 @@ public static class MigrationValidation
                 world.GetTile(daughter.Site).Walkable, "Daughter settlement site must be a distinct walkable world tile.");
             var ownedStructures = snapshot.Structures.Where(x => Owner(state.StructureOwners, x.Id.Value) == MigrationDaughterSettlementState.SettlementId).ToArray();
             var capacity = checked(daughter.CommunalStock.BaseStorageCapacity +
-                ownedStructures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus +
+                CitizenSimulationRules.GeneralStorageOf(ownedStructures) +
                 ownedStructures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
             var stored = (long)daughter.CommunalStock.StorageUsed + daughter.LivingGoods.Sum(x => (long)x.Quantity);
             Require(stored <= capacity, "Daughter settlement stock exceeds its local storage capacity.");
@@ -211,7 +211,7 @@ public static class MigrationValidation
     {
         var structures = snapshot.Structures.Where(x => structureOwners[x.Id.Value] == settlementId).ToArray();
         var storageCapacity = checked(baseCapacity +
-            structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus +
+            CitizenSimulationRules.GeneralStorageOf(structures) +
             structures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
         var farmIds = (snapshot.Agriculture?.Farms ?? Array.Empty<FarmCrop>()).Select(x => x.StructureId)
             .Where(id => structureOwners.GetValueOrDefault(id) == settlementId).ToArray();

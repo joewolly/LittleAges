@@ -1,7 +1,7 @@
 # M15 - Roads and intersite trade
 
-**Status:** implemented on `codex/m15-roads-trade`; `m15-rng1-roads1` is the
-new-world default. Phase 6 calibrated the values once marked *initial*; the
+**Status:** implemented on `codex/m15-roads-trade`; `m15-rng1-roads1` was the
+new-world default until [M16](m16-planned-layout.md) succeeded it. Phase 6 calibrated the values once marked *initial*; the
 measurements are under "Phase 6 calibration" and "Acceptance evidence".
 
 ## Intent

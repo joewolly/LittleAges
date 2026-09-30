@@ -5,7 +5,7 @@ import { ROAD_RANK, ROAD_STYLES, roadSegments } from './roads'
 import { containMap } from './visuals'
 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
-const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175' }
+const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175', Storehouse: '#6e4a2c' }
 
 export function LegacyMap({ map, structures, citizens, living, roads = null, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null }: { living?: LivingWorld | null; roads?: RoadOverlay | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)

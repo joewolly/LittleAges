@@ -269,6 +269,8 @@ public sealed record HeadlessReport
     public MigrationReadSnapshot? Migration { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public HeadlessRoadSummary? Roads { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<HeadlessLayoutSummary>? Layouts { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyDictionary<long, int> LivingResidentCountsBySettlement { get; init; } = new Dictionary<long, int>();
     public IReadOnlyList<HeadlessEvidence> Evidence { get; init; } = Array.Empty<HeadlessEvidence>();
@@ -473,6 +475,7 @@ public static class HeadlessRunner
             SettlementMetricsScope = migration is null ? null : "FoodStored, WoodStored, and StoneStored describe settlement 1 only; Migration.Settlements reports each site's stocks and local capacity.",
             Migration = migration,
             Roads = SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion) ? HeadlessRoadSummary.Build(engine, historyEvents) : null,
+            Layouts = SimulationEngine.PlannedLayoutEnabled(snapshot.SimulationRulesVersion) ? HeadlessLayoutSummary.Build(engine) : null,
             LivingResidentCountsBySettlement = migration is null ? new Dictionary<long, int>() :
                 MigrationValidation.GetLivingResidentCountsBySettlement(snapshot, migration),
             Evidence = HeadlessFactEvidence.Build(snapshot),

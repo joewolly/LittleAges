@@ -24,7 +24,7 @@ public sealed class ServerIntegrationTests
     public void FreshWorldConfigurationDefaultsToCurrentRulesWithoutChangingLegacyRules()
     {
         var options = ServerOptions.FromConfiguration(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.PlannedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, options.NewWorldRules);
         Assert.Equal("m12-rng1-spaced1", SimulationEngine.SpacedSimulationRulesVersion);
         Assert.Equal("m11-rng1-barter1", SimulationEngine.BarterSimulationRulesVersion);

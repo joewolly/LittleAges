@@ -241,7 +241,7 @@ public sealed record ServerStructureSnapshot
         CompletedWork = structure.CompletedWork;
         Condition = structure.Condition;
         Capacity = structure.Type == StructureType.Shelter ? CitizenSimulationRules.ShelterCapacityPerBuilding : null;
-        StorageBonus = structure.Type == StructureType.Stockpile ? CitizenSimulationRules.StockpileStorageBonus : null;
+        StorageBonus = structure.Type switch { StructureType.Stockpile => CitizenSimulationRules.StockpileStorageBonus, StructureType.Storehouse => CitizenSimulationRules.StorehouseStorageBonus, _ => null };
         ConstructionMultiplierBasisPoints = structure.Type == StructureType.Workshop ? CitizenSimulationRules.WorkshopConstructionMultiplierBasisPoints : null;
         CurrentOccupantIds = Array.AsReadOnly((currentOccupantIds ?? Array.Empty<string>())
             .OrderBy(static id => long.Parse(id, CultureInfo.InvariantCulture))
@@ -370,6 +370,10 @@ public sealed record ServerSettlementSnapshot
     public int CompletedFarms { get; }
     public int CompletedGranaries { get; }
     public int CompletedMarketplaces { get; }
+
+    /// <summary>M16 storehouses; omitted for worlds that cannot build them.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public int CompletedStorehouses { get; init; }
     public long ExposureGraceUntilMinute { get; }
     public ServerStructureSnapshot? ActiveConstructionProject { get; }
     public int HouseholdCount { get; } public int ActiveHouseholdCount { get; } public int PartnershipCount { get; } public int RelationshipCount { get; } public int FriendCount { get; } public int RivalCount { get; } public int YoungChildCount { get; } public int ChildCount { get; } public int AdolescentCount { get; } public int AdultCount { get; } public int ElderCount { get; }
@@ -1206,8 +1210,9 @@ public sealed partial class SimulationHost : BackgroundService
         var completedShelters = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Shelter);
         var completedStockpiles = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Stockpile);
         var completedWorkshops = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Workshop);
+        var completedStorehouses = siteStructures.Count(static structure => structure.Status == StructureStatus.Complete && structure.Type == StructureType.Storehouse);
         var shelteredPopulation = siteCitizens.Count(static citizen => citizen.IsAlive && citizen.HomeStructureId is not null);
-        var storageCapacity = site?.StorageCapacity ?? checked(settlement.BaseStorageCapacity + completedStockpiles * CitizenSimulationRules.StockpileStorageBonus + siteStructures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
+        var storageCapacity = site?.StorageCapacity ?? checked(settlement.BaseStorageCapacity + completedStockpiles * CitizenSimulationRules.StockpileStorageBonus + completedStorehouses * CitizenSimulationRules.StorehouseStorageBonus + siteStructures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity);
         var partnershipCount = site is null
             ? citizens.Count(static citizen => citizen.PartnerId is not null) / 2
             : siteCitizens.Count(citizen => citizen.PartnerId is not null && localCitizenIds!.Contains(long.Parse(citizen.PartnerId, CultureInfo.InvariantCulture))) / 2;
@@ -1241,7 +1246,8 @@ public sealed partial class SimulationHost : BackgroundService
             siteCitizens.Count(x => x.LifeStage == "Young Child"), siteCitizens.Count(x => x.LifeStage == "Child"), siteCitizens.Count(x => x.LifeStage == "Adolescent"), siteCitizens.Count(x => x.LifeStage == "Adult"), siteCitizens.Count(x => x.LifeStage == "Elder"),
             siteStructures.Count(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete),
             siteStructures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete),
-            siteStructures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete));
+            siteStructures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete))
+        { CompletedStorehouses = completedStorehouses };
     }
 
     private Dictionary<long, ServerResourceNodeSnapshot[]> AssignMigrationResources(

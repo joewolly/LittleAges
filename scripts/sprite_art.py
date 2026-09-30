@@ -196,6 +196,36 @@ def stockpile(c, X, Y):
         c.box(x, y, 0.16, 0.08, 0.08, 0.35, WOOD_D)
         c.blob(x+0.04, y+0.04, 0.55, 0.06, GOLD)
 
+def storehouse(c, X, Y):
+    """A large timber barn on a stone footing: wide loading doors, a hoist beam, and goods waiting outside."""
+    c.shadow(X+1.25, Y+0.95, 1.35, 1.05)
+    plinth(c, X, Y, 2.4, 1.8, 0.24, STONE_D)
+    L, R, T = c.box(X+0.12, Y+0.12, 0.24, 2.16, 1.3, 0.95, WOOD, pat='hplank', rows=7)
+    # wide double loading doors with a cross brace
+    c.door(L, 0.34, 0.66, 0.8, col='#4a2c18', frame=WOOD_D, arch=False)
+    A, B, C, D = L
+    def at(u, v): return lerp(lerp(A, B, u), lerp(D, C, u), v)
+    c.line(at(0.36, 0.02), at(0.64, 0.76), WOOD_L, 1.6, 0.9); c.line(at(0.64, 0.02), at(0.36, 0.76), WOOD_L, 1.6, 0.9)
+    c.line(at(0.5, 0.0), at(0.5, 0.8), WOOD_D, 1.2)
+    c.window(L, 0.1, 0.22, 0.45, 0.7); c.window(L, 0.78, 0.9, 0.45, 0.7)
+    c.window(R, 0.35, 0.65, 0.4, 0.72, glow='#3a2414')
+    # corner posts
+    for (x, y) in [(X+0.1, Y+1.3), (X+2.18, Y+1.3), (X+2.18, Y+0.1)]:
+        c.box(x, y, 0.24, 0.1, 0.1, 0.97, WOOD_D)
+    c.gable_x(X+0.12, Y+0.12, 1.19, 2.16, 1.3, 0.8, THATCH, WOOD, o=0.16, pat='thatch')
+    # hoist beam and rope over the doors
+    c.line((X+1.25, Y+1.42, 1.72), (X+1.25, Y+1.95, 1.72), WOOD_D, 3.0)
+    c.line((X+1.25, Y+1.92, 1.72), (X+1.25, Y+1.92, 1.2), '#d8c28c', 1.2)
+    c.blob(X+1.25, Y+1.92, 1.12, 0.09, '#e2cf9e', hi=0.45)
+    # goods out front: crates, barrels and sacks
+    for (x, y, z) in [(X+0.08, Y+1.42, 0.0), (X+0.08, Y+1.42, 0.4), (X+0.52, Y+1.46, 0.0)]:
+        Lf, Rf, Tf = c.box(x, y, z, 0.3 if x > X+0.3 else 0.4, 0.34, 0.3 if x > X+0.3 else 0.4, '#c58a4e')
+        for F in (Lf, Rf):
+            c.line(F[0], F[2], WOOD_D, 1.8, 0.8); c.line(F[1], F[3], WOOD_D, 1.8, 0.8)
+    for (x, y) in [(X+1.9, Y+1.62), (X+2.2, Y+1.5)]:
+        c.cyl(x, y, 0, 0.16, 0.4, '#9a5f34', lines=6, linec=WOOD_D, rings=2)
+    c.blob(X+1.62, Y+1.72, 0.18, 0.19, '#e2cf9e', hi=0.45)
+
 def workshop(c, X, Y):
     plinth(c, X, Y, 2.2, 1.8, 0.2)
     # back wall

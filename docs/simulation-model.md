@@ -554,8 +554,9 @@ non-persistent one-day tests and do not represent 100/500-year runs.
 ## M15 roads and trade contract
 
 Later rules versions have their own contracts: M14 in
-[`m14-migration.md`](m14-migration.md) and M15 in
-[`m15-roads-trade.md`](m15-roads-trade.md). M15 (`m15-rng1-roads1`) keeps
+[`m14-migration.md`](m14-migration.md), M15 in
+[`m15-roads-trade.md`](m15-roads-trade.md), and M16 in
+[`m16-planned-layout.md`](m16-planned-layout.md). M15 (`m15-rng1-roads1`) keeps
 every M14 system and adds:
 
 - a canonical road overlay: per-tile integer wear and a grade (`None`, `Track`,

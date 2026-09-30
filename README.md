@@ -14,10 +14,13 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
-New worlds default to `m15-rng1-roads1`. It keeps M14's deterministic
-migration and daughter settlement and adds worn trails, paved roads, and trade
-between the two settlements. Existing saves keep their recorded rules and
-behavior. See the [M15 rules contract](docs/m15-roads-trade.md) and the
+New worlds default to `m16-rng1-planned1`. It keeps every M15 system (worn
+trails, paved roads, trade between two settlements) and adds a settlement
+planner: each village gets organic districts for homes, storage, crafts, and
+farmland, and storage grows through large storehouses in one yard instead of
+stockpiles scattered across the map. Existing saves keep their recorded rules
+and behavior. See the [M16 layout contract](docs/m16-planned-layout.md), the
+[M15 rules contract](docs/m15-roads-trade.md), and the
 [M14 rules contract](docs/m14-migration.md).
 
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
@@ -153,7 +156,7 @@ run:
 ```powershell
 dotnet run --project .\src\LittleAges.Headless\LittleAges.Headless.csproj `
   --configuration Release --no-build -- acceptance `
-  --seed 42 --years 100 --rules m15-rng1-roads1 `
+  --seed 42 --years 100 --rules m16-rng1-planned1 `
   --checkpoint-year 30 --database .\artifacts\acceptance.db `
   --output .\artifacts
 ```

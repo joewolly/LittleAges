@@ -84,6 +84,7 @@ export type Settlement = {
   completedFarms?: number
   completedGranaries?: number
   completedMarketplaces?: number
+  completedStorehouses?: number
   exposureGraceUntilMinute: number
   activeConstructionProject: Structure | null
   householdCount: number
@@ -170,7 +171,7 @@ export type Household = {
   childrenIds: string[]
 }
 
-export type StructureType = 'Shelter' | 'Stockpile' | 'Workshop' | 'Farm' | 'Granary' | 'Marketplace'
+export type StructureType = 'Shelter' | 'Stockpile' | 'Workshop' | 'Farm' | 'Granary' | 'Marketplace' | 'Storehouse'
 export type StructureStatus = 'UnderConstruction' | 'Complete'
 export type StructureContribution = { citizenId: string; constructionWork: number; woodDelivered: number; stoneDelivered: number }
 export type Structure = {
@@ -619,7 +620,7 @@ const ACTIONS = ['None', 'Idle', 'Rest', 'Wander', 'Explore', 'Eat', 'GatherFood
 const ACTION_PHASES = ['None', 'TravelToTarget', 'Perform', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction', 'WaitingForStorage'] as const
 const RESOURCE_TYPES = ['Food', 'Wood', 'Stone'] as const
 const OCCUPATIONS = ['Farmer', 'Woodcutter', 'Generalist', 'Forager', 'Lumberjack', 'Stoneworker', 'Builder', 'Hauler'] as const
-const STRUCTURE_TYPES = ['Shelter', 'Stockpile', 'Workshop', 'Farm', 'Granary', 'Marketplace'] as const
+const STRUCTURE_TYPES = ['Shelter', 'Stockpile', 'Workshop', 'Farm', 'Granary', 'Marketplace', 'Storehouse'] as const
 const STRUCTURE_STATUSES = ['UnderConstruction', 'Complete'] as const
 const RELATIONSHIP_LABELS = ['Partner', 'Family', 'Rival', 'Close Friend', 'Friend', 'Acquaintance', 'Stranger'] as const
 
@@ -970,6 +971,7 @@ export function parseSettlement(value: unknown): Settlement {
   const completedFarms = value.completedFarms === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedFarms, 'Invalid farm count.')
   const completedGranaries = value.completedGranaries === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedGranaries, 'Invalid granary count.')
   const completedMarketplaces = value.completedMarketplaces === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedMarketplaces, 'Invalid marketplace count.')
+  const completedStorehouses = value.completedStorehouses === undefined ? 0 : parseRequiredNonNegativeInteger(value.completedStorehouses, 'Invalid storehouse count.')
   const exposureGraceUntilMinute = value.exposureGraceUntilMinute === undefined ? 0 : parseRequiredNonNegativeInteger(value.exposureGraceUntilMinute, 'The server returned an invalid exposure grace minute.')
   const householdCount = value.householdCount === undefined ? 0 : parseRequiredNonNegativeInteger(value.householdCount, 'The server returned an invalid household count.')
   const activeHouseholdCount = value.activeHouseholdCount === undefined ? 0 : parseRequiredNonNegativeInteger(value.activeHouseholdCount, 'The server returned an invalid active household count.')
@@ -994,7 +996,7 @@ export function parseSettlement(value: unknown): Settlement {
     totalPopulation,
     remainingResources: remainingResources.map(parseSettlementResourceQuantity),
     resources: resources.map(parseSettlementResource),
-    storageCapacity, storageUsed, shelterCapacity, shelteredPopulation, unhousedPopulation, completedShelters, completedStockpiles, completedWorkshops, completedFarms, completedGranaries, completedMarketplaces, exposureGraceUntilMinute, activeConstructionProject,
+    storageCapacity, storageUsed, shelterCapacity, shelteredPopulation, unhousedPopulation, completedShelters, completedStockpiles, completedWorkshops, completedFarms, completedGranaries, completedMarketplaces, completedStorehouses, exposureGraceUntilMinute, activeConstructionProject,
     householdCount, activeHouseholdCount, partnershipCount, relationshipCount, friendCount, rivalCount, youngChildCount, childCount, adolescentCount, adultCount, elderCount,
   }
 }

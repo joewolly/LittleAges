@@ -104,9 +104,13 @@ public sealed partial class SimulationEngine
             .ToHashSet();
         var site = SiteLocation(settlementId);
         var costs = GetTravelCostsCached(site);
-        var candidates = World.Tiles.Where(t => AgricultureRules.Suitable(t) && t.Coordinate != site &&
+        var suitable = World.Tiles.Where(t => AgricultureRules.Suitable(t) && t.Coordinate != site &&
                 !occupied.Contains(t.Coordinate) && World.GetResources(t.Coordinate).Count == 0 && costs.ContainsKey(t.Coordinate) &&
-                (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForLocation(t.Coordinate) == settlementId))
+                (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForLocation(t.Coordinate) == settlementId));
+        // Planned farms prefer richer ground: every 200 points of potential yield is worth about a tile of walking.
+        if (PlannedLayoutEnabled(SimulationRulesVersion))
+            return SelectPlannedSite(settlementId, PlanDistrict.Farmland, SettlementPlanner.Footprint.Solitary, suitable, t => AgricultureRules.PotentialYield(t) / 200);
+        var candidates = suitable
             .OrderBy(t => costs[t.Coordinate]).ThenByDescending(AgricultureRules.PotentialYield)
             .ThenBy(t => t.Coordinate.Y).ThenBy(t => t.Coordinate.X);
         if (SimulationRulesVersion != SpacedSimulationRulesVersion && !UnifiedSimulationRulesEnabled(SimulationRulesVersion)) return candidates.Select(t => (TileCoordinate?)t.Coordinate).FirstOrDefault();
