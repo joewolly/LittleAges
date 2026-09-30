@@ -70,8 +70,9 @@ ledger instead of a scrolling document page.
 - household property, persistent occupations, a 20% communal contribution, physical
   marketplace barter, public-work payments in goods, and inheritance;
 - append-only factual history, biographies, structured memories, and monthly statistics;
-- a 3D historical diorama with canonical route interpolation, adaptive detail,
-  a supported 2D fallback, and responsive observer records;
+- a painted 2D isometric village with seasons, Shelters that change look as the
+  settlement learns, canonical route interpolation, a top-down map overview, and
+  responsive observer records;
 - browser observation of the map, settlement, households, citizens, relationships, history, and controls;
 - headless `run`, `benchmark`, and `acceptance` commands for 1-, 10-, 100-, and 500-year horizons.
 

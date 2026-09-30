@@ -144,6 +144,8 @@ th { color: #817468; font-weight: 400; text-transform: uppercase; letter-spacing
 .world-viewport:focus-visible { box-shadow: 0 0 0 3px #d69b66, 0 28px 80px rgba(39, 30, 20, .24); }
 .world-stage { position: absolute; inset: 0; }
 .world-stage canvas { display: block; width: 100% !important; height: 100% !important; touch-action: none; }
+.iso-world { position: absolute; inset: 0; cursor: grab; }
+.iso-world:active { cursor: grabbing; }
 .world-title { position: absolute; z-index: 4; top: 22px; left: 24px; max-width: min(480px, 55%); pointer-events: none; color: #fff8e9; text-shadow: 0 2px 14px rgba(36, 27, 18, .7); }
 .world-title span { font: 10px/1.2 'Trebuchet MS', sans-serif; text-transform: uppercase; letter-spacing: .18em; }
 .world-title h2 { margin: 5px 0 2px; font-size: clamp(1.55rem, 3vw, 2.5rem); font-weight: 400; }

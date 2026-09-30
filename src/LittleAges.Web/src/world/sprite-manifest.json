@@ -1,0 +1,893 @@
+{
+ "sprites": {
+  "autumn/berry": {
+   "anchorX": 0.625,
+   "anchorY": 0.725,
+   "height": 1.2,
+   "width": 1.25
+  },
+  "autumn/carehouse": {
+   "anchorX": 1.2512,
+   "anchorY": 1.5113,
+   "height": 2.1775,
+   "width": 2.4863
+  },
+  "autumn/construction": {
+   "anchorX": 1.5361,
+   "anchorY": 1.225,
+   "height": 1.9639,
+   "width": 2.8583
+  },
+  "autumn/farm-dormant": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "autumn/farm-fallow": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "autumn/farm-growing": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6608,
+   "height": 1.2783,
+   "width": 2.4917
+  },
+  "autumn/farm-harvest": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6933,
+   "height": 1.3217,
+   "width": 2.4917
+  },
+  "autumn/farm-planted": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "autumn/field-bare": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "autumn/field-green": {
+   "anchorX": 1.025,
+   "anchorY": 0.7,
+   "height": 1.25,
+   "width": 2.05
+  },
+  "autumn/field-ripe": {
+   "anchorX": 1.025,
+   "anchorY": 0.8,
+   "height": 1.35,
+   "width": 2.05
+  },
+  "autumn/field-sprout": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "autumn/granary": {
+   "anchorX": 1.2278,
+   "anchorY": 1.8778,
+   "height": 2.5639,
+   "width": 2.3292
+  },
+  "autumn/hearth": {
+   "anchorX": 0.8214,
+   "anchorY": 0.6607,
+   "height": 1.1071,
+   "width": 1.8214
+  },
+  "autumn/loom": {
+   "anchorX": 1.0,
+   "anchorY": 1.1875,
+   "height": 1.7188,
+   "width": 2.0
+  },
+  "autumn/marketplace": {
+   "anchorX": 1.5577,
+   "anchorY": 1.4567,
+   "height": 2.2644,
+   "width": 3.1154
+  },
+  "autumn/oak-1": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "autumn/oak-2": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "autumn/oak-3": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "autumn/pine": {
+   "anchorX": 0.75,
+   "anchorY": 1.65,
+   "height": 2.225,
+   "width": 1.475
+  },
+  "autumn/rocks": {
+   "anchorX": 0.75,
+   "anchorY": 0.775,
+   "height": 1.275,
+   "width": 1.475
+  },
+  "autumn/shelter-1": {
+   "anchorX": 1.44,
+   "anchorY": 1.305,
+   "height": 2.0925,
+   "width": 2.88
+  },
+  "autumn/shelter-2": {
+   "anchorX": 1.5867,
+   "anchorY": 1.82,
+   "height": 2.73,
+   "width": 3.1733
+  },
+  "autumn/shelter-3": {
+   "anchorX": 1.5208,
+   "anchorY": 1.8542,
+   "height": 2.6458,
+   "width": 3.0417
+  },
+  "autumn/shelter-4": {
+   "anchorX": 1.7818,
+   "anchorY": 1.7636,
+   "height": 2.5455,
+   "width": 3.2545
+  },
+  "autumn/shelter-5": {
+   "anchorX": 1.5455,
+   "anchorY": 2.6545,
+   "height": 3.4545,
+   "width": 3.1273
+  },
+  "autumn/stockpile": {
+   "anchorX": 0.9932,
+   "anchorY": 0.7557,
+   "height": 1.2739,
+   "width": 1.9864
+  },
+  "autumn/workshop": {
+   "anchorX": 1.5,
+   "anchorY": 1.7216,
+   "height": 2.5057,
+   "width": 3.0
+  },
+  "common/animal": {
+   "anchorX": 0.45,
+   "anchorY": 0.65,
+   "height": 0.9,
+   "width": 0.95
+  },
+  "common/predator": {
+   "anchorX": 0.45,
+   "anchorY": 0.65,
+   "height": 0.9,
+   "width": 0.95
+  },
+  "common/site": {
+   "anchorX": 0.6,
+   "anchorY": 1.75,
+   "height": 2.05,
+   "width": 1.125
+  },
+  "common/site-selected": {
+   "anchorX": 0.6,
+   "anchorY": 1.75,
+   "height": 2.05,
+   "width": 1.125
+  },
+  "people/villager-0-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-0-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-0-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-0-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-1-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-1-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-1-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-1-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-2-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-2-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-2-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-2-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-3-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-3-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-3-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-3-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-4-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-4-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-4-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-4-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-5-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-5-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-5-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-5-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-6-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-6-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-6-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-6-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "people/villager-7-empty": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-7-food": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-7-stone": {
+   "anchorX": 0.4,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.8
+  },
+  "people/villager-7-wood": {
+   "anchorX": 0.45,
+   "anchorY": 0.925,
+   "height": 1.175,
+   "width": 0.85
+  },
+  "spring/berry": {
+   "anchorX": 0.625,
+   "anchorY": 0.725,
+   "height": 1.2,
+   "width": 1.25
+  },
+  "spring/carehouse": {
+   "anchorX": 1.2512,
+   "anchorY": 1.5113,
+   "height": 2.1775,
+   "width": 2.4863
+  },
+  "spring/construction": {
+   "anchorX": 1.5361,
+   "anchorY": 1.225,
+   "height": 1.9639,
+   "width": 2.8583
+  },
+  "spring/farm-dormant": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "spring/farm-fallow": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "spring/farm-growing": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6608,
+   "height": 1.2783,
+   "width": 2.4917
+  },
+  "spring/farm-harvest": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6933,
+   "height": 1.3217,
+   "width": 2.4917
+  },
+  "spring/farm-planted": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "spring/field-bare": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "spring/field-green": {
+   "anchorX": 1.025,
+   "anchorY": 0.7,
+   "height": 1.25,
+   "width": 2.05
+  },
+  "spring/field-ripe": {
+   "anchorX": 1.025,
+   "anchorY": 0.8,
+   "height": 1.35,
+   "width": 2.05
+  },
+  "spring/field-sprout": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "spring/granary": {
+   "anchorX": 1.2278,
+   "anchorY": 1.8778,
+   "height": 2.5639,
+   "width": 2.3292
+  },
+  "spring/hearth": {
+   "anchorX": 0.8214,
+   "anchorY": 0.6607,
+   "height": 1.1071,
+   "width": 1.8214
+  },
+  "spring/loom": {
+   "anchorX": 1.0,
+   "anchorY": 1.1875,
+   "height": 1.7188,
+   "width": 2.0
+  },
+  "spring/marketplace": {
+   "anchorX": 1.5577,
+   "anchorY": 1.4567,
+   "height": 2.2644,
+   "width": 3.1154
+  },
+  "spring/oak-1": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "spring/oak-2": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "spring/oak-3": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "spring/pine": {
+   "anchorX": 0.75,
+   "anchorY": 1.65,
+   "height": 2.225,
+   "width": 1.475
+  },
+  "spring/rocks": {
+   "anchorX": 0.75,
+   "anchorY": 0.775,
+   "height": 1.275,
+   "width": 1.475
+  },
+  "spring/shelter-1": {
+   "anchorX": 1.44,
+   "anchorY": 1.305,
+   "height": 2.0925,
+   "width": 2.88
+  },
+  "spring/shelter-2": {
+   "anchorX": 1.5867,
+   "anchorY": 1.82,
+   "height": 2.73,
+   "width": 3.1733
+  },
+  "spring/shelter-3": {
+   "anchorX": 1.5208,
+   "anchorY": 1.8542,
+   "height": 2.6458,
+   "width": 3.0417
+  },
+  "spring/shelter-4": {
+   "anchorX": 1.7818,
+   "anchorY": 1.7636,
+   "height": 2.5455,
+   "width": 3.2545
+  },
+  "spring/shelter-5": {
+   "anchorX": 1.5455,
+   "anchorY": 2.6545,
+   "height": 3.4545,
+   "width": 3.1273
+  },
+  "spring/stockpile": {
+   "anchorX": 0.9932,
+   "anchorY": 0.7557,
+   "height": 1.2739,
+   "width": 1.9864
+  },
+  "spring/workshop": {
+   "anchorX": 1.5,
+   "anchorY": 1.7216,
+   "height": 2.5057,
+   "width": 3.0
+  },
+  "summer/berry": {
+   "anchorX": 0.625,
+   "anchorY": 0.725,
+   "height": 1.2,
+   "width": 1.25
+  },
+  "summer/carehouse": {
+   "anchorX": 1.2512,
+   "anchorY": 1.5113,
+   "height": 2.1775,
+   "width": 2.4863
+  },
+  "summer/construction": {
+   "anchorX": 1.5361,
+   "anchorY": 1.225,
+   "height": 1.9639,
+   "width": 2.8583
+  },
+  "summer/farm-dormant": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "summer/farm-fallow": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "summer/farm-growing": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6608,
+   "height": 1.2783,
+   "width": 2.4917
+  },
+  "summer/farm-harvest": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6933,
+   "height": 1.3217,
+   "width": 2.4917
+  },
+  "summer/farm-planted": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "summer/field-bare": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "summer/field-green": {
+   "anchorX": 1.025,
+   "anchorY": 0.7,
+   "height": 1.25,
+   "width": 2.05
+  },
+  "summer/field-ripe": {
+   "anchorX": 1.025,
+   "anchorY": 0.8,
+   "height": 1.35,
+   "width": 2.05
+  },
+  "summer/field-sprout": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "summer/granary": {
+   "anchorX": 1.2278,
+   "anchorY": 1.8778,
+   "height": 2.5639,
+   "width": 2.3292
+  },
+  "summer/hearth": {
+   "anchorX": 0.8214,
+   "anchorY": 0.6607,
+   "height": 1.1071,
+   "width": 1.8214
+  },
+  "summer/loom": {
+   "anchorX": 1.0,
+   "anchorY": 1.1875,
+   "height": 1.7188,
+   "width": 2.0
+  },
+  "summer/marketplace": {
+   "anchorX": 1.5577,
+   "anchorY": 1.4567,
+   "height": 2.2644,
+   "width": 3.1154
+  },
+  "summer/oak-1": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "summer/oak-2": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "summer/oak-3": {
+   "anchorX": 0.8,
+   "anchorY": 1.7,
+   "height": 2.4,
+   "width": 1.625
+  },
+  "summer/pine": {
+   "anchorX": 0.75,
+   "anchorY": 1.65,
+   "height": 2.225,
+   "width": 1.475
+  },
+  "summer/rocks": {
+   "anchorX": 0.75,
+   "anchorY": 0.775,
+   "height": 1.275,
+   "width": 1.475
+  },
+  "summer/shelter-1": {
+   "anchorX": 1.44,
+   "anchorY": 1.305,
+   "height": 2.0925,
+   "width": 2.88
+  },
+  "summer/shelter-2": {
+   "anchorX": 1.5867,
+   "anchorY": 1.82,
+   "height": 2.73,
+   "width": 3.1733
+  },
+  "summer/shelter-3": {
+   "anchorX": 1.5208,
+   "anchorY": 1.8542,
+   "height": 2.6458,
+   "width": 3.0417
+  },
+  "summer/shelter-4": {
+   "anchorX": 1.7818,
+   "anchorY": 1.7636,
+   "height": 2.5455,
+   "width": 3.2545
+  },
+  "summer/shelter-5": {
+   "anchorX": 1.5455,
+   "anchorY": 2.6545,
+   "height": 3.4545,
+   "width": 3.1273
+  },
+  "summer/stockpile": {
+   "anchorX": 0.9932,
+   "anchorY": 0.7557,
+   "height": 1.2739,
+   "width": 1.9864
+  },
+  "summer/workshop": {
+   "anchorX": 1.5,
+   "anchorY": 1.7216,
+   "height": 2.5057,
+   "width": 3.0
+  },
+  "winter/berry": {
+   "anchorX": 0.625,
+   "anchorY": 0.75,
+   "height": 1.2,
+   "width": 1.25
+  },
+  "winter/carehouse": {
+   "anchorX": 1.2512,
+   "anchorY": 1.5113,
+   "height": 2.1775,
+   "width": 2.4863
+  },
+  "winter/construction": {
+   "anchorX": 1.5361,
+   "anchorY": 1.225,
+   "height": 1.9639,
+   "width": 2.8583
+  },
+  "winter/farm-dormant": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "winter/farm-fallow": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "winter/farm-growing": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6608,
+   "height": 1.2783,
+   "width": 2.4917
+  },
+  "winter/farm-harvest": {
+   "anchorX": 1.2458,
+   "anchorY": 0.6933,
+   "height": 1.3217,
+   "width": 2.4917
+  },
+  "winter/farm-planted": {
+   "anchorX": 1.2458,
+   "anchorY": 0.65,
+   "height": 1.2675,
+   "width": 2.4917
+  },
+  "winter/field-bare": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "winter/field-green": {
+   "anchorX": 1.025,
+   "anchorY": 0.7,
+   "height": 1.25,
+   "width": 2.05
+  },
+  "winter/field-ripe": {
+   "anchorX": 1.025,
+   "anchorY": 0.8,
+   "height": 1.35,
+   "width": 2.05
+  },
+  "winter/field-sprout": {
+   "anchorX": 1.025,
+   "anchorY": 0.65,
+   "height": 1.225,
+   "width": 2.05
+  },
+  "winter/granary": {
+   "anchorX": 1.2278,
+   "anchorY": 1.8778,
+   "height": 2.5639,
+   "width": 2.3292
+  },
+  "winter/hearth": {
+   "anchorX": 0.8214,
+   "anchorY": 0.6607,
+   "height": 1.1071,
+   "width": 1.8214
+  },
+  "winter/loom": {
+   "anchorX": 1.0,
+   "anchorY": 1.1875,
+   "height": 1.7188,
+   "width": 2.0
+  },
+  "winter/marketplace": {
+   "anchorX": 1.5577,
+   "anchorY": 1.4567,
+   "height": 2.2644,
+   "width": 3.1154
+  },
+  "winter/oak-1": {
+   "anchorX": 0.8,
+   "anchorY": 1.625,
+   "height": 2.325,
+   "width": 1.625
+  },
+  "winter/oak-2": {
+   "anchorX": 0.8,
+   "anchorY": 1.625,
+   "height": 2.325,
+   "width": 1.625
+  },
+  "winter/oak-3": {
+   "anchorX": 0.8,
+   "anchorY": 1.625,
+   "height": 2.325,
+   "width": 1.625
+  },
+  "winter/pine": {
+   "anchorX": 0.75,
+   "anchorY": 1.65,
+   "height": 2.225,
+   "width": 1.475
+  },
+  "winter/rocks": {
+   "anchorX": 0.75,
+   "anchorY": 0.775,
+   "height": 1.275,
+   "width": 1.475
+  },
+  "winter/shelter-1": {
+   "anchorX": 1.44,
+   "anchorY": 1.305,
+   "height": 2.0925,
+   "width": 2.88
+  },
+  "winter/shelter-2": {
+   "anchorX": 1.5867,
+   "anchorY": 1.82,
+   "height": 2.73,
+   "width": 3.1733
+  },
+  "winter/shelter-3": {
+   "anchorX": 1.5208,
+   "anchorY": 1.8542,
+   "height": 2.6458,
+   "width": 3.0417
+  },
+  "winter/shelter-4": {
+   "anchorX": 1.7818,
+   "anchorY": 1.7636,
+   "height": 2.5455,
+   "width": 3.2545
+  },
+  "winter/shelter-5": {
+   "anchorX": 1.5455,
+   "anchorY": 2.6545,
+   "height": 3.4545,
+   "width": 3.1273
+  },
+  "winter/stockpile": {
+   "anchorX": 0.9932,
+   "anchorY": 0.7557,
+   "height": 1.2739,
+   "width": 1.9864
+  },
+  "winter/workshop": {
+   "anchorX": 1.5,
+   "anchorY": 1.7216,
+   "height": 2.5057,
+   "width": 3.0
+  }
+ },
+ "tileHalfWidth": 1
+}
