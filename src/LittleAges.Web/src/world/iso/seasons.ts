@@ -24,8 +24,8 @@ export type TerrainPalette = {
 
 /** Ground colours per season. Pairs alternate in a checkerboard like a lawn. */
 export const TERRAIN_PALETTES: Record<Season, TerrainPalette> = {
-  spring: { grass: ['#8acb4c', '#82c345'], forest: ['#6fb13f', '#69ab3b'], wilderness: ['#4f8f36', '#4a8932'], rocky: ['#b9b09a', '#b1a893'], water: ['#56b8de', '#5cc0e4'], shore: ['#e6cf92', '#e1c887'], ripple: '#bfe9f7', pebble: '#8f887c', backdrop: '#5e9a36' },
-  summer: { grass: ['#9ccf4a', '#95c843'], forest: ['#7cb33c', '#76ad38'], wilderness: ['#588f33', '#538a30'], rocky: ['#c2b79c', '#bab095'], water: ['#3fb0e0', '#48b8e6'], shore: ['#efd592', '#e9cd86'], ripple: '#c9f0ff', pebble: '#958d7e', backdrop: '#6c9e34' },
-  autumn: { grass: ['#b5b54e', '#acad48'], forest: ['#9b9f42', '#95993e'], wilderness: ['#77803a', '#727b37'], rocky: ['#b3a78e', '#aca088'], water: ['#4d9fbf', '#539fc4'], shore: ['#dcc48c', '#d6bc82'], ripple: '#b4dcea', pebble: '#877f71', backdrop: '#7f8a3a' },
-  winter: { grass: ['#f1f5f9', '#e8eef4'], forest: ['#e3eaf0', '#dde5ec'], wilderness: ['#d3dde6', '#cdd8e2'], rocky: ['#d8d9d8', '#d0d2d1'], water: ['#c9e6f2', '#c1e0ee'], shore: ['#e9edf1', '#e2e8ee'], ripple: '#ffffff', pebble: '#9ea4a8', backdrop: '#cfd9e2' },
+  spring: { grass: ['#8fd14e', '#87ca48'], forest: ['#7fc446', '#79bf42'], wilderness: ['#68ae3d', '#63a93a'], rocky: ['#cfc6b0', '#c8bfa9'], water: ['#56c0e8', '#5dc7ee'], shore: ['#efd99a', '#ead28f'], ripple: '#d2f2ff', pebble: '#a39b8e', backdrop: '#6fb13f' },
+  summer: { grass: ['#a2d64c', '#9ad046'], forest: ['#8cc443', '#86bf3f'], wilderness: ['#70ad3a', '#6ba837'], rocky: ['#d4c9ad', '#cdc2a6'], water: ['#3fbbee', '#48c2f2'], shore: ['#f5dc98', '#f0d58c'], ripple: '#dcf6ff', pebble: '#a39a89', backdrop: '#7fb83c' },
+  autumn: { grass: ['#c2bf52', '#bab84c'], forest: ['#abab47', '#a5a543'], wilderness: ['#8f943f', '#8a8f3c'], rocky: ['#c9bda2', '#c2b69b'], water: ['#4fb0d6', '#56b6db'], shore: ['#e8cf93', '#e2c88a'], ripple: '#c8ebf6', pebble: '#978e7e', backdrop: '#98a043' },
+  winter: { grass: ['#f1f5f9', '#e8eef4'], forest: ['#e3eaf0', '#dde5ec'], wilderness: ['#d3dde6', '#cdd8e2'], rocky: ['#e0e2e1', '#d9dbda'], water: ['#cdeaf7', '#c5e4f3'], shore: ['#e9edf1', '#e2e8ee'], ripple: '#ffffff', pebble: '#9ea4a8', backdrop: '#cfd9e2' },
 }

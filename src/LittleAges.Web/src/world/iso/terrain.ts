@@ -37,8 +37,8 @@ export function tileColor(map: WorldMap, palette: TerrainPalette, x: number, y: 
     : terrain === ROCKY ? palette.rocky[parity]
     : palette.grass[parity]
   if (terrain === FRESHWATER) return base
-  // Gentle relief: high ground a little lighter, hollows a little darker.
-  return mix(base, (map.elevation[y * map.width + x] / 10000 - 0.5) * 0.14)
+  // Gentle relief: high ground catches a little more sun. Low ground keeps its colour, so the land stays bright.
+  return mix(base, Math.max(0, map.elevation[y * map.width + x] / 10000 - 0.4) * 0.12)
 }
 
 /** Draws one chunk of flat diamond tiles at `scale` pixels per unit. Returns null outside the map. */

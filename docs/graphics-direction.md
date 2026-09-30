@@ -25,8 +25,8 @@ Cosmetic values are neither persisted nor fingerprinted.
 - Fixed-angle isometric projection (`src/world/iso/projection.ts`). A world tile
   is a diamond two units wide and one unit tall; world tile coordinates are tile
   centres. There is no camera rotation.
-- The ground is flat. Canonical elevation only lightens high ground and darkens
-  hollows slightly.
+- The ground is flat. Canonical elevation only lightens high ground slightly, so
+  low land keeps its full colour.
 - The 160×160 terrain is drawn in cached 16×16-tile chunks, rasterized once per
   zoom level and season. Sprites (buildings, resources, decorative trees, fields,
   facilities, animals, villagers, settlement-site markers) are bucketed by chunk,
@@ -87,7 +87,9 @@ units. Do not hand-edit generated sprites or the manifest.
 
 The kit is 140 sprites and about 1.4 MB of SVG; a session loads one season
 (about 360 KB) plus the shared people and markers (about 220 KB). Sprites are
-rasterized at the current zoom and cached, so they stay sharp when zoomed.
+rasterized at the current zoom and cached, so they stay sharp when zoomed. A light
+saturation, brightness and contrast boost is baked in at that step, so it costs
+nothing per frame; weather overlays still draw on top.
 
 ## Game HUD
 

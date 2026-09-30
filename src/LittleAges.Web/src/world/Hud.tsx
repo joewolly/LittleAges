@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { Citizen, Settlement } from '../api'
 import type { LivingWorld } from '../living'
 import { livingLabel } from '../living'
-import { seasonAt } from './iso/seasons'
+import { seasonAt, type Season } from './iso/seasons'
 
 const ICON_PATHS = {
   book: <><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11c1.1 0 2 .9 2 2v14c0-1.1-.9-2-2-2H4z" /><path d="M22 5.5c0-.8-.7-1.5-1.5-1.5H15c-1.1 0-2 .9-2 2v14c0-1.1.9-2 2-2h7z" /></>,
@@ -31,8 +31,8 @@ const NEXT_SEASON = { spring: 'summer', summer: 'autumn', autumn: 'winter', wint
 const MINUTES_PER_DAY = 1440
 
 /** Top-left badge: the settlement, its season, and the weather, with progress toward the next season. */
-export function SettlementBadge({ worldMinute, living, hint }: { worldMinute: number; living?: LivingWorld | null; hint: string }) {
-  const season = seasonAt(worldMinute)
+export function SettlementBadge({ worldMinute, living, hint, previewSeason }: { worldMinute: number; living?: LivingWorld | null; hint: string; previewSeason?: Season }) {
+  const season = previewSeason ?? seasonAt(worldMinute)
   const dayOfSeason = Math.floor(worldMinute / MINUTES_PER_DAY) % 90
   const remaining = 90 - dayOfSeason
   const weatherIcon: HudIconName = living?.weather === 'Rain' ? 'rain' : living?.weather === 'ColdSpell' ? 'snow' : SEASON_ICONS[season]

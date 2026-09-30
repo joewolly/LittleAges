@@ -7,6 +7,7 @@ export type SpritePlacement = { width: number; height: number; anchorX: number; 
 const placements = spriteManifest.sprites as Record<string, SpritePlacement>
 const SPRITE_ROOT = '/assets/sprites'
 const MAX_RASTERS = 320
+const SPRITE_POP = 'saturate(1.18) brightness(1.03) contrast(1.04)'
 
 export function spritePlacement(key: string): SpritePlacement | null {
   return placements[key] ?? null
@@ -70,6 +71,8 @@ export class SpriteKit {
     canvas.height = Math.max(1, Math.ceil(placement.height * bucket))
     const context = canvas.getContext('2d')
     if (!context) return null
+    // A little extra colour and light, baked in once per zoom level so it costs nothing per frame.
+    context.filter = SPRITE_POP
     context.drawImage(image, 0, 0, canvas.width, canvas.height)
     // Keep a bounded set of bitmaps; zooming to a new level gradually replaces the old ones.
     if (this.rasters.size >= MAX_RASTERS) this.rasters.delete(this.rasters.keys().next().value as string)

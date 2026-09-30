@@ -88,7 +88,7 @@ export function WorldViewport(props: WorldViewportProps) {
 
   return <section className="world-viewport" aria-labelledby="world-heading" tabIndex={0} onKeyDown={onKeyDown}>
     <div className="world-hud-top">
-      <SettlementBadge worldMinute={props.worldMinute ?? 0} living={props.living} hint={overview && props.living ? 'Gold fields are ready to harvest · outlined sites have active work' : 'Drag to pan · scroll or pinch to zoom · tap a villager to follow their day'} />
+      <SettlementBadge worldMinute={props.worldMinute ?? 0} living={props.living} previewSeason={import.meta.env.DEV ? props.previewSeason : undefined} hint={overview && props.living ? 'Gold fields are ready to harvest · outlined sites have active work' : 'Drag to pan · scroll or pinch to zoom · tap a villager to follow their day'} />
       <div className="world-hud-right">
         <ResourceMeters settlement={props.settlement} />
     {settlementSites.length > 1 && <div className="world-site-control" aria-label="Settlement site controls">
