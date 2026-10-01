@@ -18,7 +18,7 @@ public sealed class M14MigrationFoundationTests
         var m13Snapshot = m13.CreatePersistenceSnapshot();
         var m14Snapshot = m14.CreatePersistenceSnapshot();
 
-        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.True(SimulationEngine.UnifiedSimulationRulesEnabled(SimulationEngine.MigrationSimulationRulesVersion));
         Assert.True(SimulationEngine.LivingSystemsEnabled(SimulationEngine.MigrationSimulationRulesVersion));
         Assert.True(SimulationEngine.SocialSystemsEnabled(SimulationEngine.MigrationSimulationRulesVersion));

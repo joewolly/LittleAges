@@ -183,7 +183,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
             entity.ToTable("historical_events", table =>
             {
                 table.HasCheckConstraint("CK_historical_events_id", "id > 0");
-                table.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 28 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
+                table.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 31 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
             });
             entity.HasKey(row => row.Id);
             entity.Property(row => row.Id).HasColumnName("id").ValueGeneratedNever();
@@ -264,7 +264,7 @@ public sealed class LittleAgesDbContext(DbContextOptions<LittleAgesDbContext> op
 
         modelBuilder.Entity<CitizenMemoryRow>(entity =>
         {
-            entity.ToTable("memories", table => table.HasCheckConstraint("CK_memories_values", "citizen_id > 0 AND event_id > 0 AND memory_type BETWEEN 1 AND 6 AND importance BETWEEN 0 AND 5 AND emotional_valence BETWEEN -10000 AND 10000 AND created_minute >= 0"));
+            entity.ToTable("memories", table => table.HasCheckConstraint("CK_memories_values", "citizen_id > 0 AND event_id > 0 AND memory_type BETWEEN 1 AND 7 AND importance BETWEEN 0 AND 5 AND emotional_valence BETWEEN -10000 AND 10000 AND created_minute >= 0"));
             entity.HasKey(row => new { row.CitizenId, row.EventId, row.MemoryType });
             entity.Property(row => row.CitizenId).HasColumnName("citizen_id");
             entity.Property(row => row.EventId).HasColumnName("event_id");

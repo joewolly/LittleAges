@@ -27,9 +27,10 @@ from the simulation without inventing events.
 
 ## People and society
 
-- **Traditions and festivals.** Repeated shared experiences could become local
-  customs that affect social bonds, work, and how later generations remember a
-  place.
+- **Traditions and festivals.** The first shared harvest afternoon is
+  implemented in [M16](m16-festivals.md), with physical attendance, optional
+  feasts, timed family visits, and factual memories. Customs that evolve across
+  generations remain an open idea.
 - **Apprenticeship and schools.** Skilled citizens could teach particular
   crafts to younger people, changing what a settlement can make after its
   founders die.
@@ -47,8 +48,7 @@ from the simulation without inventing events.
   family visits. Existing M14 saves keep their recorded rules.
 - **Roads and trade routes.** Implemented in [M15](m15-roads-trade.md): worn
   tracks and trails from foot traffic, roads paved with household stone, and
-  monthly trader journeys between the two settlements; new worlds use M15 by
-  default. Road decay, ruins,
+  monthly trader journeys between the two settlements. Road decay, ruins,
   dynamic prices, and caravans remain open ideas.
 - **Visitors and newcomers.** Travelers could bring skills, goods, and stories
   from beyond the starting settlement, then choose whether to stay.

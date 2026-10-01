@@ -65,7 +65,7 @@ namespace LittleAges.Persistence.Migrations
 
                     b.ToTable("memories", null, t =>
                         {
-                            t.HasCheckConstraint("CK_memories_values", "citizen_id > 0 AND event_id > 0 AND memory_type BETWEEN 1 AND 6 AND importance BETWEEN 0 AND 5 AND emotional_valence BETWEEN -10000 AND 10000 AND created_minute >= 0");
+                            t.HasCheckConstraint("CK_memories_values", "citizen_id > 0 AND event_id > 0 AND memory_type BETWEEN 1 AND 7 AND importance BETWEEN 0 AND 5 AND emotional_valence BETWEEN -10000 AND 10000 AND created_minute >= 0");
                         });
                 });
 
@@ -379,7 +379,7 @@ namespace LittleAges.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_historical_events_id", "id > 0");
 
-                            t.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 28 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
+                            t.HasCheckConstraint("CK_historical_events_values", "world_minute >= 0 AND event_type BETWEEN 1 AND 31 AND importance BETWEEN 0 AND 5 AND origin IN (1,2) AND schema_version = 1 AND ((location_x IS NULL AND location_y IS NULL) OR (location_x >= 0 AND location_y >= 0))");
                         });
                 });
 

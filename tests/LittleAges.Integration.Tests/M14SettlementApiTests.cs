@@ -162,7 +162,7 @@ public sealed class M14SettlementApiTests
     public async Task ConfiguredServerCanCreateAnExplicitM14WorldAndDefaultTracksCurrentRules()
     {
         var defaults = ServerOptions.FromConfiguration(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>()).Build());
-        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, defaults.NewWorldRules);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, defaults.NewWorldRules);
         Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, defaults.NewWorldRules);
 
         var dataRoot = CreateDataRoot();

@@ -1,6 +1,7 @@
 # M15 - Roads and intersite trade
 
-**Status:** implemented on `codex/m15-roads-trade`; `m15-rng1-roads1` is the
+**Status:** implemented and published as v0.4.0. `m15-rng1-roads1` remains
+available explicitly; [M16 festivals](m16-festivals.md) now inherit it as the
 new-world default. Phase 6 calibrated the values once marked *initial*; the
 measurements are under "Phase 6 calibration" and "Acceptance evidence".
 
@@ -24,12 +25,12 @@ decline.
 ## Compatibility and scope
 
 After the phase 6 acceptance runs, `m15-rng1-roads1` became the new-world
-default. `m14-rng1-migration1` can still be selected with `--rules` in the
+default; M16 later succeeded it. M14 and M15 can still be selected with `--rules` in the
 headless runner or with the server's `NewWorldRules` setting. Existing saves
 keep their recorded rules and behavior, and M14 worlds stay M14. Migrating an existing
 world to M15 is out of scope. M15 includes every M14 system:
 `MigrationSystemsEnabled` and `UnifiedSimulationRulesEnabled` return true for
-both identifiers, and a new `RoadSystemsEnabled` returns true only for M15.
+both identifiers and M16. `RoadSystemsEnabled` returns true for M15 and M16.
 
 Worlds on M14 and earlier rules must use the unchanged pathfinder, travel-cost,
 and step-cost code paths. Their fingerprints and acceptance evidence must not

@@ -6,7 +6,7 @@ export function citizenAnimation(citizen: Pick<Citizen, 'currentAction' | 'actio
   const travelling = ['TravelToTarget', 'ReturnToStockpile', 'TravelToStockpile', 'TransportToConstruction'].includes(citizen.actionPhase)
   if (travelling) return citizen.carriedResource !== null || work && (work.cargoInTransit || work.phase === 'Travel' && !work.suppliesDelivered && work.ingredients.length > 0) ? 'Carry' : 'Walk'
   if (citizen.currentAction === 'LivingWork' && work) {
-    if (['Care', 'Teach', 'Recreate', 'RepairRelationship'].includes(work.kind)) return 'Socialize'
+    if (['Care', 'Teach', 'Recreate', 'RepairRelationship', 'AttendFestival'].includes(work.kind)) return 'Socialize'
     if (['Sow', 'Tend', 'Harvest', 'Hunt', 'EstablishField'].includes(work.kind)) return 'Gather'
     return 'Build'
   }

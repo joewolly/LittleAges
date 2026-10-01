@@ -20,11 +20,13 @@ public static class LivingValidation
         try { state = LivingWorldCodec.Deserialize(snapshot.LivingStateJson!); }
         catch (JsonException error) { throw new ArgumentException("Living-world JSON is invalid.", nameof(snapshot), error); }
         Require(LivingWorldCodec.Serialize(state) == snapshot.LivingStateJson, "Living-world JSON must be complete and canonical.");
+        FestivalValidation.Validate(snapshot, state);
         var minute = snapshot.WorldMinute.Value;
         var migration = snapshot.MigrationState;
         var workOrderSites = migration?.WorkOrderOwners.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
         var citizenSites = migration?.CitizenResidences.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
         var structureSites = migration?.StructureOwners.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
+        var facilitySites = migration?.FacilityOwners.ToDictionary(x => x.EntityId, x => x.SettlementId) ?? new Dictionary<long, long>();
         long SiteForOrder(LivingWorkOrder order) => workOrderSites.GetValueOrDefault(order.Id, 1);
         TileCoordinate StockpileFor(long siteId) => siteId == MigrationDaughterSettlementState.SettlementId && migration?.DaughterSettlement is { } daughter
             ? daughter.Site
@@ -72,7 +74,9 @@ public static class LivingValidation
         Require(occupied.Distinct().Count() == occupied.Length && occupied.All(ValidLocation), "Living sites overlap or are not walkable.");
         foreach (var field in state.Fields)
             Require(field.SownMinute >= -1 && field.SownMinute <= minute && field.LastTendedMinute >= 0 && field.LastTendedMinute <= minute && field.Growth is >= 0 and <= 10000 && field.Moisture is >= 0 and <= 10000 && field.Condition is >= 0 and <= 10000 && field.Harvests >= 0 && field.YieldRemaining is >= 0 and <= 900 && (field.YieldRemaining == 0 || field.Growth == 10000 && field.SownMinute >= 0), "Field state is invalid.");
-        Require(state.Facilities.Count <= 18 && state.Facilities.All(x => Enum.IsDefined(x.Kind) && x.CompletedMinute >= 0 && x.CompletedMinute <= minute), "Facilities are invalid.");
+        // The planner permits 16 hearths, one loom, and one care house per site.
+        // Single-settlement rules still group every facility under site 1.
+        Require(state.Facilities.GroupBy(x => facilitySites.GetValueOrDefault(x.Id, 1)).All(site => site.Count() <= 18) && state.Facilities.All(x => Enum.IsDefined(x.Kind) && x.CompletedMinute >= 0 && x.CompletedMinute <= minute), "Facilities are invalid.");
         Require(state.Animals.Count <= 40 && state.Animals.All(x => ValidLocation(x.Location) && x.Energy is > 0 and <= 10000 && x.BornMinute >= 0 && x.BornMinute <= minute), "Wildlife is invalid.");
         Require(state.Orders.Where(x => x.CitizenId is not null).Select(x => x.CitizenId).Distinct().Count() == state.Orders.Count(x => x.CitizenId is not null), "Citizens cannot own multiple work claims.");
         foreach (var order in state.Orders)
@@ -108,7 +112,7 @@ public static class LivingValidation
                 else
                     Require(worker.ActionPhase == CitizenActionPhase.TravelToTarget && worker.ActionTarget == (order.Phase == LivingWorkPhase.Collect ? order.SupplyLocation : order.Location), "Supply movement does not match the work phase.");
             }
-            if (order.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.Recreate or LivingWorkKind.RepairRelationship or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing)
+            if (order.Kind is LivingWorkKind.Care or LivingWorkKind.Teach or LivingWorkKind.Recreate or LivingWorkKind.RepairRelationship or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing or LivingWorkKind.AttendFestival)
                 Require(order.SubjectId is { } subject && citizens.ContainsKey(subject), "Work recipient is unknown.");
             if (order.Kind is LivingWorkKind.Sow or LivingWorkKind.Tend or LivingWorkKind.Harvest)
             {
@@ -137,7 +141,8 @@ public static class LivingValidation
                     var capacity = (long)communal.BaseStorageCapacity +
                         siteStructures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus +
                         siteStructures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
-                    var livingUsed = livingStock.Sum(x => (long)x.Quantity) + siteOrders.Sum(x =>
+                    var festivalUsed = state.Festivals?.Where(x => x.SettlementId == siteId).Sum(x => (long)x.ReservedFood) ?? 0;
+                    var livingUsed = festivalUsed + livingStock.Sum(x => (long)x.Quantity) + siteOrders.Sum(x =>
                         x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
                     var m12Stored = economy.StoredGoodsAt(communal, migration, siteId);
                     var m12Cargo = snapshot.Citizens.Where(x => x.IsAlive && x.CarriedResourceType is not null && citizenSites.GetValueOrDefault(x.Id.Value, 1) == siteId)

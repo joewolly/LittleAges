@@ -12,10 +12,12 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
-New worlds default to `m15-rng1-roads1`. It keeps M14's deterministic
-migration and daughter settlement and adds worn trails, paved roads, and trade
-between the two settlements. Existing saves keep their recorded rules and
-behavior. See the [M15 rules contract](docs/m15-roads-trade.md) and the
+New worlds default to `m16-rng1-festivals1`. It keeps M15's roads, trade,
+migration, and daughter settlement and adds annual harvest gatherings,
+optional feasts, timed family visits, personal memories, and temporary
+festival decorations. Existing saves keep their recorded rules and behavior.
+See the [M16 rules contract](docs/m16-festivals.md), the
+[M15 rules contract](docs/m15-roads-trade.md), and the
 [M14 rules contract](docs/m14-migration.md).
 
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
@@ -68,6 +70,7 @@ ledger instead of a scrolling document page.
 - household property, persistent occupations, a 20% communal contribution, physical
   marketplace barter, public-work payments in goods, and inheritance;
 - append-only factual history, biographies, structured memories, and monthly statistics;
+- annual harvest festivals, optional shared feasts, and family visits under M16 rules;
 - a 3D historical diorama with canonical route interpolation, adaptive detail,
   a supported 2D fallback, and responsive observer records;
 - browser observation of the map, settlement, households, citizens, relationships, history, and controls;
@@ -150,13 +153,15 @@ run:
 ```powershell
 dotnet run --project .\src\LittleAges.Headless\LittleAges.Headless.csproj `
   --configuration Release --no-build -- acceptance `
-  --seed 42 --years 100 --rules m15-rng1-roads1 `
-  --checkpoint-year 30 --database .\artifacts\acceptance.db `
+  --seed 42 --years 100 --rules m16-rng1-festivals1 `
+  --checkpoint-year 80 --database .\artifacts\acceptance.db `
   --output .\artifacts
 ```
 
 See the [`v0.1 acceptance report`](./docs/v0.1-acceptance-report.md) for the
 exact measured results, fingerprints, invariants, and remaining manual notes.
+The [M16 contract](./docs/m16-festivals.md) records festival validation and
+save/reload evidence.
 
 ## Documentation
 

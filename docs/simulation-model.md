@@ -579,3 +579,17 @@ every M14 system and adds:
 The headless report adds an "M15 roads and trade" summary for M15 worlds. It
 is operational evidence and is not part of the deterministic report
 fingerprint.
+
+## M16 harvest festival contract
+
+[`m16-festivals.md`](m16-festivals.md) specifies `m16-rng1-festivals1`, which
+inherits M15 and adds annual harvest afternoons at both settlements. Attendance
+requires physical time at the center and grants benefits once per occurrence.
+Feast reservations remain in storage and food conservation accounting; unused
+portions return at closing. Existing family visits are timed for the gathering
+and retain ordinary provisions, needs, and return journeys.
+
+Festival state is optional canonical Living JSON for earlier rules, with
+appended event values 29-31 and memory value 7. An additive SQLite migration
+preserves earlier worlds' recorded rules and history. The observer reports
+factual attendance and renders temporary scenery without mutating the world.

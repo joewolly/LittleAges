@@ -10,8 +10,8 @@ public sealed partial class SimulationEngine
     private bool LivingEnabled => LivingSystemsEnabled(SimulationRulesVersion);
     public string? LivingStateJson => _living is null ? null : LivingWorldCodec.Serialize(_living);
     public System.Text.Json.JsonElement? CreateLivingObservation() => _living is null ? null : LivingWorldCodec.Observe(_living, CurrentMinute.Value, SimulationRulesVersion);
-    private int LivingStoredQuantity => _living is null ? 0 : checked(_living.Stock.Sum(x => x.Quantity) + _living.Orders.Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
-    private int LivingStoredQuantityAt(long settlementId) => checked(LivingGoodsFor(settlementId).Sum(x => x.Quantity) + OrdersAt(settlementId)
+    private int LivingStoredQuantity => _living is null ? 0 : checked(FestivalReservedAt(1) + _living.Stock.Sum(x => x.Quantity) + _living.Orders.Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
+    private int LivingStoredQuantityAt(long settlementId) => checked(FestivalReservedAt(settlementId) + LivingGoodsFor(settlementId).Sum(x => x.Quantity) + OrdersAt(settlementId)
         .Sum(x => x.Cargo.Sum(y => y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => y.Quantity) : 0)));
     private int LivingFreeStorage => checked((int)Math.Max(0L, (long)StorageCapacity - Settlement.StorageUsed - LivingStoredQuantity - (EconomyEnabled ? OwnedStoredGoods.Total + TradeCargoReserved : 0L)));
     private long M12CitizenCargoAt(long settlementId) => MigrationSystemsEnabled(SimulationRulesVersion)
@@ -37,6 +37,7 @@ public sealed partial class SimulationEngine
     {
         _living = new LivingWorldState { Stock = Enum.GetValues<LivingGood>().Select(x => new LivingStock(x, 0)).ToList() };
         SynchronizeLivingPeople();
+        if (FestivalsEnabled) _living.Festivals = [];
         var tiles = World.Tiles.Where(x => x.Walkable && GetTravelCostsCached(World.StartingSite).ContainsKey(x.Coordinate))
             .OrderBy(x => Distance(x.Coordinate, World.StartingSite)).ThenBy(x => x.Coordinate).Take(160).ToArray();
         for (var i = 0; i < Math.Min(8, tiles.Length); i++)
@@ -59,6 +60,7 @@ public sealed partial class SimulationEngine
             AdvanceLivingPeople();
             _living.LastDailyMinute = CurrentMinute.Value;
         }
+        AdvanceFestivals();
         ReconcileLivingOrders();
         PlanLivingEconomy();
         ScheduleLivingPulse();
@@ -129,6 +131,7 @@ public sealed partial class SimulationEngine
     private bool CanWork(Citizen citizen, LivingWorkOrder order)
     {
         var age = citizen.AgeYears(CurrentMinute);
+        if (order.Kind == LivingWorkKind.AttendFestival) return FestivalsEnabled && order.SubjectId == citizen.Id.Value && SiteIdForCitizen(citizen) == SiteIdForOrder(order) && ActiveFestival(SiteIdForOrder(order)) is not null && FestivalEligible(citizen) && GetTravelCostsCached(citizen.Location).ContainsKey(order.Location);
         if (MigrationSystemsEnabled(SimulationRulesVersion) && SiteIdForCitizen(citizen) != SiteIdForOrder(order)) return false;
         if (MigrationSystemsEnabled(SimulationRulesVersion) && order.SubjectId is { } subjectId && _citizens.TryGetValue(subjectId, out var targetCitizen) && SiteIdForCitizen(targetCitizen) != SiteIdForOrder(order)) return false;
         if (order.Kind is LivingWorkKind.Recreate or LivingWorkKind.EquipTool or LivingWorkKind.EquipClothing && order.SubjectId != citizen.Id.Value) return false;
@@ -180,7 +183,7 @@ public sealed partial class SimulationEngine
         var preparation = (MigrationSystemsEnabled(SimulationRulesVersion)
             ? Good(siteId, LivingGood.PreservedFood) < PopulationAt(siteId) * 1000
             : LivingNeedsSeasonalReserves) && order.Kind is LivingWorkKind.Harvest or LivingWorkKind.Preserve or LivingWorkKind.Sow or LivingWorkKind.Tend ? 8000 : 0;
-        return 6500 + emergency + preparation + order.Priority + preference + experience + (relationship?.Affinity ?? 0) / 10 + citizen.Traits.Industriousness / 5 + citizen.Traits.Cooperativeness / 8
+        return 6500 + (order.Kind == LivingWorkKind.AttendFestival ? 35000 : 0) + emergency + preparation + order.Priority + preference + experience + (relationship?.Affinity ?? 0) / 10 + citizen.Traits.Industriousness / 5 + citizen.Traits.Cooperativeness / 8
             + Math.Min(1500, citizen.Skills.Domestic / 100) + (related ? 2500 : 0) + (order.Kind == LivingWorkKind.Recreate ? person.Stress : 0)
             - person.Injury / 2 - person.Illness / 2 - person.Stress / 5 - Distance(citizen.Location, order.Location) * 60;
     }
@@ -243,7 +246,7 @@ public sealed partial class SimulationEngine
         order.SuppliesDelivered = true;
         order.SupplyLocation = order.Location;
         order.Phase = LivingWorkPhase.Work;
-        ScheduleLivingShift(citizen, 120);
+        ScheduleLivingShift(citizen, order.Kind == LivingWorkKind.AttendFestival ? 30 : 120);
     }
     private void ScheduleLivingShift(Citizen citizen, int duration)
     {
@@ -269,6 +272,7 @@ public sealed partial class SimulationEngine
         var order = OrderFor(citizen) ?? throw new InvalidOperationException("Living completion lost its work claim.");
         citizen.Needs = citizen.GetProjectedNeeds(CurrentMinute);
         citizen.NeedsUpdatedMinute = CurrentMinute.Value;
+        if (order.Kind == LivingWorkKind.AttendFestival) { CompleteFestivalShift(citizen, order); return; }
         if (order.Produced) { DepositLiving(citizen, order); return; }
         if (!OrderStillUseful(order)) { CancelLivingOrder(order); EndLivingAction(citizen); return; }
         var person = LivingPerson(citizen);
@@ -370,6 +374,7 @@ public sealed partial class SimulationEngine
     }
     private bool OrderStillUseful(LivingWorkOrder order)
     {
+        if (order.Kind == LivingWorkKind.AttendFestival) return FestivalsEnabled && ActiveFestival(SiteIdForOrder(order)) is not null && order.SubjectId is { } attendee && _citizens.TryGetValue(attendee, out var guest) && guest.IsAlive && SiteIdForCitizen(guest) == SiteIdForOrder(order);
         if (order.Produced) return true;
         var siteId = SiteIdForOrder(order);
         if (order.Kind == LivingWorkKind.Experiment) return order.Technique is { } technique && !SettlementKnows(siteId, technique);

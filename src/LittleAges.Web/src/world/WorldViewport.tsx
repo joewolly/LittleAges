@@ -1,5 +1,5 @@
 import type { LivingOrder, LivingWorld } from '../living'
-import { livingLabel, livingWorkStage } from '../living'
+import { festivalVisitorActivity, livingLabel, livingWorkStage } from '../living'
 import { LivingScene } from './LivingScene'
 import { Component, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AdaptiveDpr, Clone, MapControls, OrthographicCamera, PerformanceMonitor, useAnimations, useGLTF } from '@react-three/drei'
@@ -692,6 +692,7 @@ export function WorldViewport(props: WorldViewportProps) {
   const settlementSites = props.settlementSites ?? []
   const selectedSite = settlementSites.find(site => site.settlementId === selectedSettlementId) ?? settlementSites[0] ?? null
   const selectedWork = props.living?.orders.find(order => order.citizenId === selected?.citizenId)
+  const selectedActivity = selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : selected ? festivalVisitorActivity(props.living, selected) ?? (restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`) : ''
   const effectiveFollowCitizenId = followCitizenId !== null && props.citizens.some(citizen => citizen.citizenId === followCitizenId && citizen.isAlive) ? followCitizenId : null
   const issueNudge = (x: number, z: number, zoom = 0) => setNudge(previous => ({ x, z, zoom, sequence: previous.sequence + 1 }))
   const focusSettlementSite = (settlementId: string) => {
@@ -739,7 +740,7 @@ export function WorldViewport(props: WorldViewportProps) {
         </Canvas>
       </SceneBoundary>}
     </div>
-    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
+    {selected && <div className="world-selection" role="status"><strong>{selected.name}</strong><span>{selected.lifeStage} · {selected.occupation}</span><span>{selectedActivity}</span>{props.onOpenSelected && <button type="button" onClick={() => props.onOpenSelected?.(selected.citizenId)}>Open record</button>}</div>}
     {diagnosticsEnabled && !fallback && <output className="world-perf" aria-label="3D performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · ready {(stats.readyMs / 1000).toFixed(2)} s · {stats.calls} calls · {stats.triangles.toLocaleString()} tris · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {(DIORAMA_ASSET_BYTES / 1024).toFixed(1)} KB assets · {effectiveDetailTier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom, R rotates. All citizen details remain available in Observer records.</span>
   </section>

@@ -8,15 +8,15 @@ namespace LittleAges.Headless.Tests;
 public sealed class MigrationRulesHeadlessTests
 {
     [Fact]
-    public void M15IsTheCurrentDefaultAndM14CanBeSelectedExplicitly()
+    public void M16IsTheCurrentDefaultAndM14CanBeSelectedExplicitly()
     {
         var run = HeadlessCommandLine.Parse(["run", "--rules", SimulationEngine.MigrationSimulationRulesVersion]);
         var acceptance = HeadlessCommandLine.Parse(["acceptance", "--rules", SimulationEngine.MigrationSimulationRulesVersion,
             "--years", "10", "--checkpoint-year", "5"]);
 
-        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
-        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
-        Assert.Equal(SimulationEngine.RoadsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Acceptance).Rules);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Acceptance).Rules);
         Assert.True(run.Succeeded, run.Error);
         Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, run.Options!.Rules);
         Assert.True(acceptance.Succeeded, acceptance.Error);

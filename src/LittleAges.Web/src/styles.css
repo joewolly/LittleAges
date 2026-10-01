@@ -327,3 +327,8 @@ footer { display: none; }
 .observer-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .observer-drawer-body[data-tab="living"] > * { display: block; }
 @media (max-width: 600px) { .observer-tabs { grid-template-columns: repeat(6, minmax(78px, 1fr)); } }
+
+.festival-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; margin-block: 12px 24px; }
+.festival-list article { background: #f6eddb; border: 1px solid #c9b78c; border-top: 3px solid #b65d48; border-radius: 8px; padding: 16px; }
+.festival-list h4 { margin: 8px 0; color: #704b30; }
+.festival-guests { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -212,13 +212,13 @@ export type Map = {
   startingSite: { x: number; y: number }
 }
 
-export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned', 'TradeDeparted', 'TradeCompleted', 'TradeReturned', 'TradeLost', 'RoadWorkSeason', 'RouteConnected'] as const
+export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned', 'TradeDeparted', 'TradeCompleted', 'TradeReturned', 'TradeLost', 'RoadWorkSeason', 'RouteConnected', 'FestivalStarted', 'FestivalEnded', 'FestivalAttended'] as const
 export type HistoricalEventType = typeof HISTORICAL_EVENT_TYPES[number]
 export const HISTORICAL_IMPORTANCES = ['Debug', 'Routine', 'Personal', 'Notable', 'Major', 'Historic'] as const
 export type HistoricalImportance = typeof HISTORICAL_IMPORTANCES[number]
 export const HISTORICAL_ORIGINS = ['Live', 'MigrationBackfill'] as const
 export type HistoricalEventOrigin = typeof HISTORICAL_ORIGINS[number]
-export const MEMORY_TYPES = ['ChildBorn', 'PartnerDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'StructureCompleted'] as const
+export const MEMORY_TYPES = ['ChildBorn', 'PartnerDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'StructureCompleted', 'FestivalAttended'] as const
 export type MemoryType = typeof MEMORY_TYPES[number]
 
 export type HistoricalCitizenLink = { eventId: string; citizenId: string; role: string }
