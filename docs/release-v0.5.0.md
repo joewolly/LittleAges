@@ -1,7 +1,9 @@
 # Little Ages v0.5.0
 
-**Status:** release candidate. The tag, Windows package, and SHA-256 are filled
-in when the release is published.
+**Status:** published on 2026-10-01 as
+[v0.5.0](https://github.com/joewolly/LittleAges/releases/tag/v0.5.0) from
+`de0fd3c7b440b5a57500f17d923950b274b09e8c`, with `LittleAges-v0.5.0-win-x64.zip` (SHA-256
+`3f329783b0893715a62a4e6d932825689370377170500efb49e3bfbc98fb60d3`).
 
 ## Highlights
 
