@@ -144,6 +144,9 @@ public static class HistoricalEventSummary
             HistoricalEventType.RouteConnected => payload.GetProperty("grade").GetString() == "Road"
                 ? "A continuous road now joins the two settlements."
                 : "A continuous trail now joins the two settlements.",
+            HistoricalEventType.FestivalStarted => $"Settlement {payload.GetProperty("settlementId").GetString()} opened its harvest {(payload.GetProperty("mode").GetString() == "Feast" ? "feast" : "gathering without feast food")} in Year {payload.GetProperty("year").GetInt64().ToString(CultureInfo.InvariantCulture)}.",
+            HistoricalEventType.FestivalEnded => $"Settlement {payload.GetProperty("settlementId").GetString()} finished its harvest festival: {payload.GetProperty("attendees").GetInt32().ToString(CultureInfo.InvariantCulture)} citizens joined and {payload.GetProperty("foodConsumed").GetInt32().ToString(CultureInfo.InvariantCulture)} food was shared.",
+            HistoricalEventType.FestivalAttended => $"{subjectName} joined the harvest festival in Settlement {payload.GetProperty("settlementId").GetString()}" + (payload.GetProperty("foodConsumed").GetInt32() > 0 ? " and shared a feast meal." : "."),
             _ => item.EventType.ToString()
         };
     }

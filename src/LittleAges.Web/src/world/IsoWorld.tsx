@@ -235,13 +235,44 @@ export function IsoWorld(props: IsoWorldProps) {
       // Active work sites: a soft gold diamond on the ground.
       context.strokeStyle = 'rgba(255, 236, 170, 0.85)'
       context.lineWidth = Math.max(1, camera.zoom * 0.06)
-      for (const order of (current.living?.orders ?? []).filter(o => o.citizenId !== null).slice(0, 64)) {
+      for (const order of (current.living?.orders ?? []).filter(o => o.citizenId !== null && o.kind !== 'AttendFestival').slice(0, 64)) {
         const { x, y } = order.location
         if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue
         const c = project(x, y)
         context.beginPath()
         context.moveTo(c.x, c.y - camera.zoom * 0.42); context.lineTo(c.x + camera.zoom * 0.84, c.y); context.lineTo(c.x, c.y + camera.zoom * 0.42); context.lineTo(c.x - camera.zoom * 0.84, c.y); context.closePath()
         context.stroke()
+      }
+
+      // Harvest festivals: a temporary trestle table under bunting; it follows festival state and never changes terrain.
+      for (const festival of (current.living?.festivals ?? []).filter(f => f.started && !f.finished)) {
+        const { x, y } = festival.location
+        if (x < bounds.minX || x > bounds.maxX || y < bounds.minY || y > bounds.maxY) continue
+        const c = project(x, y)
+        const z = camera.zoom
+        context.fillStyle = '#936848'
+        context.fillRect(c.x - z * 0.62, c.y - z * 0.12, z * 1.24, z * 0.3)
+        context.fillStyle = '#e9d9b2'
+        context.fillRect(c.x - z * 0.6, c.y - z * 0.16, z * 1.2, z * 0.12)
+        if (festival.mode === 'Feast' && festival.reservedFood > 0) {
+          context.fillStyle = '#b96d47'
+          for (const offset of [-0.36, 0, 0.36]) { context.beginPath(); context.ellipse(c.x + z * offset, c.y - z * 0.18, z * 0.11, z * 0.06, 0, 0, Math.PI * 2); context.fill() }
+        }
+        const poleTop = c.y - z * 1.5
+        context.strokeStyle = '#795c40'
+        context.lineWidth = Math.max(1.5, z * 0.05)
+        context.beginPath(); context.moveTo(c.x - z * 0.95, c.y - z * 0.2); context.lineTo(c.x - z * 0.95, poleTop); context.moveTo(c.x + z * 0.95, c.y - z * 0.2); context.lineTo(c.x + z * 0.95, poleTop); context.stroke()
+        context.strokeStyle = '#765d45'
+        context.lineWidth = Math.max(1, z * 0.02)
+        context.beginPath(); context.moveTo(c.x - z * 0.95, poleTop); context.quadraticCurveTo(c.x, poleTop + z * 0.24, c.x + z * 0.95, poleTop); context.stroke()
+        const flags = ['#b65d48', '#d0a44e', '#65867a', '#b65d48', '#d0a44e', '#65867a', '#b65d48']
+        flags.forEach((color, i) => {
+          const t = (i + 1) / (flags.length + 1)
+          const fx = c.x - z * 0.95 + t * z * 1.9
+          const fy = poleTop + 4 * t * (1 - t) * z * 0.12
+          context.fillStyle = color
+          context.beginPath(); context.moveTo(fx - z * 0.09, fy); context.lineTo(fx + z * 0.09, fy); context.lineTo(fx, fy + z * 0.2); context.closePath(); context.fill()
+        })
       }
 
       // Everything standing: depth-sorted sprites from visible chunks plus people and animals.

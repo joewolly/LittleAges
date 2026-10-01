@@ -9,9 +9,9 @@ public sealed class M16PlannedLayoutTests
     private const string Planned = SimulationEngine.PlannedSimulationRulesVersion;
 
     [Fact]
-    public void M16IncludesEveryM15SystemAndIsTheNewWorldDefault()
+    public void M16IncludesEveryM15SystemAndFestivalsSucceedIt()
     {
-        Assert.Equal(Planned, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.True(SimulationEngine.RoadSystemsEnabled(Planned));
         Assert.True(SimulationEngine.MigrationSystemsEnabled(Planned));
         Assert.True(SimulationEngine.UnifiedSimulationRulesEnabled(Planned));
@@ -24,6 +24,8 @@ public sealed class M16PlannedLayoutTests
         Assert.Equal(20, SimulationEngine.FoodShortageRecoveryMultiplier(Planned));
 
         Assert.True(SimulationEngine.PlannedLayoutEnabled(Planned));
+        Assert.True(SimulationEngine.PlannedLayoutEnabled(SimulationEngine.FestivalsSimulationRulesVersion));
+        Assert.False(SimulationEngine.FestivalSystemsEnabled(Planned));
         Assert.False(SimulationEngine.PlannedLayoutEnabled(SimulationEngine.RoadsSimulationRulesVersion));
         Assert.False(SimulationEngine.PlannedLayoutEnabled(SimulationEngine.MigrationSimulationRulesVersion));
     }

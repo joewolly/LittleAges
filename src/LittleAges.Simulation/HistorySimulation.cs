@@ -383,8 +383,8 @@ public sealed partial class SimulationEngine
 
     private void AddMemories(HistoricalEvent item)
     {
-        var valence = item.EventType switch { HistoricalEventType.CitizenBorn => 8000, HistoricalEventType.CitizenDied => -9000, HistoricalEventType.PartnershipFormed => 8000, HistoricalEventType.FriendshipFormed => 6000, HistoricalEventType.RivalryFormed => -7000, HistoricalEventType.StructureCompleted => 4000, _ => 0 };
-        var memoryType = item.EventType switch { HistoricalEventType.CitizenBorn => MemoryType.ChildBorn, HistoricalEventType.CitizenDied => MemoryType.PartnerDied, HistoricalEventType.PartnershipFormed => MemoryType.PartnershipFormed, HistoricalEventType.FriendshipFormed => MemoryType.FriendshipFormed, HistoricalEventType.RivalryFormed => MemoryType.RivalryFormed, HistoricalEventType.StructureCompleted => MemoryType.StructureCompleted, _ => (MemoryType?)null };
+        var valence = item.EventType switch { HistoricalEventType.CitizenBorn => 8000, HistoricalEventType.CitizenDied => -9000, HistoricalEventType.PartnershipFormed => 8000, HistoricalEventType.FriendshipFormed => 6000, HistoricalEventType.RivalryFormed => -7000, HistoricalEventType.StructureCompleted or HistoricalEventType.FestivalAttended => 4000, _ => 0 };
+        var memoryType = item.EventType switch { HistoricalEventType.CitizenBorn => MemoryType.ChildBorn, HistoricalEventType.CitizenDied => MemoryType.PartnerDied, HistoricalEventType.PartnershipFormed => MemoryType.PartnershipFormed, HistoricalEventType.FriendshipFormed => MemoryType.FriendshipFormed, HistoricalEventType.RivalryFormed => MemoryType.RivalryFormed, HistoricalEventType.StructureCompleted => MemoryType.StructureCompleted, HistoricalEventType.FestivalAttended => MemoryType.FestivalAttended, _ => (MemoryType?)null };
         if (memoryType is null) return;
         var links = _historicalEventCitizens.Where(x => x.HistoricalEventId == item.Id).OrderBy(x => x.CitizenId.Value).ToArray();
         if (item.EventType == HistoricalEventType.CitizenDied)
@@ -402,6 +402,7 @@ public sealed partial class SimulationEngine
             HistoricalEventType.CitizenDied => link.Role == "partner",
             HistoricalEventType.PartnershipFormed or HistoricalEventType.FriendshipFormed or HistoricalEventType.RivalryFormed => link.Role is "partner" or "participant",
             HistoricalEventType.StructureCompleted => link.Role == "contributor",
+            HistoricalEventType.FestivalAttended => link.Role == "subject",
             _ => false
         }))
         {

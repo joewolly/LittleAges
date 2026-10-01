@@ -6,11 +6,11 @@ namespace LittleAges.Domain;
 public enum LivingGoal { FamilySecurity = 1, Comfort, Mastery, Exploration }
 public enum LivingGood { Grain = 1, Meal, PreservedFood, Fuel, Tool, Clothing, Medicine, Fiber, Hide }
 public enum LivingTechnique { Cultivation = 1, Preservation, Toolmaking, Textiles, Care }
-public enum LivingWorkKind { EstablishField = 1, Sow, Tend, Harvest, Cook, Preserve, CutFuel, MakeTool, Weave, PrepareMedicine, BuildHearth, BuildLoom, BuildCareHouse, Care, Recreate, Teach, Experiment, Hunt, RepairRelationship, EquipTool, EquipClothing, BuildRoad }
+public enum LivingWorkKind { EstablishField = 1, Sow, Tend, Harvest, Cook, Preserve, CutFuel, MakeTool, Weave, PrepareMedicine, BuildHearth, BuildLoom, BuildCareHouse, Care, Recreate, Teach, Experiment, Hunt, RepairRelationship, EquipTool, EquipClothing, BuildRoad, AttendFestival }
 public enum LivingWorkPhase { Collect = 1, Travel, Work, Deliver }
 public enum LivingFacilityKind { Hearth = 1, Loom, CareHouse }
 public enum LivingWeatherKind { Fair = 1, Rain, Drought, ColdSpell }
-public enum LivingExperienceKind { Helped = 1, Bereavement, Scarcity, SharedWork, Recreation, Learned }
+public enum LivingExperienceKind { Helped = 1, Bereavement, Scarcity, SharedWork, Recreation, Learned, Festival }
 public enum LivingFactKind { FieldEstablished = 1, FacilityCompleted, FirstHarvest, TechniqueDiscovered, TechniqueTaught, Injury, Recovery, WeatherChanged, Bereavement }
 
 /// <summary>Canonical v0.2 state. Lists have stable order; IDs use an independent, persisted living-world namespace.</summary>
@@ -46,6 +46,10 @@ public sealed class LivingWorldState
     public List<LivingFacility> Facilities { get; set; } = [];
     public List<LivingAnimal> Animals { get; set; } = [];
     public List<LivingFact> Facts { get; set; } = [];
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<FestivalState>? Festivals { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public FestivalVisitPlan? FestivalVisit { get; set; }
 }
 
 public sealed class LivingPerson
@@ -149,10 +153,10 @@ public static class LivingWorldCodec
     public static JsonElement Observe(LivingWorldState state, long worldMinute, string rulesVersion) => JsonSerializer.SerializeToElement(new
     {
         state.Version, RulesVersion = rulesVersion, WorldMinute = worldMinute,
-        Capabilities,
+        Capabilities = state.Festivals is null ? Capabilities : [.. Capabilities, "festivals"],
         Age = state.People.Any(x => !x.DeathObserved && x.Knowledge.Contains(LivingTechnique.Cultivation)) && state.FoodHarvested > 0 ? "Agrarian" : "Foraging",
         state.Weather, state.Temperature, state.Rainfall, state.CompletedOrders, state.FoodHarvested, state.FoodPrepared, state.GoodsSpoiled, state.CareGiven,
-        state.Stock, state.People, state.Orders, state.Fields, state.Facilities, state.Animals,
+        state.Festivals, state.FestivalVisit, state.Stock, state.People, state.Orders, state.Fields, state.Facilities, state.Animals,
         Facts = state.Facts.TakeLast(100).Reverse().ToArray(), TotalFacts = state.Facts.Count
     }, Options);
 }

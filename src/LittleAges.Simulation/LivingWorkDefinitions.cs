@@ -19,6 +19,7 @@ public static class LivingWorkDefinitions
 
     public static int Work(LivingWorkKind kind) => kind switch
     {
+        LivingWorkKind.AttendFestival => FestivalRules.AttendanceMinutes,
         LivingWorkKind.EstablishField => 360,
         LivingWorkKind.Sow or LivingWorkKind.MakeTool or LivingWorkKind.Weave or LivingWorkKind.Teach or LivingWorkKind.Hunt => 240,
         LivingWorkKind.BuildHearth or LivingWorkKind.BuildLoom or LivingWorkKind.BuildCareHouse or LivingWorkKind.Experiment => 480,

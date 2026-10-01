@@ -14,9 +14,9 @@ public sealed class MigrationRulesHeadlessTests
         var acceptance = HeadlessCommandLine.Parse(["acceptance", "--rules", SimulationEngine.MigrationSimulationRulesVersion,
             "--years", "10", "--checkpoint-year", "5"]);
 
-        Assert.Equal(SimulationEngine.PlannedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
-        Assert.Equal(SimulationEngine.PlannedSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
-        Assert.Equal(SimulationEngine.PlannedSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Acceptance).Rules);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Acceptance).Rules);
         Assert.True(run.Succeeded, run.Error);
         Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, run.Options!.Rules);
         Assert.True(acceptance.Succeeded, acceptance.Error);

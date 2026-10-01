@@ -255,10 +255,10 @@ public sealed class MigrationVisitSimulationTests
     private static void SetPrivateField(object instance, string name, object value) =>
         instance.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, value);
 
-    private static VisitFixture CreateFixture(WorldSeed seed)
+    internal static VisitFixture CreateFixture(WorldSeed seed, string rules = SimulationEngine.MigrationSimulationRulesVersion)
     {
         var baseline = new SimulationEngine(seed,
-            simulationRulesVersion: SimulationEngine.MigrationSimulationRulesVersion).CreatePersistenceSnapshot();
+            simulationRulesVersion: rules).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var households = baseline.Households.Where(x => x.DissolvedMinute is null)
             .Select(household => (Household: household, Member: baseline.Citizens.Where(x => x.IsAlive && x.HouseholdId == household.Id)
@@ -293,7 +293,7 @@ public sealed class MigrationVisitSimulationTests
             new MigrationDaughterSettlementState(daughterSite,
                 new MigrationSettlementStockState(0, 0, 0, EconomyRules.FoundingStorageCapacity,
                     baseline.WorldMinute.Value, baseline.WorldMinute.Value),
-                Enum.GetValues<LivingGood>().Select(x => new LivingStock(x, 0)).ToArray()));
+                Enum.GetValues<LivingGood>().Select(x => new LivingStock(x, 0)).ToArray()), roads: state.Roads);
         var snapshot = CopySnapshot(baseline, migration.ToCanonicalJson(), baseline.Citizens);
         return new VisitFixture(SimulationEngine.FromPersistenceSnapshot(snapshot), visitorId, relativeId, parentId,
             daughterSite);
@@ -322,6 +322,6 @@ public sealed class MigrationVisitSimulationTests
         return method.Invoke(instance, arguments);
     }
 
-    private sealed record VisitFixture(SimulationEngine Engine, long VisitorId, long RelativeId, long ParentId,
+    internal sealed record VisitFixture(SimulationEngine Engine, long VisitorId, long RelativeId, long ParentId,
         TileCoordinate DaughterSite);
 }

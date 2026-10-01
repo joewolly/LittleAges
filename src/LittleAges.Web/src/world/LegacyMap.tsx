@@ -101,6 +101,15 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
         context.lineWidth = 1
         context.strokeRect(offsetX + order.location.x * scale - 1, offsetY + order.location.y * scale - 1, Math.max(3, scale + 2), Math.max(3, scale + 2))
       }
+      for (const festival of living?.festivals?.filter(f => f.started && !f.finished) ?? []) {
+        const x = offsetX + (festival.location.x + .5) * scale
+        const y = offsetY + (festival.location.y + .5) * scale
+        context.fillStyle = '#e9d9b2'
+        context.fillRect(x - scale * .7, y + scale * .25, Math.max(5, scale * 1.4), Math.max(2, scale * .4))
+        context.strokeStyle = '#b65d48'
+        context.lineWidth = Math.max(2, scale * .12)
+        context.beginPath(); context.moveTo(x - scale, y - scale * .65); context.lineTo(x + scale, y - scale * .65); context.stroke()
+      }
       for (const citizen of citizens.filter(entry => entry.isAlive)) {
         context.fillStyle = citizen.currentAction === 'WorkFarm' ? '#d3ef9a' : citizen.currentAction === 'HaulHarvest' ? '#ffe375' : citizen.currentAction === 'TradeDelivery' ? '#f54aa1' : '#302a24'
         context.fillRect(offsetX + citizen.location.x * scale + scale * 0.38, offsetY + citizen.location.y * scale + scale * 0.38, Math.max(2, scale * 0.24), Math.max(2, scale * 0.24))
@@ -131,5 +140,5 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
   const siteDescription = settlementSites.length > 1 ? ` ${settlementSites.length} settlement sites are marked` : ''
   const roadDescription = roads && roads.tiles.length > 0 ? ' Paths are drawn by grade: dashed tan tracks, brown trails, and wide gray roads.' : ''
   const focusDescription = focusedSite ? `, focused on settlement ${focusedSite.settlementId} at (${focusedSite.site.x}, ${focusedSite.site.y})` : focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`
-  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription}${roadDescription} Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
+  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription}${roadDescription} Temporary cream tables and red bunting mark active harvest festivals. Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
 }

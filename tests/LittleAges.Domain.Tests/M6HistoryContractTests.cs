@@ -35,7 +35,7 @@ public sealed class M6HistoryContractTests
         var historicalEventValues = Enum.GetValues<HistoricalEventType>().Select(value => (int)value).ToArray();
         Assert.Equal(HistoricalEventValues, historicalEventValues.Take(HistoricalEventValues.Length));
         Assert.Equal(M14HistoricalEventValues.Concat(M15HistoricalEventValues).Select(value => value.Value),
-            historicalEventValues.Skip(HistoricalEventValues.Length));
+            historicalEventValues.Skip(HistoricalEventValues.Length).Take(M14HistoricalEventValues.Length + M15HistoricalEventValues.Length));
         foreach (var (type, value) in M14HistoricalEventValues.Concat(M15HistoricalEventValues))
             Assert.Equal(value, (int)type);
         Assert.Equal(HistoricalImportanceValues,

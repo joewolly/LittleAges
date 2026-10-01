@@ -11,13 +11,15 @@ public sealed partial class SimulationEngine
     {
         if (!MigrationSystemsEnabled(SimulationRulesVersion) ||
             _migrationState is not { DaughterSettlement: not null } state ||
-            CurrentMinute.Value % WorldCalendar.MinutesPerYear != 0)
+            (!FestivalsEnabled && CurrentMinute.Value % WorldCalendar.MinutesPerYear != 0))
             return;
 
         var year = CurrentMinute.ToCalendar().Year;
         if (state.LastVisitAttemptYear is { } attemptedYear && attemptedYear >= year) return;
 
-        state = new MigrationWorldState(state.Version, state.CitizenResidences, state.HouseholdResidences,
+        if (FestivalsEnabled && (CurrentMinute.Value < FestivalRules.Start(1, year) - MigrationVisitProvisionDays * (long)WorldCalendar.MinutesPerDay || CurrentMinute.Value >= FestivalRules.Start(2, year) + FestivalRules.DurationMinutes)) return;
+
+        if (!FestivalsEnabled) state = new MigrationWorldState(state.Version, state.CitizenResidences, state.HouseholdResidences,
             state.StructureOwners, state.FacilityOwners, state.WorkOrderOwners, state.DaughterSettlement,
             state.InTransitParties, state.FoundingPressure, state.LastRelocations, year);
         _migrationState = state;
@@ -47,6 +49,22 @@ public sealed partial class SimulationEngine
                 var returnPath = FindPathCached(destinationSite, originSiteLocation);
                 if (outboundPath is not { Count: >= 2 } || returnPath is not { Count: >= 2 }) continue;
 
+                if (FestivalsEnabled)
+                {
+                    var start = FestivalRules.Start(destinationSiteId, year);
+                    if (start <= CurrentMinute.Value) continue;
+                    var travelMinutes = TravelPathCost(outboundPath);
+                    if (travelMinutes > 12L * WorldCalendar.MinutesPerDay) continue;
+                    _living!.FestivalVisit ??= new FestivalVisitPlan { Year = year, CitizenId = visitor.Id.Value, RelativeId = relative.Id.Value, SettlementId = destinationSiteId, StartMinute = start, DepartMinute = Math.Max(0, start - travelMinutes - WorldCalendar.MinutesPerDay) };
+                    var planned = _living.FestivalVisit;
+                    if (planned.Year != year)
+                    {
+                        _living.FestivalVisit = null;
+                        return;
+                    }
+                    if (planned.CitizenId != visitor.Id.Value || planned.RelativeId != relative.Id.Value || planned.SettlementId != destinationSiteId) continue;
+                    if (CurrentMinute.Value < planned.DepartMinute) return;
+                }
                 var provisions = FoundingProvisionFood(CurrentMinute.Value);
                 if (provisions > int.MaxValue || !TryWithdrawFoundingFood(householdId.Value, originSite, provisions))
                     continue;
@@ -62,6 +80,14 @@ public sealed partial class SimulationEngine
                     journeyKind: MigrationJourneyKind.Visit, visitRelativeId: relative.Id.Value,
                     visitPhase: MigrationVisitPhase.Outbound);
                 SetMigrationParty(party);
+                if (FestivalsEnabled)
+                {
+                    _living!.FestivalVisit!.PartyId = party.Id;
+                    var current = _migrationState!;
+                    _migrationState = new MigrationWorldState(current.Version, current.CitizenResidences, current.HouseholdResidences,
+                        current.StructureOwners, current.FacilityOwners, current.WorkOrderOwners, current.DaughterSettlement,
+                        current.InTransitParties, current.FoundingPressure, current.LastRelocations, year, current.Roads);
+                }
                 EmitHistory(HistoricalEventType.FamilyVisitDeparted, HistoricalImportance.Personal, party.Location,
                     HistoricalEventPayloads.FamilyVisitDeparted(visitor.Id.Value, relative.Id.Value,
                         party.OriginSettlementId, destinationSiteId),
@@ -149,6 +175,11 @@ public sealed partial class SimulationEngine
     private void BeginMigrationVisitDwell(Citizen visitor, MigrationTransitPartyState party)
     {
         var endMinute = CurrentMinute.Add(MigrationVisitDwellMinutes).Value;
+        if (FestivalsEnabled && party.JourneyKind == MigrationJourneyKind.Visit && _living!.FestivalVisit is { } planned && planned.PartyId == party.Id && CurrentMinute.Value < planned.StartMinute + FestivalRules.DurationMinutes)
+        {
+            endMinute = Math.Max(endMinute, planned.StartMinute + FestivalRules.DurationMinutes);
+            planned.LastAttendanceMinute = CurrentMinute.Value;
+        }
         var dwelling = new MigrationTransitPartyState(party.Id, party.HouseholdId, party.OriginSettlementId,
             party.DestinationSettlementId, visitor.Location, party.DestinationSite, party.CitizenIds, party.Cargo,
             0, party.DepartedMinute, journeyKind: party.JourneyKind,
@@ -171,7 +202,8 @@ public sealed partial class SimulationEngine
         visitor.ActionPhase = CitizenActionPhase.Perform;
         visitor.ActionTarget = null;
         visitor.ActionStartedMinute = CurrentMinute;
-        visitor.ActionCompletesMinute = new WorldMinute(endMinute);
+        var festivalVisit = FestivalsEnabled && _living!.FestivalVisit is { PartyId: { } partyId } && FoundingPartyForCitizen(visitor.Id.Value)?.Id == partyId;
+        visitor.ActionCompletesMinute = new WorldMinute(festivalVisit ? Math.Min(endMinute, CurrentMinute.Value + 30) : endMinute);
         ScheduleCitizen(visitor, CitizenEventNames.ActionComplete, visitor.ActionCompletesMinute.Value,
             CitizenEventNames.CompletionPriority);
     }
@@ -181,9 +213,21 @@ public sealed partial class SimulationEngine
         var party = FoundingPartyForCitizen(visitor.Id.Value);
         if (party is not { VisitPhase: MigrationVisitPhase.Dwell } || !IsRoundTripJourney(party) ||
             visitor.CurrentAction != CitizenAction.Idle || visitor.ActionPhase != CitizenActionPhase.Perform ||
-            party.VisitDwellEndsMinute is not { } endMinute || CurrentMinute.Value < endMinute)
+            party.VisitDwellEndsMinute is not { } endMinute)
             return false;
 
+        if (CurrentMinute.Value < endMinute)
+        {
+            if (!FestivalsEnabled || party.JourneyKind != MigrationJourneyKind.Visit || _living!.FestivalVisit is not { } visit || visit.PartyId != party.Id) return false;
+            var festival = _living.Festivals?.FirstOrDefault(x => x.SettlementId == visit.SettlementId && x.StartMinute == visit.StartMinute && x.Started && !x.Finished);
+            if (festival is not null) ObserveFestivalVisitor(festival);
+            if (!TryPauseMigrationVisitForMeal(visitor))
+            {
+                TryPauseFestivalVisitForRest(visitor, party);
+                if (visitor.CurrentAction == CitizenAction.Idle) BeginMigrationVisitDwellWait(visitor, endMinute);
+            }
+            return true;
+        }
         EndMigrationVisitDwell(visitor, party);
         return true;
     }
@@ -191,6 +235,13 @@ public sealed partial class SimulationEngine
     /// <summary>A trader exchanges goods as the dwell ends; either traveler then starts home.</summary>
     private void EndMigrationVisitDwell(Citizen visitor, MigrationTransitPartyState party)
     {
+        // Completion can run before the Living pulse at 18:00. Account for the
+        // final physical attendance interval before changing the visitor to travel.
+        if (FestivalsEnabled && party.JourneyKind == MigrationJourneyKind.Visit &&
+            _living!.FestivalVisit is { } visit && visit.PartyId == party.Id &&
+            _living.Festivals?.FirstOrDefault(x => x.SettlementId == visit.SettlementId &&
+                x.StartMinute == visit.StartMinute && x.Started && !x.Finished) is { } festival)
+            ObserveFestivalVisitor(festival);
         if (party.JourneyKind == MigrationJourneyKind.Trade) party = ExchangeTradeCargo(visitor, party);
         BeginMigrationVisitReturn(visitor, party);
     }
@@ -241,7 +292,7 @@ public sealed partial class SimulationEngine
             return false;
 
         var needs = visitor.GetProjectedNeeds(CurrentMinute);
-        if (needs.Hunger < 8500) return false;
+        if (needs.Hunger < (FestivalsEnabled && party.JourneyKind == MigrationJourneyKind.Visit ? 3500 : 8500)) return false;
         visitor.Needs = needs;
         visitor.NeedsUpdatedMinute = CurrentMinute.Value;
         var previousSequence = visitor.ActionSequence;
@@ -266,6 +317,7 @@ public sealed partial class SimulationEngine
         visitor.NeedsUpdatedMinute = CurrentMinute.Value;
         if (party.VisitPhase == MigrationVisitPhase.Dwell && party.VisitDwellEndsMinute is { } endMinute)
         {
+            if (FestivalsEnabled && _living!.FestivalVisit?.PartyId == party.Id) _living.FestivalVisit.LastAttendanceMinute = CurrentMinute.Value;
             if (CurrentMinute.Value >= endMinute) EndMigrationVisitDwell(visitor, party);
             else BeginMigrationVisitDwellWait(visitor, endMinute);
             return;

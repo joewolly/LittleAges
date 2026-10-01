@@ -59,7 +59,7 @@ public sealed class M14HistorySchemaTests
             Assert.Equal(originalCitizenLinks, loaded.HistoricalEventCitizens.Select(item =>
                 (item.HistoricalEventId.Value, item.CitizenId.Value, item.Role)).ToArray());
             Assert.Equal(originalIndexes, await ReadExplicitIndexesAsync(database.Context.Database.GetDbConnection()));
-            Assert.Contains("BETWEEN 1 AND 28", await ReadHistoricalEventsSqlAsync(database.Context.Database.GetDbConnection()), StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("BETWEEN 1 AND 31", await ReadHistoricalEventsSqlAsync(database.Context.Database.GetDbConnection()), StringComparison.OrdinalIgnoreCase);
 
             var restoredEngine = SimulationEngine.FromPersistenceSnapshot(loaded);
             var family = restoredEngine.Citizens.Where(citizen => citizen.IsAlive).OrderBy(citizen => citizen.Id.Value).Take(2).ToArray();
@@ -90,7 +90,7 @@ public sealed class M14HistorySchemaTests
             var insertInvalidType = database.Context.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO historical_events
                     (id, world_minute, event_type, importance, origin, location_x, location_y, payload_json, schema_version)
-                VALUES ({invalidId}, {reopened.WorldMinute.Value}, {29}, {1}, {1}, NULL, NULL, {"{}"}, {1})
+                VALUES ({invalidId}, {reopened.WorldMinute.Value}, {32}, {1}, {1}, NULL, NULL, {"{}"}, {1})
                 """);
             var constraintFailure = await Assert.ThrowsAsync<SqliteException>(() => insertInvalidType);
             Assert.Equal(19, constraintFailure.SqliteErrorCode);
