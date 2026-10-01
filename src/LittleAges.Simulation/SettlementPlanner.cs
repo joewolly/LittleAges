@@ -187,6 +187,8 @@ internal static class SettlementPlanner
             for (var dy = -1; dy <= 1; dy++)
                 for (var dx = -1; dx <= 1; dx++)
                 {
+                    // Buildings on the map's top or left edge have no neighbours beyond it.
+                    if (center.X + dx < 0 || center.Y + dy < 0) continue;
                     var tile = new TileCoordinate(center.X + dx, center.Y + dy);
                     // A tile beside two different kinds of building stays closed to both.
                     blocked[tile] = blocked.TryGetValue(tile, out var existing) && existing != kind ? Footprint.Solitary : kind;

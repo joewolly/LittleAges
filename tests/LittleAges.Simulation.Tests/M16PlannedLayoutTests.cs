@@ -94,6 +94,16 @@ public sealed class M16PlannedLayoutTests
         Assert.Equal(unconstrained, SettlementPlanner.Choose(plan, PlanDistrict.Homes, SettlementPlanner.Footprint.Solitary, [only], [], _ => true));
     }
 
+    [Fact]
+    public void BuildingsOnTheMapEdgeDoNotBreakSpacing()
+    {
+        var world = new WorldGenerator().Generate(new WorldSeed(42));
+        var plan = SettlementPlan.Create(world, world.StartingSite);
+        var candidates = world.Tiles.Where(x => x.Buildable && plan.DistrictOf(x.Coordinate) is not null).ToArray();
+        SettlementPlanner.Placed[] edge = [new(new TileCoordinate(0, 0), SettlementPlanner.Footprint.Solitary), new(new TileCoordinate(5, 0), SettlementPlanner.Footprint.Storage), new(new TileCoordinate(0, 7), SettlementPlanner.Footprint.Field)];
+        Assert.NotNull(SettlementPlanner.Choose(plan, PlanDistrict.Homes, SettlementPlanner.Footprint.Solitary, candidates, edge, _ => false));
+    }
+
     [Theory]
     [InlineData(4, 0, 800, 1000, StructureType.Stockpile)]
     [InlineData(7, 1, 850, 1000, StructureType.Stockpile)]
