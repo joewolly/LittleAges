@@ -104,6 +104,26 @@ public sealed class M16PlannedLayoutTests
         Assert.NotNull(SettlementPlanner.Choose(plan, PlanDistrict.Homes, SettlementPlanner.Footprint.Solitary, candidates, edge, _ => false));
     }
 
+    [Fact]
+    public void HouseholdsShareSurplusWoodAndStoneInsteadOfHoardingIt()
+    {
+        var target = new WorldMinute(2L * WorldCalendar.MinutesPerYear);
+        var roads = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.RoadsSimulationRulesVersion);
+        var planned = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: Planned);
+        roads.AdvanceUntil(target);
+        planned.AdvanceUntil(target);
+        var hoarded = roads.CaptureEconomy()!.Households;
+        var shared = planned.CaptureEconomy()!.Households;
+
+        // Production only tops a household up to its keep limit; barter and relocation can still add a little.
+        Assert.All(shared, h => Assert.True(h.Holdings.Wood <= 2 * CitizenSimulationRules.HouseholdKeepWood, $"household {h.HouseholdId} holds {h.Holdings.Wood} wood"));
+        Assert.All(shared, h => Assert.True(h.Holdings.Stone <= 2 * CitizenSimulationRules.HouseholdKeepStone, $"household {h.HouseholdId} holds {h.Holdings.Stone} stone"));
+        Assert.True(shared.Sum(h => h.Holdings.Wood) * 3 < hoarded.Sum(h => h.Holdings.Wood));
+        Assert.True(hoarded.Max(h => h.Holdings.Wood) > 2 * CitizenSimulationRules.HouseholdKeepWood);
+        // Food stays private under both rules.
+        Assert.Contains(shared, h => h.Holdings.Food > 0);
+    }
+
     [Theory]
     [InlineData(4, 0, 800, 1000, StructureType.Stockpile)]
     [InlineData(7, 1, 850, 1000, StructureType.Stockpile)]

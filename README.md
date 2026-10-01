@@ -17,8 +17,9 @@ people, leave them alone, and come back later to discover what happened.
 New worlds default to `m16-rng1-planned1`. It keeps every M15 system (worn
 trails, paved roads, trade between two settlements) and adds a settlement
 planner: each village gets organic districts for homes, storage, crafts, and
-farmland, and storage grows through large storehouses in one yard instead of
-stockpiles scattered across the map. Existing saves keep their recorded rules
+farmland, storage grows through large storehouses in one yard instead of
+stockpiles scattered across the map, and households share surplus wood and stone
+instead of hoarding it. Existing saves keep their recorded rules
 and behavior. See the [M16 layout contract](docs/m16-planned-layout.md), the
 [M15 rules contract](docs/m15-roads-trade.md), and the
 [M14 rules contract](docs/m14-migration.md).

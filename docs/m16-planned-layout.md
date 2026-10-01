@@ -17,7 +17,9 @@ M16 puts a settlement planner behind those decisions:
   a storage yard, homes, a craft quarter, and farmland;
 - every new building goes to the next free plot in its own district;
 - storage grows through large **storehouses** packed into one yard, with a quick
-  stockpile to supplement when the village is small or storage is nearly full.
+  stockpile to supplement when the village is small or storage is nearly full;
+- households keep only the wood and stone they can use and **share the
+  surplus**, so villages stop gathering, and storing, materials nobody needs.
 
 ## Compatibility and scope
 
@@ -104,6 +106,37 @@ like the main village, and a store that is always full cannot fill up with
 stockpiles again. All general-storage capacity sums go through
 `CitizenSimulationRules.GeneralStorageOf`.
 
+## Household surplus
+
+Under M15, 80% of everything a citizen gathers goes into the household's
+private stock, and 20% into the commons. Construction, fuel and facility work
+draw only from the commons. Private wood and stone leave only through barter, a
+sale to a short-handed construction project, or a household moving. So the
+commons stayed nearly empty, which kept the common reason to gather wood and
+stone switched on (a score of 9,500 while a project is short, 2,500 while the
+pile is under 80 wood or 40 stone). Citizens gathered without end, and 80% of
+every load piled up privately. On seed 42 at year 3, private wood and stone were
+about three quarters of everything in storage. Because the 80% storage trigger
+counts private goods, villages kept building storage to hold the hoard.
+
+M16 breaks the loop when production is deposited. A household keeps up to
+**320 wood** and **200 stone** (twice the 160 and 100 it gathers for on its own
+account). Anything above that from its own production joins the commons. The
+commons then fill, the common reason to gather goes quiet, and gathering
+resumes only when a project or the pile needs it. Barter and relocation can
+still move goods into a household, so its holdings can sit somewhat above the
+limit. The limit applies only to new production.
+
+Food is not capped. In the calibration runs, capping food at 240 per household
+member moved the surplus into the commons, where nothing consumed it: commons
+food reached 70,000 to 97,000 units by year 10, and storage grew instead of
+shrinking.
+
+One side effect: injuries happen while gathering wood or stone, or building.
+With less needless gathering, fewer villagers get hurt, so the Care technique,
+which needs someone injured or ill, and its care house can arrive later or not
+at all within ten years.
+
 ## Observation
 
 - The server reports storehouses as `Storehouse` structures with a
@@ -125,7 +158,10 @@ stockpiles again. All general-storage capacity sums go through
 
 ## Evidence
 
-Same seed, same horizon, M15 versus M16, measured at settlement 1:
+### Planner and storehouses
+
+Same seed, same horizon, M15 versus M16 before the household surplus rule,
+measured at each settlement:
 
 ![The same seed-42 village at year 3: M15 on the left, M16 on the right](assets/m16/before-after.png)
 
@@ -151,14 +187,26 @@ invariants held, and the reloaded run was canonically identical to the
 uninterrupted one. Run times were comparable: seed 42 to year 3 took 57 s under
 M15 and 59 s under M16 when run side by side.
 
-## Known limitation: household hoarding
+### Household surplus
 
-Placement is only half of the storage story. In both M15 and M16, households
-accumulate private wood and stone far faster than they use it. On seed 42 at
-year 3 under M16, private wood and stone came to 19,188 of the 25,964 units in
-storage, about three quarters. Because the 80% storage trigger counts private goods, villages keep
-expanding storage to hold that hoard. M16 makes the expansion compact and three
-times as space-efficient, but it does not change the economy. Capping storage
-per resident, or giving households a reason to spend their surplus, would
-reduce the number of storage buildings further. Either one changes resource
-flow, so it is left for a separate, balance-tested change.
+Ten years, M16 without and with the surplus rule. Storage buildings counts
+stockpiles and storehouses across both settlements.
+
+| Seed | Storage buildings | Main village storehouses | Population | Deaths |
+| ---: | --- | --- | --- | --- |
+| 42 | 34 → 29 | 24 → 11 | 31 → 32 | 1 starvation → 1 starvation |
+| 7 | 64 → 26 | 37 (+4 stockpiles) → 10 | 34 → 25 | 2 exposure → 8 exposure |
+| 1234 | 34 → 15 | 21 → 10 | 30 → 28 | none → none |
+| 2024 | 60 → 21 | 42 (+1 stockpile) → 9 | 34 → 33 | 1 natural → 1 natural |
+| 99 | — → 21 | — → 14 | — → 36 | — → none |
+
+Across the four seeds with both runs, storage buildings fell from 192 to 91.
+The seed-99 run without the rule hit a planner crash for buildings on the map's
+top or left edge, since fixed. Seed 42's daughter hamlet still grew to 16
+storehouses with the rule, because its private food is uncapped.
+
+Seed 7 is the one regression: eight exposure deaths with the rule against two
+without, and nine fewer residents. Exposure deaths mean citizens going too long
+without a home to rest in. The rule does not touch housing directly, and no
+other seed shows it, so it is most likely seed-specific divergence. It has not
+been proven so. Watch this in longer acceptance runs.

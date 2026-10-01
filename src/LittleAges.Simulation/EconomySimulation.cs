@@ -121,7 +121,17 @@ public sealed partial class SimulationEngine
         var numerator = checked(amount * EconomyRules.CommunalPercent + stock.ContributionRemainders.Get(resource));
         var communal = checked((int)(numerator / 100));
         _householdStocks[owner] = stock with { ContributionRemainders = stock.ContributionRemainders.Add(resource, numerator % 100 - stock.ContributionRemainders.Get(resource)) };
-        AddCommons(SiteIdForHousehold(owner), resource, communal); AddPrivate(owner, resource, amount - communal);
+        var kept = amount - communal;
+        // M16: a household keeps only the wood and stone it can use; the rest of its share joins the
+        // commons, so the shared pile fills and gathering for it can stop. Food stays private: capping it
+        // moved the surplus into the commons and grew storage instead.
+        if (PlannedLayoutEnabled(SimulationRulesVersion) && resource != ResourceType.Food)
+        {
+            var keep = resource == ResourceType.Wood ? CitizenSimulationRules.HouseholdKeepWood : CitizenSimulationRules.HouseholdKeepStone;
+            var surplus = (int)Math.Max(0L, kept - Math.Max(0L, keep - stock.Holdings.Get(resource)));
+            communal = checked(communal + surplus); kept -= surplus;
+        }
+        AddCommons(SiteIdForHousehold(owner), resource, communal); AddPrivate(owner, resource, kept);
     }
     private int ConsumeEconomicMeal(Citizen citizen, int portion)
     {

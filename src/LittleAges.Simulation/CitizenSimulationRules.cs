@@ -34,6 +34,10 @@ public static class CitizenSimulationRules
     public const int StorehouseUrgentFillPercent = 95;
     // M16: an established village adds quick stockpiles for urgent relief only until it has this many.
     public const int SupplementaryStockpileLimit = 4;
+    // M16: the wood and stone a household keeps of its own production before the rest of its share joins
+    // the commons. Twice the private stock a household gathers for (160 wood, 100 stone).
+    public const int HouseholdKeepWood = 320;
+    public const int HouseholdKeepStone = 200;
     public const int ShelterCapacityPerBuilding = 4;
     public const int ShelterRequiredWood = 40;
     public const int ShelterRequiredStone = 10;
