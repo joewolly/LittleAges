@@ -35,6 +35,7 @@ STRUCTURES = {
     'shelter-4': (art.longhouse, (2.2, 1.4), 1.6),
     'shelter-5': (art.stone_house, (2.2, 1.6), 1.6),
     'stockpile': (art.stockpile, (2.2, 2.2), 0.95),
+    'storehouse': (art.storehouse, (2.4, 1.8), 1.3),
     'workshop': (art.workshop, (2.2, 1.8), 1.5),
     'granary': (art.granary, (1.8, 1.8), 1.3),
     'marketplace': (art.marketplace, (2.6, 2.6), 1.5),

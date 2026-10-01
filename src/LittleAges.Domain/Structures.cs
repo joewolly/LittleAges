@@ -8,7 +8,8 @@ public enum StructureType : int
     Workshop = 3,
     Farm = 4,
     Granary = 5,
-    Marketplace = 6
+    Marketplace = 6,
+    Storehouse = 7
 }
 
 /// <summary>Persistent M4 construction lifecycle values. Values are compatibility data.</summary>
@@ -30,6 +31,9 @@ public static class StructureDefinitions
     public const int WorkshopRequiredWood = 80;
     public const int WorkshopRequiredStone = 50;
     public const int WorkshopRequiredWork = 1200;
+    public const int StorehouseRequiredWood = 120;
+    public const int StorehouseRequiredStone = 60;
+    public const int StorehouseRequiredWork = 1800;
 
     public static bool HasCanonicalRequirements(StructureType type, int requiredWood, int requiredStone, int requiredWork) =>
         (type, requiredWood, requiredStone, requiredWork) switch
@@ -40,6 +44,7 @@ public static class StructureDefinitions
             (StructureType.Farm, AgricultureRules.FarmWood, AgricultureRules.FarmStone, AgricultureRules.FarmWork) => true,
             (StructureType.Granary, AgricultureRules.GranaryWood, AgricultureRules.GranaryStone, AgricultureRules.GranaryWork) => true,
             (StructureType.Marketplace, EconomyRules.MarketWood, EconomyRules.MarketStone, EconomyRules.MarketWork) => true,
+            (StructureType.Storehouse, StorehouseRequiredWood, StorehouseRequiredStone, StorehouseRequiredWork) => true,
             _ => false
         };
 }

@@ -22,6 +22,22 @@ public static class CitizenSimulationRules
     public const int DesiredSpareShelterSlots = 4;
     public const int BaseStorageCapacity = 800;
     public const int StockpileStorageBonus = 800;
+    // M16: a storehouse holds three stockpiles' worth of goods for the materials of two.
+    public const int StorehouseStorageBonus = 2400;
+    public const int StorehouseRequiredWood = StructureDefinitions.StorehouseRequiredWood;
+    public const int StorehouseRequiredStone = StructureDefinitions.StorehouseRequiredStone;
+    public const int StorehouseRequiredWork = StructureDefinitions.StorehouseRequiredWork;
+    // M16: a new village (below this population and with fewer than this many stockpiles) builds quick
+    // stockpiles; an established one builds storehouses unless storage is urgently full.
+    public const int StorehouseMinimumPopulation = 8;
+    public const int StorehouseAfterStockpiles = 2;
+    public const int StorehouseUrgentFillPercent = 95;
+    // M16: an established village adds quick stockpiles for urgent relief only until it has this many.
+    public const int SupplementaryStockpileLimit = 4;
+    // M16: the wood and stone a household keeps of its own production before the rest of its share joins
+    // the commons. Twice the private stock a household gathers for (160 wood, 100 stone).
+    public const int HouseholdKeepWood = 320;
+    public const int HouseholdKeepStone = 200;
     public const int ShelterCapacityPerBuilding = 4;
     public const int ShelterRequiredWood = 40;
     public const int ShelterRequiredStone = 10;
@@ -83,4 +99,20 @@ public static class CitizenSimulationRules
     public const int FoodAutumnBasisPoints = 10000;
     public const int FoodWinterBasisPoints = 2500;
     public const int WoodRegenerationDivisor = 8;
+
+    /// <summary>General (non-food-only) storage a completed structure adds to its settlement.</summary>
+    public static int GeneralStorageBonus(Structure structure) => structure.Status != StructureStatus.Complete ? 0 : structure.Type switch
+    {
+        StructureType.Stockpile => StockpileStorageBonus,
+        StructureType.Storehouse => StorehouseStorageBonus,
+        _ => 0
+    };
+
+    /// <summary>Total general storage the completed stockpiles and storehouses among <paramref name="structures"/> add.</summary>
+    public static int GeneralStorageOf(IEnumerable<Structure> structures)
+    {
+        var total = 0;
+        foreach (var structure in structures) total = checked(total + GeneralStorageBonus(structure));
+        return total;
+    }
 }

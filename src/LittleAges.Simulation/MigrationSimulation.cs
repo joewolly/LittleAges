@@ -242,16 +242,16 @@ public sealed partial class SimulationEngine
     private int StorageCapacityAt(long settlementId)
     {
         if (!MigrationSystemsEnabled(SimulationRulesVersion)) return StorageCapacity;
-        var stockpiles = 0;
+        var general = 0;
         var granaries = 0;
         foreach (var structure in StructuresAt(settlementId))
         {
             if (structure.Status != StructureStatus.Complete) continue;
-            if (structure.Type == StructureType.Stockpile) stockpiles++;
-            else if (structure.Type == StructureType.Granary) granaries++;
+            general = checked(general + CitizenSimulationRules.GeneralStorageBonus(structure));
+            if (structure.Type == StructureType.Granary) granaries++;
         }
         return checked(SettlementFor(settlementId).BaseStorageCapacity +
-            stockpiles * CitizenSimulationRules.StockpileStorageBonus +
+            general +
             granaries * AgricultureRules.GranaryFoodCapacity);
     }
 

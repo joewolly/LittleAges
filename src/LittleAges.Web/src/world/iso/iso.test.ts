@@ -4,7 +4,7 @@ import type { LivingWorld } from '../../living'
 import { MAX_ZOOM, MIN_ZOOM, clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt } from './projection'
 import { buildStaticScene, cameraFocus, fieldSprite, structureSprite, villagerLook, villagerSprite } from './scene'
 import { seasonAt } from './seasons'
-import { spriteKeysFor, spritePlacement } from './sprites'
+import { seasonalKey, spriteKeysFor, spritePlacement } from './sprites'
 import { MASONRY_MINUTES, TIMBER_MINUTES, shelterTier } from './tiers'
 
 const DAY = 24 * 60
@@ -136,6 +136,8 @@ describe('scene', () => {
     expect(structureSprite(structure('Farm', 'Complete', { cropStage: 'Harvest' }), 1)).toBe('farm-harvest')
     expect(structureSprite(structure('Farm'), 1)).toBe('farm-fallow')
     expect(structureSprite(structure('Marketplace'), 1)).toBe('marketplace')
+    expect(structureSprite(structure('Storehouse'), 1)).toBe('storehouse')
+    for (const season of ['spring', 'summer', 'autumn', 'winter'] as const) expect(spritePlacement(seasonalKey(season, 'storehouse'))).not.toBeNull()
     expect(fieldSprite({ id: '1', location: { x: 0, y: 0 }, growth: 0, moisture: 0, condition: 0, yieldRemaining: 3, harvests: 0 })).toBe('field-ripe')
     expect(fieldSprite({ id: '1', location: { x: 0, y: 0 }, growth: 7000, moisture: 0, condition: 0, yieldRemaining: 0, harvests: 0 })).toBe('field-green')
   })

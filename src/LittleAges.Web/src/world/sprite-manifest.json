@@ -162,6 +162,12 @@
    "height": 1.2739,
    "width": 1.9864
   },
+  "autumn/storehouse": {
+   "anchorX": 1.1917,
+   "anchorY": 1.5031,
+   "height": 2.1396,
+   "width": 2.424
+  },
   "autumn/workshop": {
    "anchorX": 1.5,
    "anchorY": 1.7216,
@@ -1548,6 +1554,12 @@
    "height": 1.2739,
    "width": 1.9864
   },
+  "spring/storehouse": {
+   "anchorX": 1.1917,
+   "anchorY": 1.5031,
+   "height": 2.1396,
+   "width": 2.424
+  },
   "spring/workshop": {
    "anchorX": 1.5,
    "anchorY": 1.7216,
@@ -1716,6 +1728,12 @@
    "height": 1.2739,
    "width": 1.9864
   },
+  "summer/storehouse": {
+   "anchorX": 1.1917,
+   "anchorY": 1.5031,
+   "height": 2.1396,
+   "width": 2.424
+  },
   "summer/workshop": {
    "anchorX": 1.5,
    "anchorY": 1.7216,
@@ -1883,6 +1901,12 @@
    "anchorY": 0.7557,
    "height": 1.2739,
    "width": 1.9864
+  },
+  "winter/storehouse": {
+   "anchorX": 1.1917,
+   "anchorY": 1.5031,
+   "height": 2.1396,
+   "width": 2.424
   },
   "winter/workshop": {
    "anchorX": 1.5,

@@ -135,7 +135,7 @@ public static class LivingValidation
                     var siteOrders = state.Orders.Where(x => SiteForOrder(x) == siteId).ToArray();
                     var siteStructures = snapshot.Structures.Where(x => structureSites.GetValueOrDefault(x.Id.Value, 1) == siteId).ToArray();
                     var capacity = (long)communal.BaseStorageCapacity +
-                        siteStructures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus +
+                        CitizenSimulationRules.GeneralStorageOf(siteStructures) +
                         siteStructures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
                     var livingUsed = livingStock.Sum(x => (long)x.Quantity) + siteOrders.Sum(x =>
                         x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
@@ -147,7 +147,7 @@ public static class LivingValidation
             }
             else
             {
-                var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + snapshot.Structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus;
+                var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + CitizenSimulationRules.GeneralStorageOf(snapshot.Structures);
                 capacity += snapshot.Structures.Count(x => x.Type == StructureType.Granary && x.Status == StructureStatus.Complete) * AgricultureRules.GranaryFoodCapacity;
                 var livingUsed = state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
                 var m12Stored = economy.StoredGoods(snapshot.Settlement);
@@ -167,7 +167,7 @@ public static class LivingValidation
         }
         else
         {
-            var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + snapshot.Structures.Count(x => x.Type == StructureType.Stockpile && x.Status == StructureStatus.Complete) * CitizenSimulationRules.StockpileStorageBonus;
+            var capacity = (long)snapshot.Settlement!.BaseStorageCapacity + CitizenSimulationRules.GeneralStorageOf(snapshot.Structures);
             var livingUsed = state.Stock.Sum(x => (long)x.Quantity) + state.Orders.Sum(x => x.Cargo.Sum(y => (long)y.Quantity) + (x.Reserved && !x.Produced ? x.Ingredients.Sum(y => (long)y.Quantity) : 0));
             Require(snapshot.Settlement.StorageUsed + livingUsed <= capacity, "Living storage including escrow and transit exceeds capacity.");
         }

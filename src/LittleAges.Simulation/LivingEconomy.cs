@@ -147,17 +147,22 @@ public sealed partial class SimulationEngine
         var population = PopulationAt(settlementId);
         var needed = kind == LivingFacilityKind.Hearth ? Math.Min(16, Math.Max(1, (population + 3) / 4)) : 1;
         if (FacilitiesAt(settlementId).Count(x => x.Kind == kind) >= needed || technique is { } required && !SettlementKnows(settlementId, required)) return;
-        if (SelectLivingSite(false, settlementId) is { } site) RequestLiving(workKind, site, priority, work: 480, settlementId: settlementId, ingredients: [new("Wood", 12), new("Stone", 6)]);
+        if (SelectLivingSite(false, settlementId, kind) is { } site) RequestLiving(workKind, site, priority, work: 480, settlementId: settlementId, ingredients: [new("Wood", 12), new("Stone", 6)]);
     }
-    private TileCoordinate? SelectLivingSite(bool field, long settlementId = 1)
+    private TileCoordinate? SelectLivingSite(bool field, long settlementId = 1, LivingFacilityKind? facility = null)
     {
         var used = _living!.Fields.Select(x => x.Location).Concat(_living.Facilities.Select(x => x.Location))
             .Concat(_structures.Values.Select(x => x.Location)).Concat(_living.Orders.Where(x => x.Kind is LivingWorkKind.EstablishField or LivingWorkKind.BuildHearth or LivingWorkKind.BuildLoom or LivingWorkKind.BuildCareHouse).Select(x => x.Location)).ToHashSet();
         var site = SiteLocation(settlementId);
         var costs = GetTravelCostsCached(site);
         var resourceSites = World.Resources.Select(x => x.Coordinate).ToHashSet();
-        return World.Tiles.Where(x => x.Buildable && x.Coordinate != site && !used.Contains(x.Coordinate) && costs.ContainsKey(x.Coordinate)
-                && !resourceSites.Contains(x.Coordinate) && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForLocation(x.Coordinate) == settlementId) && (!field || x.Fertility >= 2000))
+        var tiles = World.Tiles.Where(x => x.Buildable && x.Coordinate != site && !used.Contains(x.Coordinate) && costs.ContainsKey(x.Coordinate)
+                && !resourceSites.Contains(x.Coordinate) && (!MigrationSystemsEnabled(SimulationRulesVersion) || SiteIdForLocation(x.Coordinate) == settlementId) && (!field || x.Fertility >= 2000));
+        if (PlannedLayoutEnabled(SimulationRulesVersion))
+            return field
+                ? SelectPlannedSite(settlementId, PlanDistrict.Farmland, SettlementPlanner.Footprint.Field, tiles, x => x.Fertility / 200)
+                : SelectPlannedSite(settlementId, facility == LivingFacilityKind.Hearth ? PlannedHearthDistrict(settlementId) : PlanDistrict.Crafts, SettlementPlanner.Footprint.Solitary, tiles);
+        return tiles
             .OrderBy(x => costs[x.Coordinate] * 10L - (field ? x.Fertility / 10 : 0)).ThenBy(x => x.Coordinate)
             .Select(x => (TileCoordinate?)x.Coordinate).FirstOrDefault();
     }
