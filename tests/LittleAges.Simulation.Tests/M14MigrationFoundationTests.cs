@@ -349,7 +349,9 @@ public sealed class M14MigrationFoundationTests
     {
         var fixture = CreateDaughterFixture(new WorldSeed(915));
         var engine = SimulationEngine.FromPersistenceSnapshot(fixture.Snapshot);
-        var occupied = (TileCoordinate)InvokePrivate(engine, selector, 2L)!;
+        // Construction sites are chosen per building type; M14 places every type alike.
+        object?[] arguments = selector == "SelectConstructionSite" ? [2L, StructureType.Shelter] : [2L];
+        var occupied = (TileCoordinate)InvokePrivate(engine, selector, arguments)!;
         Assert.Equal(2, SiteIdForLocation(engine, occupied));
 
         var counters = GetPrivateField<DeterministicCounters>(engine, "_counters");
@@ -359,7 +361,7 @@ public sealed class M14MigrationFoundationTests
         var migration = GetPrivateField<MigrationWorldState>(engine, "_migrationState");
         SetPrivateField(engine, "_migrationState", WithAdditionalStructureOwners(migration, [blocker], [1]));
 
-        var selected = (TileCoordinate)InvokePrivate(engine, selector, 2L)!;
+        var selected = (TileCoordinate)InvokePrivate(engine, selector, arguments)!;
 
         Assert.NotEqual(occupied, selected);
         Assert.Equal(occupied, blocker.Location);
