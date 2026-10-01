@@ -53,7 +53,7 @@ const loadWorldViewport = () => import('./world/WorldViewport').then(module => (
 const WorldViewport = lazy(loadWorldViewport)
 
 const initialStatus: Status = { state: 'Unknown', worldMinute: null, pendingEventCount: null, worldSeed: null, error: null, paused: false, operationalSpeed: null }
-const historyTypes: HistoricalEventType[] = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned', 'TradeDeparted', 'TradeCompleted', 'TradeReturned', 'TradeLost', 'RoadWorkSeason', 'RouteConnected']
+const historyTypes: HistoricalEventType[] = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned', 'TradeDeparted', 'TradeCompleted', 'TradeReturned', 'TradeLost', 'RoadWorkSeason', 'RouteConnected', 'FestivalStarted', 'FestivalEnded', 'FestivalAttended']
 const HISTORY_PAGE_SIZE = 50
 const STATISTICS_PAGE_SIZE = 100
 const REST_VISIBLE_FALLBACK_INTERVAL_MS = 2_000

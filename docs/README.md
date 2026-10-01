@@ -14,11 +14,16 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
-- [`m15-roads-trade.md`](./m15-roads-trade.md) — M15 rules contract and current
-  new-world default for worn trails, paved roads, and trade between the two
+- [`m16-festivals.md`](./m16-festivals.md) — current new-world default: shared
+  harvest afternoons, optional feasts, timed family visits, factual memories,
+  temporary observer scenery, and century save/reload acceptance evidence.
+- [`m16-planned-layout.md`](./m16-planned-layout.md) — M16 settlement planner,
+  districts, storehouses, and shared household surplus; festivals build on it.
+- [`m15-roads-trade.md`](./m15-roads-trade.md) — previous new-world default
+  for worn trails, paved roads, and trade between the two
   settlements, with the phase 6 calibration and acceptance evidence.
 - [`m14-migration.md`](./m14-migration.md) — implemented M14 rules contract for
-  migration and a second settlement (the previous default); long-horizon
+  migration and a second settlement (an earlier default); long-horizon
   acceptance status is documented there.
 - [`living-settlement-v0.2.md`](./living-settlement-v0.2.md) — opt-in successor
   rules, including the `living1` and opt-in new-world `living2` identifiers,
@@ -33,8 +38,6 @@ historical or design context rather than a claim about the current runtime.
 
 ## Product and design references
 
-- [`m15-roads-trade.md`](./m15-roads-trade.md) - M15 design for worn paths,
-  built roads, and trader journeys between settlements; in progress and opt-in.
 - [`feature-ideas.md`](./feature-ideas.md) — editable ideas for future
   simulation, history, world, and observer features; not a release schedule.
 - [`design-v0.1.md`](./design-v0.1.md) — the preserved v0.1 product-design

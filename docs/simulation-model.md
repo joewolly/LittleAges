@@ -556,7 +556,8 @@ non-persistent one-day tests and do not represent 100/500-year runs.
 Later rules versions have their own contracts: M14 in
 [`m14-migration.md`](m14-migration.md), M15 in
 [`m15-roads-trade.md`](m15-roads-trade.md), and M16 in
-[`m16-planned-layout.md`](m16-planned-layout.md). M15 (`m15-rng1-roads1`) keeps
+[`m16-planned-layout.md`](m16-planned-layout.md) and
+[`m16-festivals.md`](m16-festivals.md). M15 (`m15-rng1-roads1`) keeps
 every M14 system and adds:
 
 - a canonical road overlay: per-tile integer wear and a grade (`None`, `Track`,
@@ -580,3 +581,17 @@ every M14 system and adds:
 The headless report adds an "M15 roads and trade" summary for M15 worlds. It
 is operational evidence and is not part of the deterministic report
 fingerprint.
+
+## M16 harvest festival contract
+
+[`m16-festivals.md`](m16-festivals.md) specifies `m16-rng1-festivals1`, which
+inherits M15 and adds annual harvest afternoons at both settlements. Attendance
+requires physical time at the center and grants benefits once per occurrence.
+Feast reservations remain in storage and food conservation accounting; unused
+portions return at closing. Existing family visits are timed for the gathering
+and retain ordinary provisions, needs, and return journeys.
+
+Festival state is optional canonical Living JSON for earlier rules, with
+appended event values 29-31 and memory value 7. An additive SQLite migration
+preserves earlier worlds' recorded rules and history. The observer reports
+factual attendance and renders temporary scenery without mutating the world.

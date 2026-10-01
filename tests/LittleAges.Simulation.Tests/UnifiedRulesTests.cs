@@ -10,7 +10,7 @@ public sealed class UnifiedRulesTests
     [Fact]
     public void M16IsCurrentDefaultWhileM13RemainsExplicitlyAvailable()
     {
-        Assert.Equal(SimulationEngine.PlannedSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
 
         var m13 = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.UnifiedSimulationRulesVersion);
 

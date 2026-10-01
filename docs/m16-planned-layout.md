@@ -1,6 +1,8 @@
 # M16 - Planned settlement layout
 
-**Status:** implemented; `m16-rng1-planned1` is the new-world default.
+**Status:** implemented; `m16-rng1-planned1` remains available explicitly, and
+[M16 festivals](m16-festivals.md) (`m16-rng1-festivals1`) builds on it as the
+new-world default.
 
 ## Intent
 

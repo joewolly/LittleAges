@@ -20,7 +20,7 @@ public sealed partial class SimulationEngine
             var needs = citizen.GetProjectedNeeds(CurrentMinute);
             person.Experiences.RemoveAll(x => CurrentMinute.Value - x.Minute > 30L * WorldCalendar.MinutesPerDay);
             if (settlement.FoodStored < PopulationAt(settlementId) * 5) Experience(person, LivingExperienceKind.Scarcity);
-            var feelings = person.Experiences.Sum(x => x.Kind switch { LivingExperienceKind.Bereavement => -800, LivingExperienceKind.Scarcity => -300, LivingExperienceKind.Helped => 500, LivingExperienceKind.SharedWork => 150, LivingExperienceKind.Recreation => 400, LivingExperienceKind.Learned => 300, _ => 0 });
+            var feelings = person.Experiences.Sum(x => x.Kind switch { LivingExperienceKind.Bereavement => -800, LivingExperienceKind.Scarcity => -300, LivingExperienceKind.Helped => 500, LivingExperienceKind.SharedWork => 150, LivingExperienceKind.Recreation or LivingExperienceKind.Festival => 400, LivingExperienceKind.Learned => 300, _ => 0 });
             person.Mood = Math.Clamp(6500 + feelings - (needs.Hunger + needs.Rest) / 5 - (person.Injury + person.Illness) / 4, 0, 10000);
             person.Stress = Math.Clamp(person.Stress + (5000 - person.Mood) / 5 - citizen.Traits.Resilience / 100, 0, 10000);
             person.ClothingCondition = Math.Max(0, person.ClothingCondition - 30);

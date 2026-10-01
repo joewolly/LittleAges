@@ -14,13 +14,17 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
-New worlds default to `m16-rng1-planned1`. It keeps every M15 system (worn
-trails, paved roads, trade between two settlements) and adds a settlement
+New worlds default to `m16-rng1-festivals1`. It keeps every M15 system (worn
+trails, paved roads, trade between two settlements) and the M16 settlement
 planner: each village gets organic districts for homes, storage, crafts, and
 farmland, storage grows through large storehouses in one yard instead of
 stockpiles scattered across the map, and households share surplus wood and stone
-instead of hoarding it. Existing saves keep their recorded rules
-and behavior. See the [M16 layout contract](docs/m16-planned-layout.md), the
+instead of hoarding it. On top of that it adds annual harvest gatherings,
+optional feasts, timed family visits, personal memories, and temporary festival
+decorations. `m16-rng1-planned1` remains available explicitly. Existing saves
+keep their recorded rules and behavior. See the
+[M16 festivals contract](docs/m16-festivals.md), the
+[M16 layout contract](docs/m16-planned-layout.md), the
 [M15 rules contract](docs/m15-roads-trade.md), and the
 [M14 rules contract](docs/m14-migration.md).
 
@@ -74,6 +78,7 @@ meters and villager cards, and a responsive, tabbed record ledger.
 - household property, persistent occupations, a 20% communal contribution, physical
   marketplace barter, public-work payments in goods, and inheritance;
 - append-only factual history, biographies, structured memories, and monthly statistics;
+- annual harvest festivals, optional shared feasts, and family visits under M16 rules;
 - a painted 2D isometric village with seasons, Shelters that change look as the
   settlement learns, canonical route interpolation, a top-down map overview, and
   responsive observer records;
@@ -157,13 +162,15 @@ run:
 ```powershell
 dotnet run --project .\src\LittleAges.Headless\LittleAges.Headless.csproj `
   --configuration Release --no-build -- acceptance `
-  --seed 42 --years 100 --rules m16-rng1-planned1 `
-  --checkpoint-year 30 --database .\artifacts\acceptance.db `
+  --seed 42 --years 100 --rules m16-rng1-festivals1 `
+  --checkpoint-year 80 --database .\artifacts\acceptance.db `
   --output .\artifacts
 ```
 
 See the [`v0.1 acceptance report`](./docs/v0.1-acceptance-report.md) for the
 exact measured results, fingerprints, invariants, and remaining manual notes.
+The [M16 contract](./docs/m16-festivals.md) records festival validation and
+save/reload evidence.
 
 ## Documentation
 

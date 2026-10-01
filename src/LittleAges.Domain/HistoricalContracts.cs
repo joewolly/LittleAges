@@ -34,7 +34,10 @@ public enum HistoricalEventType : int
     TradeReturned = 25,
     TradeLost = 26,
     RoadWorkSeason = 27,
-    RouteConnected = 28
+    RouteConnected = 28,
+    FestivalStarted = 29,
+    FestivalEnded = 30,
+    FestivalAttended = 31
 }
 
 public enum HistoricalImportance : int
@@ -87,7 +90,8 @@ public enum MemoryType : int
     PartnershipFormed = 3,
     FriendshipFormed = 4,
     RivalryFormed = 5,
-    StructureCompleted = 6
+    StructureCompleted = 6,
+    FestivalAttended = 7
 }
 
 public enum CitizenMemoryType : int
@@ -97,7 +101,8 @@ public enum CitizenMemoryType : int
     PartnershipFormed = 3,
     FriendshipFormed = 4,
     RivalryFormed = 5,
-    StructureCompleted = 6
+    StructureCompleted = 6,
+    FestivalAttended = 7
 }
 
 /// <summary>An immutable, schema-versioned factual historical transition.</summary>
@@ -164,7 +169,7 @@ public sealed record HistoricalEvent
     {
         WorldIdValidation.RequirePositive(Id.Value, nameof(Id));
         if (WorldMinute < 0 || WorldMinute > currentMinute) throw new ArgumentException("Historical event minute is outside the world timeline.");
-        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.RouteConnected) throw new ArgumentException("Historical event type is unsupported.");
+        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.FestivalAttended) throw new ArgumentException("Historical event type is unsupported.");
         if (!Enum.IsDefined(Importance) || Importance is < HistoricalImportance.Debug or > HistoricalImportance.Historic) throw new ArgumentException("Historical event importance is unsupported.");
         if (!Enum.IsDefined(Origin) || Origin is not (HistoricalEventOrigin.Live or HistoricalEventOrigin.MigrationBackfill)) throw new ArgumentException("Historical event origin is unsupported.");
         if (SchemaVersion != CurrentSchemaVersion) throw new NotSupportedException($"Historical event schema version '{SchemaVersion}' is not supported.");
@@ -201,6 +206,8 @@ public sealed record HistoricalEvent
             case HistoricalEventType.SeasonStarted:
             case HistoricalEventType.RoadWorkSeason:
             case HistoricalEventType.RouteConnected:
+            case HistoricalEventType.FestivalStarted:
+            case HistoricalEventType.FestivalEnded:
                 if (citizens.Length != 0 || structures.Length != 0) throw new ArgumentException("This historical event cannot have entity links.");
                 break;
             case HistoricalEventType.TradeDeparted:
@@ -243,6 +250,7 @@ public sealed record HistoricalEvent
                 if (citizens.Count(x => x.Role == "subject") != 1 || citizens.Count(x => x.Role == "parent") != 2 || citizens.Any(x => x.Role is not ("subject" or "parent"))) throw new ArgumentException("CitizenBorn links are not canonical.");
                 if (structures.Length != 0) throw new ArgumentException("CitizenBorn cannot have structure links.");
                 break;
+            case HistoricalEventType.FestivalAttended:
             case HistoricalEventType.CitizenDied:
                 RequireRoles(citizens, "subject", 1, 1);
                 if (structures.Length != 0) throw new ArgumentException("CitizenDied cannot have structure links.");
@@ -488,6 +496,13 @@ public static class HistoricalEventPayloads
         ? $"{{\"grade\":{JsonSerializer.Serialize(grade.ToString())}}}"
         : throw new ArgumentOutOfRangeException(nameof(grade), grade, "Only trail and road connections are recorded.");
 
+    public static string Festival(long settlementId, long year, FestivalMode mode, int attendees, int foodConsumed)
+    {
+        if (settlementId is not (1 or 2) || year < 0 || !Enum.IsDefined(mode) || attendees < 0 || foodConsumed < 0 || foodConsumed % 10 != 0 || mode == FestivalMode.Gathering && foodConsumed != 0)
+            throw new ArgumentException("Festival payload is invalid.");
+        return $"{{\"settlementId\":\"{Id(settlementId)}\",\"year\":{year.ToString(CultureInfo.InvariantCulture)},\"mode\":{JsonSerializer.Serialize(mode.ToString())},\"attendees\":{attendees.ToString(CultureInfo.InvariantCulture)},\"foodConsumed\":{foodConsumed.ToString(CultureInfo.InvariantCulture)}}}";
+    }
+
     /// <summary>Validates the event-specific canonical JSON representation.</summary>
     public static void Validate(HistoricalEventType eventType, string payloadJson)
     {
@@ -624,6 +639,20 @@ public static class HistoricalEventPayloads
                     RequireCanonical(payloadJson, root, ["settlementId", "tilesBuilt", "season", "year"], () =>
                         RoadWorkSeason(RequiredPositiveId(root, "settlementId"), RequiredPositiveInt(root, "tilesBuilt"),
                             RequiredSeason(root, "season"), RequiredNonNegativeLong(root, "year")));
+                    break;
+                case HistoricalEventType.FestivalStarted:
+                case HistoricalEventType.FestivalEnded:
+                case HistoricalEventType.FestivalAttended:
+                    RequireCanonical(payloadJson, root, ["settlementId", "year", "mode", "attendees", "foodConsumed"], () =>
+                        Festival(RequiredPositiveId(root, "settlementId"), RequiredNonNegativeLong(root, "year"),
+                            Enum.TryParse<FestivalMode>(RequiredString(root, "mode"), false, out var mode) && Enum.IsDefined(mode) ? mode : throw new ArgumentException("Unknown festival mode."),
+                            checked((int)RequiredNonNegativeLong(root, "attendees")), checked((int)RequiredNonNegativeLong(root, "foodConsumed"))));
+                    var attendees = RequiredNonNegativeLong(root, "attendees");
+                    var sharedFood = RequiredNonNegativeLong(root, "foodConsumed");
+                    if (eventType == HistoricalEventType.FestivalStarted && (attendees != 0 || sharedFood != 0) ||
+                        eventType == HistoricalEventType.FestivalAttended && (attendees != 1 || sharedFood is not (0 or 10)) ||
+                        sharedFood > attendees * 10)
+                        throw new ArgumentException("Festival event totals disagree with its transition.");
                     break;
                 case HistoricalEventType.RouteConnected:
                     RequireCanonical(payloadJson, root, ["grade"], () =>
