@@ -3,13 +3,20 @@
 The sections below retain the implementation record through M8 candidate acceptance.
 For the M9 growth, M10 agriculture, and M11 household barter extensions,
 see [Growing Settlement](growing-settlement.md). Fresh worlds now select
-`m12-rng1-spaced1`, which retains M11 behavior except for spaced construction
-sites; all statements below about older defaults describe their
+`m16-rng1-festivals1`; [M17 visitors and newcomers](m17-newcomers.md) are an
+explicit new-world option. All statements below about older defaults describe their
 historical milestone. Existing saves retain their rules. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
 
 The opt-in successor is documented in [Living Settlement v0.2](living-settlement-v0.2.md).
 Its modules reuse these engine, persistence, and observer boundaries while old
 worlds retain the rules described here.
+
+M17 uses the same canonical engine and transactional checkpoint. Active guests
+live in its optional Living JSON extension until admission, with a stable shared
+citizen ID and a dedicated event; admission transfers that identity into the
+ordinary resident roster. Server projections combine inspectable biographies
+while distinguishing guests, residents and archives. M14 household journeys
+remain a separate system between the two existing settlements.
 
 ## Project and reference graph
 

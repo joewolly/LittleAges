@@ -38,6 +38,7 @@ public sealed partial class SimulationEngine
         _living = new LivingWorldState { Stock = Enum.GetValues<LivingGood>().Select(x => new LivingStock(x, 0)).ToList() };
         SynchronizeLivingPeople();
         if (FestivalsEnabled) _living.Festivals = [];
+        if (NewcomersEnabled) _living.Newcomers = new();
         var tiles = World.Tiles.Where(x => x.Walkable && GetTravelCostsCached(World.StartingSite).ContainsKey(x.Coordinate))
             .OrderBy(x => Distance(x.Coordinate, World.StartingSite)).ThenBy(x => x.Coordinate).Take(160).ToArray();
         for (var i = 0; i < Math.Min(8, tiles.Length); i++)
@@ -61,6 +62,7 @@ public sealed partial class SimulationEngine
             _living.LastDailyMinute = CurrentMinute.Value;
         }
         AdvanceFestivals();
+        AdvanceNewcomers();
         ReconcileLivingOrders();
         PlanLivingEconomy();
         ScheduleLivingPulse();
@@ -315,7 +317,7 @@ public sealed partial class SimulationEngine
     private void FinishLivingOrder(Citizen citizen, LivingWorkOrder order)
     {
         _living!.CompletedOrders++;
-        _living.Orders.Remove(order);
+        RemoveLivingOrder(order);
         EndLivingAction(citizen);
     }
     private void EndLivingAction(Citizen citizen)
@@ -349,7 +351,7 @@ public sealed partial class SimulationEngine
             }
             else ChangeGoodAt(siteId, cargo.Good, cargo.Quantity);
         }
-        _living!.Orders.Remove(order);
+        RemoveLivingOrder(order);
     }
     private void ReconcileLivingOrders()
     {

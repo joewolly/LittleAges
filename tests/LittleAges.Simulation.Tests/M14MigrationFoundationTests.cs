@@ -1294,9 +1294,9 @@ public sealed class M14MigrationFoundationTests
             CitizenSimulationRules.FullHungerReduction - 1) / CitizenSimulationRules.FullHungerReduction);
     }
 
-    private static RelocationFixture CreateRelocationEngine(WorldSeed seed, long origin, long destination)
+    private static RelocationFixture CreateRelocationEngine(WorldSeed seed, long origin, long destination, string? rules = null)
     {
-        var baseFixture = CreateDaughterFixture(seed);
+        var baseFixture = CreateDaughterFixture(seed, rules);
         var engine = SimulationEngine.FromPersistenceSnapshot(baseFixture.Snapshot);
         var households = GetPrivateField<Dictionary<long, Household>>(engine, "_households");
         var citizens = GetPrivateField<Dictionary<long, Citizen>>(engine, "_citizens");
@@ -1535,9 +1535,9 @@ public sealed class M14MigrationFoundationTests
             state.InTransitParties, state.FoundingPressure, state.LastRelocations, state.LastVisitAttemptYear);
     }
 
-    private static (SimulationPersistenceSnapshot Snapshot, TileCoordinate DaughterSite) CreateDaughterFixture(WorldSeed seed)
+    private static (SimulationPersistenceSnapshot Snapshot, TileCoordinate DaughterSite) CreateDaughterFixture(WorldSeed seed, string? rules = null)
     {
-        var baseline = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.MigrationSimulationRulesVersion).CreatePersistenceSnapshot();
+        var baseline = new SimulationEngine(seed, simulationRulesVersion: rules ?? SimulationEngine.MigrationSimulationRulesVersion).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var firstCosts = LivingTravelCosts.Compute(world, world.StartingSite);
         var partition = world.Tiles.Where(x => x.Coordinate != world.StartingSite && x.Walkable && x.Buildable &&
@@ -1602,7 +1602,7 @@ public sealed class M14MigrationFoundationTests
             structureOwners, baseline.MigrationState.FacilityOwners, baseline.MigrationState.WorkOrderOwners,
             new MigrationDaughterSettlementState(daughterSite,
                 new MigrationSettlementStockState(100, 0, 0, 4000, baseline.WorldMinute.Value, baseline.WorldMinute.Value),
-                Enum.GetValues<LivingGood>().Select(x => new LivingStock(x, 0)).ToArray()), baseline.MigrationState.InTransitParties);
+                Enum.GetValues<LivingGood>().Select(x => new LivingStock(x, 0)).ToArray()), baseline.MigrationState.InTransitParties, roads: baseline.MigrationState.Roads);
         var settlementOne = new SettlementState(300, 0, 0, baseline.Settlement!.BaseStorageCapacity,
             baseline.Settlement.DemandUpdatedMinute, baseline.Settlement.ExposureConsequencesStartMinute);
         var counters = baseline.Counters with { NextEntityId = checked(marketTwoId + 1) };

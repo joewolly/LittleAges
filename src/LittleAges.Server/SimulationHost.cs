@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using System.Globalization;
 using System.Diagnostics;
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 using LittleAges.Domain;
 using LittleAges.Persistence;
 using LittleAges.Simulation;
@@ -41,7 +42,19 @@ public sealed record ServerStatusSnapshot(
     DateTime? LastSuccessfulCheckpointUtc = null,
     int ConsecutiveCheckpointFailures = 0,
     bool Paused = false,
-    double OperationalSpeed = 0);
+    double OperationalSpeed = 0,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? GuestPopulation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DepartedPopulation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ArchivedPopulation = null);
+
+public sealed record ServerNewcomerSnapshot(string Origin, NewcomerPhase Phase, string HostSettlementId, string ShelterStructureId,
+    TileCoordinate EntryTile, long FirstSeenMinute, long? VisitingStartedMinute, long? StayDeadlineMinute, long? JoinedMinute,
+    long? DepartedMinute, long? DeathMinute, int ProvisionsRemaining)
+{
+    public static ServerNewcomerSnapshot From(NewcomerReadSnapshot snapshot) => new("External", snapshot.Phase,
+        snapshot.HostSettlementId, snapshot.ShelterStructureId, snapshot.EntryTile, snapshot.FirstSeenMinute, snapshot.VisitingStartedMinute,
+        snapshot.StayDeadlineMinute, snapshot.JoinedMinute, snapshot.DepartedMinute, snapshot.DeathMinute, snapshot.ProvisionsRemaining);
+}
 
 public sealed record ServerNeedsSnapshot(int Hunger, int Rest, int Shelter, int Social);
 
@@ -74,10 +87,11 @@ public sealed record ServerCitizenMovementPlanSnapshot(long ActionSequence, long
 /// <summary>Immutable server-owned citizen read model. It never exposes domain mutable records.</summary>
 public sealed record ServerCitizenSnapshot
 {
-    public ServerCitizenSnapshot(CitizenReadSnapshot snapshot)
+    public ServerCitizenSnapshot(CitizenReadSnapshot snapshot, NewcomerReadSnapshot? newcomer = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         CitizenId = snapshot.CitizenId;
+        Newcomer = newcomer is null ? null : ServerNewcomerSnapshot.From(newcomer);
         FounderOrdinal = snapshot.FounderOrdinal;
         GivenName = snapshot.GivenName;
         FamilyName = snapshot.FamilyName;
@@ -116,7 +130,7 @@ public sealed record ServerCitizenSnapshot
         HouseholdId = snapshot.HouseholdId?.Value.ToString(CultureInfo.InvariantCulture);
         ChildrenIds = Array.AsReadOnly((snapshot.ChildrenIds ?? Array.Empty<string>()).OrderBy(static value => long.Parse(value, CultureInfo.InvariantCulture)).ToArray());
         TargetCitizenId = snapshot.TargetCitizenId?.Value.ToString(CultureInfo.InvariantCulture);
-        BirthMinute = snapshot.BirthMinute;
+        BirthMinute = newcomer is null ? snapshot.BirthMinute : null;
         MovementPlan = snapshot.MovementPlan is null ? null : new ServerCitizenMovementPlanSnapshot(
             snapshot.MovementPlan.ActionSequence,
             snapshot.MovementPlan.ObservedMinute.Value,
@@ -125,6 +139,10 @@ public sealed record ServerCitizenSnapshot
     }
 
     public string CitizenId { get; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ServerNewcomerSnapshot? Newcomer { get; }
+    [JsonIgnore] public bool IsResident => Newcomer is null || Newcomer.JoinedMinute is not null;
+    [JsonIgnore] public bool IsGuest => !IsResident && IsAlive && Newcomer!.Phase is NewcomerPhase.Approaching or NewcomerPhase.Visiting or NewcomerPhase.Leaving;
     public int? FounderOrdinal { get; }
     public string GivenName { get; }
     public string FamilyName { get; }
@@ -164,7 +182,7 @@ public sealed record ServerCitizenSnapshot
     public string? HouseholdId { get; }
     public IReadOnlyList<string> ChildrenIds { get; }
     public string? TargetCitizenId { get; }
-    public long BirthMinute { get; }
+    public long? BirthMinute { get; }
     public ServerCitizenMovementPlanSnapshot? MovementPlan { get; }
 }
 
@@ -359,6 +377,9 @@ public sealed record ServerSettlementSnapshot
     public IReadOnlyList<ServerResourceQuantitySnapshot> RemainingResources { get; }
     public IReadOnlyList<ServerResourceNodeSnapshot> Resources { get; }
     public int TotalPopulation => LivingPopulation + DeadPopulation;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? GuestPopulation { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? DepartedPopulation { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? ArchivedPopulation { get; init; }
     public int StorageCapacity { get; }
     public int StorageUsed { get; }
     public int ShelterCapacity { get; }
@@ -394,6 +415,9 @@ public sealed record ServerSettlementSnapshot
 }
 
 public sealed record ServerSettlementSiteSnapshot(long SettlementId, WorldStartingSiteSnapshot Site, ServerSettlementSnapshot Summary);
+public sealed record ServerSettlementMapSiteSnapshot(string SettlementId, WorldStartingSiteSnapshot Site, int LivingPopulation,
+    int FoodStored, int WoodStored, int StoneStored,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? GuestPopulation = null);
 
 /// <summary>M15 road overlay for observers: graded tiles only, in row-major order. Raw wear is not published.</summary>
 public sealed record ServerRoadsSnapshot(IReadOnlyList<ServerRoadTileSnapshot> Tiles);
@@ -1055,17 +1079,26 @@ public sealed partial class SimulationHost : BackgroundService
     {
         var engine = _engine;
         var readSnapshot = engine?.CreateReadSnapshot();
-        var citizenSnapshots = readSnapshot?.Citizens.Select(static citizen => new ServerCitizenSnapshot(citizen)).ToArray() ?? Array.Empty<ServerCitizenSnapshot>();
+        var newcomers = engine?.CreateNewcomerObservations() ?? Array.Empty<NewcomerReadSnapshot>();
+        var newcomerById = newcomers.ToDictionary(x => x.CitizenId, StringComparer.Ordinal);
+        var residentSnapshots = readSnapshot?.Citizens.Select(citizen => new ServerCitizenSnapshot(citizen, newcomerById.GetValueOrDefault(citizen.CitizenId))).ToArray() ?? Array.Empty<ServerCitizenSnapshot>();
+        var citizenSnapshots = residentSnapshots.Concat(newcomers.Where(x => x.Person is not null).Select(x => new ServerCitizenSnapshot(x.Person!, x))).OrderBy(x => long.Parse(x.CitizenId, CultureInfo.InvariantCulture)).ToArray();
+        var newcomersEnabled = engine?.SimulationRulesVersion == "m17-rng1-newcomers1";
+        var guestPopulation = citizenSnapshots.Count(x => x.IsGuest);
+        var departedPopulation = newcomers.Count(x => x.JoinedMinute is null && x.Phase == NewcomerPhase.Departed);
+        var archivedPopulation = newcomers.Count(x => x.JoinedMinute is null && x.Phase is NewcomerPhase.Departed or NewcomerPhase.Dead);
         var agriculture = engine?.CaptureAgriculture();
         var economy = engine?.CaptureEconomy();
         var structureSnapshots = readSnapshot is null ? Array.Empty<ServerStructureSnapshot>() : CreateStructureSnapshots(readSnapshot, citizenSnapshots, agriculture);
         var map = readSnapshot?.World is null ? null : Observation.Map ?? new ServerMapSnapshot(readSnapshot.World);
-        var livingPopulation = citizenSnapshots.Count(static citizen => citizen.IsAlive);
-        var deadPopulation = citizenSnapshots.Length - livingPopulation;
+        var livingPopulation = residentSnapshots.Count(static citizen => citizen.IsAlive);
+        var deadPopulation = residentSnapshots.Length - livingPopulation;
         var migration = engine is not null && SimulationEngine.MigrationSystemsEnabled(engine.SimulationRulesVersion)
             ? engine.CreateMigrationReadSnapshot()
             : null;
         var settlementSites = CreateSettlementSites(readSnapshot, citizenSnapshots, structureSnapshots, economy, migration);
+        if (newcomersEnabled) settlementSites = settlementSites.Select(site => site with { Summary = site.Summary with
+        { GuestPopulation = site.Summary.GuestPopulation ?? 0, DepartedPopulation = site.Summary.DepartedPopulation ?? 0, ArchivedPopulation = site.Summary.ArchivedPopulation ?? 0 } }).ToArray();
         var settlement = settlementSites.FirstOrDefault(static item => item.SettlementId == 1)?.Summary;
         if (settlement is null && readSnapshot is not null)
             settlement = CreateSettlementSummary(readSnapshot, citizenSnapshots, structureSnapshots, economy);
@@ -1077,7 +1110,7 @@ public sealed partial class SimulationHost : BackgroundService
             error,
             readSnapshot?.World is null ? null : Observation.Status.World ?? CreateWorldSummary(readSnapshot.World),
             livingPopulation,
-            citizenSnapshots.Length,
+            residentSnapshots.Length,
             livingPopulation,
             deadPopulation,
             _persistenceState,
@@ -1085,7 +1118,10 @@ public sealed partial class SimulationHost : BackgroundService
             _lastSuccessfulCheckpointUtc,
             _consecutiveCheckpointFailures,
             Paused: Volatile.Read(ref _paused) != 0,
-            OperationalSpeed: Volatile.Read(ref _operationalSpeed));
+            OperationalSpeed: Volatile.Read(ref _operationalSpeed),
+            GuestPopulation: newcomersEnabled ? guestPopulation : null,
+            DepartedPopulation: newcomersEnabled ? departedPopulation : null,
+            ArchivedPopulation: newcomersEnabled ? archivedPopulation : null);
         var roadsEnabled = engine is not null && SimulationEngine.RoadSystemsEnabled(engine.SimulationRulesVersion);
         var roads = roadsEnabled
             ? new ServerRoadsSnapshot(engine!.RoadGrades.Select(static tile => new ServerRoadTileSnapshot(tile.Coordinate.X, tile.Coordinate.Y, tile.Grade)).ToArray())
@@ -1094,7 +1130,8 @@ public sealed partial class SimulationHost : BackgroundService
             ? migration!.InTransitParties.Where(static party => party.JourneyKind == MigrationJourneyKind.Trade).Select(ServerTradePartySnapshot.From).ToArray()
             : null;
         var revision = Interlocked.Increment(ref _observationRevision);
-        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, readSnapshot?.Relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation(), settlementSites, roads, tradeParties);
+        var relationships = (readSnapshot?.Relationships ?? Array.Empty<RelationshipState>()).Concat(newcomers.Where(x => x.JoinedMinute is null).SelectMany(x => x.Contacts)).ToArray();
+        var observation = new ServerObservationSnapshot(status, citizenSnapshots, settlement, structureSnapshots, map, relationships, readSnapshot?.Households, readSnapshot?.History, revision, engine?.CreateGrowthObservation(), AgricultureObservation.Create(agriculture, checked((int)(engine?.TotalStoredFood ?? 0)), engine?.GranaryCapacity ?? 0, livingPopulation), EconomyObservation.Create(economy, engine?.Settlement, engine?.Citizens ?? Array.Empty<Citizen>()), engine?.CreateLivingObservation(), settlementSites, roads, tradeParties);
         Interlocked.Exchange(ref _observation, observation);
         _broadcaster?.Publish(new WorldChangedPayload(revision, status.WorldMinute, state, _persistenceState));
         if (state == SimulationHostState.Running)
@@ -1185,8 +1222,8 @@ public sealed partial class SimulationHost : BackgroundService
         var localStructureIds = site?.StructureIds.ToHashSet();
         var localHouseholdIds = site?.HouseholdIds.ToHashSet();
         var siteCitizens = site is null
-            ? citizens
-            : citizens.Where(citizen => localCitizenIds!.Contains(long.Parse(citizen.CitizenId, CultureInfo.InvariantCulture))).ToArray();
+            ? citizens.Where(citizen => citizen.IsResident).ToArray()
+            : citizens.Where(citizen => citizen.IsResident && localCitizenIds!.Contains(long.Parse(citizen.CitizenId, CultureInfo.InvariantCulture))).ToArray();
         var siteStructures = site is null
             ? structures
             : structures.Where(structure => localStructureIds!.Contains(long.Parse(structure.StructureId, CultureInfo.InvariantCulture))).ToArray();
@@ -1247,7 +1284,12 @@ public sealed partial class SimulationHost : BackgroundService
             siteStructures.Count(s => s.Type == StructureType.Farm && s.Status == StructureStatus.Complete),
             siteStructures.Count(s => s.Type == StructureType.Granary && s.Status == StructureStatus.Complete),
             siteStructures.Count(s => s.Type == StructureType.Marketplace && s.Status == StructureStatus.Complete))
-        { CompletedStorehouses = completedStorehouses };
+        {
+            CompletedStorehouses = completedStorehouses,
+            GuestPopulation = citizens.Any(x => x.Newcomer is not null) ? citizens.Count(x => x.IsGuest && (site is null || x.Newcomer!.HostSettlementId == site.Id.ToString(CultureInfo.InvariantCulture))) : null,
+            DepartedPopulation = citizens.Any(x => x.Newcomer is not null) ? citizens.Count(x => !x.IsResident && x.Newcomer?.Phase == NewcomerPhase.Departed && (site is null || x.Newcomer.HostSettlementId == site.Id.ToString(CultureInfo.InvariantCulture))) : null,
+            ArchivedPopulation = citizens.Any(x => x.Newcomer is not null) ? citizens.Count(x => !x.IsResident && x.Newcomer?.Phase is NewcomerPhase.Departed or NewcomerPhase.Dead && (site is null || x.Newcomer.HostSettlementId == site.Id.ToString(CultureInfo.InvariantCulture))) : null,
+        };
     }
 
     private Dictionary<long, ServerResourceNodeSnapshot[]> AssignMigrationResources(

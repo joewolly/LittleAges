@@ -50,8 +50,10 @@ from the simulation without inventing events.
   tracks and trails from foot traffic, roads paved with household stone, and
   monthly trader journeys between the two settlements. Road decay, ruins,
   dynamic prices, and caravans remain open ideas.
-- **Visitors and newcomers.** Travelers could bring skills, goods, and stories
-  from beyond the starting settlement, then choose whether to stay.
+- **Visitors and newcomers.** Implemented in the opt-in [M17](m17-newcomers.md)
+  ruleset: one rare adult traveler visits an inhabited settlement with their own
+  provisions, makes real contacts, then autonomously joins or physically leaves.
+  External history remains factual; caravans and return visits are deferred.
 - **Disasters and recovery.** Fires, floods, or severe seasons could destroy
   useful structures and create a visible recovery story shaped by preparation.
 - **Changing landscape and ruins.** Abandoned buildings, depleted areas, and

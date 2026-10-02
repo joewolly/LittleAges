@@ -46,13 +46,13 @@ public static class LivingWorkDefinitions
         ? order.Ingredients.All(x => x is { Resource: "Medicine", Quantity: 1 } or { Resource: "Food", Quantity: 2 })
         : order.Ingredients.SequenceEqual(Ingredients(order.Kind));
 
-    public static bool ValidCargo(LivingWorkOrder order, string rulesVersion = SimulationEngine.LivingSimulationRulesVersion)
+    public static bool ValidCargo(LivingWorkOrder order, string rulesVersion = SimulationEngine.LivingSimulationRulesVersion, long? harvestSettlementId = null)
     {
         if (!order.Produced) return order.Cargo.Count == 0;
         return order.Kind switch
         {
             LivingWorkKind.Harvest => SimulationEngine.UnifiedSimulationRulesEnabled(rulesVersion)
-                ? order.Cargo.Count == 1 && order.Cargo[0] is { Good: LivingGood.Grain, Quantity: > 0 and <= 4 }
+                ? order.Cargo.Count == 1 && order.Cargo[0] is { Good: LivingGood.Grain, Quantity: > 0 } && order.Cargo[0].Quantity <= (rulesVersion == SimulationEngine.NewcomersRulesVersion && harvestSettlementId == MigrationDaughterSettlementState.SettlementId ? 12 : 4)
                 : order.Cargo.Count == 2 && order.Cargo[0] is { Good: LivingGood.Grain, Quantity: > 0 and <= 60 } && order.Cargo[1] is { Good: LivingGood.Fiber, Quantity: 5 },
             LivingWorkKind.Hunt => order.Cargo.Count == 0 || order.Cargo.SequenceEqual([new LivingStock(LivingGood.Meal, 40), new LivingStock(LivingGood.Hide, 5)]),
             LivingWorkKind.Cook => Single(LivingGood.Meal, 30),

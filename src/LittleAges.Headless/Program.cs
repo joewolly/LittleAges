@@ -271,6 +271,8 @@ public sealed record HeadlessReport
     public HeadlessRoadSummary? Roads { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<HeadlessLayoutSummary>? Layouts { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public HeadlessNewcomerSummary? Newcomers { get; init; }
     [System.Text.Json.Serialization.JsonIgnore]
     public IReadOnlyDictionary<long, int> LivingResidentCountsBySettlement { get; init; } = new Dictionary<long, int>();
     public IReadOnlyList<HeadlessEvidence> Evidence { get; init; } = Array.Empty<HeadlessEvidence>();
@@ -466,7 +468,9 @@ public static class HeadlessRunner
             FirstDescendantMinute = firstDescendant?.BirthMinute,
             FirstGrandchildCitizenId = firstGrandchild?.Id.Value,
             FirstGrandchildMinute = firstGrandchild?.BirthMinute,
-            PeakSamplingCadence = "Exact peak from ordered retained citizen birth/death facts; no checkpoint sampling.",
+            PeakSamplingCadence = SimulationEngine.NewcomersSystemsEnabled(snapshot.SimulationRulesVersion)
+                ? "Exact resident peak from ordered birth/admission/death facts; guests are counted separately."
+                : "Exact peak from ordered retained citizen birth/death facts; no checkpoint sampling.",
             SurvivalFingerprint = engine.SurvivalFingerprint,
             SettlementFingerprint = engine.SettlementFingerprint,
             SocialFingerprint = engine.SocialFingerprint,
@@ -476,6 +480,7 @@ public static class HeadlessRunner
             Migration = migration,
             Roads = SimulationEngine.RoadSystemsEnabled(snapshot.SimulationRulesVersion) ? HeadlessRoadSummary.Build(engine, historyEvents) : null,
             Layouts = SimulationEngine.PlannedLayoutEnabled(snapshot.SimulationRulesVersion) ? HeadlessLayoutSummary.Build(engine) : null,
+            Newcomers = SimulationEngine.NewcomersSystemsEnabled(snapshot.SimulationRulesVersion) ? HeadlessNewcomerSummary.Build(snapshot) : null,
             LivingResidentCountsBySettlement = migration is null ? new Dictionary<long, int>() :
                 MigrationValidation.GetLivingResidentCountsBySettlement(snapshot, migration),
             Evidence = HeadlessFactEvidence.Build(snapshot),
@@ -487,15 +492,16 @@ public static class HeadlessRunner
     {
         var snapshot = engine.CreatePersistenceSnapshot();
         var eventOrder = snapshot.HistoricalEvents
-            .Where(item => item.EventType is HistoricalEventType.CitizenBorn or HistoricalEventType.CitizenDied)
+            .Where(item => item.EventType is HistoricalEventType.CitizenBorn or HistoricalEventType.CitizenDied or HistoricalEventType.NewcomerJoined)
             .SelectMany(item => snapshot.HistoricalEventCitizens
                 .Where(link => link.HistoricalEventId == item.Id && link.Role == "subject")
                 .Select(link => (Key: (item.EventType, CitizenId: link.CitizenId.Value), Order: item.Id.Value)))
             .GroupBy(item => item.Key)
             .ToDictionary(group => group.Key, group => group.Min(item => item.Order));
-        var living = snapshot.Citizens.Count(IsAliveAtMinuteZero);
+        var introductions = ResidentPopulationHistory.Introductions(ResidentPopulationHistory.Read(snapshot));
+        var living = snapshot.Citizens.Count(citizen => ResidentPopulationHistory.StartMinute(citizen, introductions) <= 0 && (citizen.DeathMinute is null || citizen.DeathMinute > 0));
         var peak = living;
-        var facts = snapshot.Citizens.SelectMany(citizen => PopulationFacts(citizen, snapshot.WorldMinute.Value, eventOrder))
+        var facts = snapshot.Citizens.SelectMany(citizen => PopulationFacts(citizen, snapshot.WorldMinute.Value, eventOrder, introductions))
             .OrderBy(fact => fact.Minute)
             .ThenBy(fact => fact.EventOrder)
             .ThenBy(fact => fact.KindOrder)
@@ -509,12 +515,12 @@ public static class HeadlessRunner
         return Math.Max(peak, engine.LivingPopulation);
     }
 
-    private static bool IsAliveAtMinuteZero(Citizen citizen) => citizen.BirthMinute <= 0 && (citizen.DeathMinute is null || citizen.DeathMinute.Value > 0);
-
-    private static IEnumerable<(long Minute, long EventOrder, int KindOrder, long Id, int Delta)> PopulationFacts(Citizen citizen, long currentMinute, Dictionary<(HistoricalEventType EventType, long CitizenId), long> eventOrder)
+    private static IEnumerable<(long Minute, long EventOrder, int KindOrder, long Id, int Delta)> PopulationFacts(Citizen citizen, long currentMinute, Dictionary<(HistoricalEventType EventType, long CitizenId), long> eventOrder, IReadOnlyDictionary<long, long> introductions)
     {
-        if (citizen.BirthMinute > 0 && citizen.BirthMinute <= currentMinute)
-            yield return (citizen.BirthMinute, eventOrder.TryGetValue((HistoricalEventType.CitizenBorn, citizen.Id.Value), out var birthOrder) ? birthOrder : long.MaxValue, 1, citizen.Id.Value, 1);
+        var introduction = ResidentPopulationHistory.StartMinute(citizen, introductions);
+        var type = introductions.ContainsKey(citizen.Id.Value) ? HistoricalEventType.NewcomerJoined : HistoricalEventType.CitizenBorn;
+        if (introduction > 0 && introduction <= currentMinute)
+            yield return (introduction, eventOrder.TryGetValue((type, citizen.Id.Value), out var introductionOrder) ? introductionOrder : long.MaxValue, 1, citizen.Id.Value, 1);
         if (citizen.DeathMinute is long death && death > 0 && death <= currentMinute)
             yield return (death, eventOrder.TryGetValue((HistoricalEventType.CitizenDied, citizen.Id.Value), out var deathOrder) ? deathOrder : long.MaxValue, 0, citizen.Id.Value, -1);
     }
@@ -525,10 +531,9 @@ public static class HeadlessRunner
         var cadence = years <= 10 ? 1 : 10;
         var checkpoints = Enumerable.Range(0, years / cadence + 1).Select(index => index * cadence).ToList();
         if (checkpoints[^1] != years) checkpoints.Add(years);
-        return checkpoints.Select(year => new HeadlessPopulationPoint(year, checked((long)year * WorldCalendar.MinutesPerYear), LivingAt(snapshot.Citizens, checked((long)year * WorldCalendar.MinutesPerYear)))).ToArray();
+        var newcomers = ResidentPopulationHistory.Read(snapshot);
+        return checkpoints.Select(year => new HeadlessPopulationPoint(year, checked((long)year * WorldCalendar.MinutesPerYear), ResidentPopulationHistory.AtMinute(snapshot.Citizens, newcomers, checked((long)year * WorldCalendar.MinutesPerYear)))).ToArray();
     }
-
-    private static int LivingAt(IEnumerable<Citizen> citizens, long minute) => citizens.Count(citizen => citizen.BirthMinute <= minute && (citizen.DeathMinute is null || citizen.DeathMinute.Value > minute));
 
     private static HeadlessShortageMetrics BuildShortageMetrics(SimulationPersistenceSnapshot snapshot)
     {
@@ -648,6 +653,8 @@ public static class HeadlessReportSerialization
             AddLivingResidentCounts(report, migrationProjection);
             if (report.Living is not null)
                 migrationProjection["living"] = JsonSerializer.SerializeToNode(report.Living.Value);
+            if (report.Newcomers is not null)
+                migrationProjection["newcomers"] = JsonSerializer.SerializeToNode(report.Newcomers, JsonOptions);
             return migrationProjection.ToJsonString(JsonOptions);
         }
         if (report.Living is null)
@@ -723,6 +730,24 @@ public static class HeadlessReportSerialization
         AddRow(builder, "Households / relationships / structures", $"{report.Households.ToString(CultureInfo.InvariantCulture)} / {report.Relationships.ToString(CultureInfo.InvariantCulture)} / {report.Structures.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Food / wood / stone", $"{report.FoodStored.ToString(CultureInfo.InvariantCulture)} / {report.WoodStored.ToString(CultureInfo.InvariantCulture)} / {report.StoneStored.ToString(CultureInfo.InvariantCulture)}");
         AddRow(builder, "Storage / shelter capacity", $"{report.StorageCapacity.ToString(CultureInfo.InvariantCulture)} / {report.ShelterCapacity.ToString(CultureInfo.InvariantCulture)}");
+        if (report.Newcomers is { } newcomers)
+        {
+            AddRow(builder, "External appearances / guests / admissions / departures / guest deaths",
+                $"{newcomers.Appeared} / {newcomers.Guests} / {newcomers.Joined} / {newcomers.Departed} / {newcomers.GuestDeaths}");
+            AddRow(builder, "Traveler food: initial / remaining / consumed / imported / exported / lost",
+                $"{newcomers.InitialProvisions} / {newcomers.RemainingProvisions} / {newcomers.ConsumedProvisions} / {newcomers.ImportedProvisions} / {newcomers.ExportedProvisions} / {newcomers.LostProvisions}");
+            AddRow(builder, "Resident deaths by cause", newcomers.ResidentDeathsByCause.Count == 0 ? "none" :
+                string.Join(", ", newcomers.ResidentDeathsByCause.Select(x => $"{x.Key}: {x.Value}")));
+            builder.AppendLine();
+            builder.AppendLine("## M17 housing and support observations");
+            builder.AppendLine();
+            builder.AppendLine("These outcomes are separate from the mandatory identity, accounting and replay invariants.");
+            builder.AppendLine();
+            builder.AppendLine("| Site | Residents | Housed | Unhoused | Shelter beds | Guests | Projects | Communal food | Wood | Stone | Storage capacity |");
+            builder.AppendLine("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+            foreach (var site in newcomers.Settlements)
+                builder.AppendLine(FormattableString.Invariant($"| {site.SettlementId} | {site.Residents} | {site.HousedResidents} | {site.UnhousedResidents} | {site.ShelterCapacity} | {site.Guests} | {site.ConstructionProjects} | {site.Food} | {site.Wood} | {site.Stone} | {site.StorageCapacity} |"));
+        }
         if (report.Migration is { } migration)
         {
             AddRow(builder, "Settlement metric scope", report.SettlementMetricsScope ?? "per-site state is listed below");

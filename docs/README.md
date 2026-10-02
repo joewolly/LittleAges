@@ -7,6 +7,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Release notes
 
+- [`release-v0.5.0.md`](./release-v0.5.0.md) - published M16 planned settlements,
+  festivals and painted observer.
 - [`release-v0.4.0.md`](./release-v0.4.0.md) — release notes for M15, published
   as v0.4.0.
 - [`release-v0.3.0.md`](./release-v0.3.0.md) — release notes for M14, published
@@ -14,6 +16,11 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
+- [`m17-newcomers.md`](./m17-newcomers.md) - opt-in visitors and newcomers,
+  physical travel, spare shelter, autonomous admission, external ancestry and
+  provisions accounting; M16 remains the new-world default.
+- [`m17-exposure-diagnosis.md`](./m17-exposure-diagnosis.md) - reproduced seed-7
+  exposure deaths and the M17-only correction for fragmented household housing.
 - [`m16-festivals.md`](./m16-festivals.md) — current new-world default: shared
   harvest afternoons, optional feasts, timed family visits, factual memories,
   temporary observer scenery, and century save/reload acceptance evidence.
@@ -52,6 +59,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Acceptance and compatibility evidence
 
+- [`m17-validation.md`](./m17-validation.md) - local visitor lifecycle,
+  legacy fingerprint, SQLite continuation and observer verification.
 - [`living-settlement-living2-acceptance.md`](./living-settlement-living2-acceptance.md)
   — local measured acceptance for `v02-rng1-living2`, including the 100-year
   seed-42 run and year-50 SQLite continuation comparison. It is not hosted CI,

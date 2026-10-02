@@ -1,3 +1,4 @@
+import { isCitizenPresent, newcomerActivity } from '../newcomers'
 import { Component, useState, type ReactNode } from 'react'
 import type { Citizen, Map, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import type { LivingWorld } from '../living'
@@ -62,8 +63,8 @@ export function WorldViewport(props: WorldViewportProps) {
   const settlementSites = props.settlementSites ?? []
   const selectedSite = settlementSites.find(site => site.settlementId === selectedSettlementId) ?? settlementSites[0] ?? null
   const selectedWork = props.living?.orders.find(order => order.citizenId === selected?.citizenId)
-  const selectedActivity = selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : selected ? festivalVisitorActivity(props.living, selected) ?? (restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`) : ''
-  const effectiveFollowCitizenId = followCitizenId !== null && props.citizens.some(citizen => citizen.citizenId === followCitizenId && citizen.isAlive) ? followCitizenId : null
+  const selectedActivity = selectedWork ? `${livingLabel(selectedWork.kind)} · ${livingWorkStage(selectedWork)}` : selected ? newcomerActivity(selected) ?? festivalVisitorActivity(props.living, selected) ?? (restingHome(selected, props.structures) ? 'Resting indoors' : `${livingLabel(selected.currentAction ?? '')} · ${livingLabel(selected.actionPhase ?? '')}`) : ''
+  const effectiveFollowCitizenId = followCitizenId !== null && props.citizens.some(citizen => citizen.citizenId === followCitizenId && isCitizenPresent(citizen)) ? followCitizenId : null
   const following = selected !== null && effectiveFollowCitizenId === selected.citizenId
   const toggleFollow = () => setFollowCitizenId(current => current === selected?.citizenId ? null : selected?.citizenId ?? null)
   const issueNudge = (x: number, z: number, zoom = 0) => setNudge(previous => ({ x, z, zoom, sequence: previous.sequence + 1 }))
@@ -102,7 +103,7 @@ export function WorldViewport(props: WorldViewportProps) {
     </div>
     <div className="world-toolbar" aria-label="World camera controls">
       <button type="button" className="hud-button hud-button-cream" onClick={() => { setResetToken(value => value + 1); setFollowCitizenId(null); setFocusedSettlementId(null) }}><HudIcon name="target" />Reset view</button>
-      <button type="button" className="hud-button hud-button-cream" disabled={selected === null || !selected.isAlive} onClick={toggleFollow}><HudIcon name="eye" />{following ? 'Unfollow' : 'Follow selected'}</button>
+      <button type="button" className="hud-button hud-button-cream" disabled={selected === null || !isCitizenPresent(selected)} onClick={toggleFollow}><HudIcon name="eye" />{following ? 'Unfollow' : 'Follow selected'}</button>
       <button type="button" className="hud-button hud-button-blue" onClick={() => setOverview(value => !value)}><HudIcon name={overview ? 'home' : 'map'} />{overview ? 'Village view' : 'Map overview'}</button>
       {overview && props.living && <button type="button" className="hud-button hud-button-blue" onClick={() => setWholeMap(value => !value)}><HudIcon name="expand" />{wholeMap ? 'Settlement view' : 'Whole map'}</button>}
     </div>
@@ -112,7 +113,7 @@ export function WorldViewport(props: WorldViewportProps) {
       </SceneBoundary>}
     </div>
     {selected && <VillagerCard citizen={selected} activity={selectedActivity} portrait={`/assets/sprites/${villagerSprite(props.worldSeed, selected)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} />}
-    {diagnosticsEnabled && !overview && stats && <output className="world-perf" aria-label="World view performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · {stats.sprites} sprites · {stats.chunks} ground chunks · {props.citizens.filter(citizen => citizen.isAlive).length} villagers · {stats.season} · shelter tier {stats.tier}</output>}
+    {diagnosticsEnabled && !overview && stats && <output className="world-perf" aria-label="World view performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · {stats.sprites} sprites · {stats.chunks} ground chunks · {props.citizens.filter(isCitizenPresent).length} villagers · {stats.season} · shelter tier {stats.tier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom. All citizen details remain available in Observer records.</span>
   </section>
 }

@@ -92,6 +92,15 @@ public sealed record ServerHistorySnapshot
 
 public static class HistoricalEventSummary
 {
+    public static bool InvolvesCitizen(ServerHistoricalEventSnapshot item, string citizenId)
+    {
+        if (item.CitizenLinks.Any(link => link.CitizenId == citizenId)) return true;
+        if (item.EventType is < HistoricalEventType.NewcomerAppeared or > HistoricalEventType.VisitorDied) return false;
+        using var document = JsonDocument.Parse(item.PayloadJson);
+        var payload = document.RootElement;
+        return payload.GetProperty("citizenId").GetString() == citizenId ||
+            payload.TryGetProperty("contactId", out var contact) && contact.GetString() == citizenId;
+    }
     public static string Render(HistoricalEvent item, IEnumerable<HistoricalEventCitizenLink>? citizenLinks = null,
         IEnumerable<HistoricalEventStructureLink>? structureLinks = null, IReadOnlyDictionary<long, string>? citizenNames = null,
         IReadOnlyDictionary<long, StructureType>? structureTypes = null)
@@ -109,6 +118,8 @@ public static class HistoricalEventSummary
         var participantNames = citizens.Where(x => x.Role == "participant").OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).ToArray();
         using var document = JsonDocument.Parse(item.PayloadJson);
         var payload = document.RootElement;
+        var visitorName = item.EventType is >= HistoricalEventType.NewcomerAppeared and <= HistoricalEventType.VisitorDied
+            ? name(long.Parse(payload.GetProperty("citizenId").GetString()!, CultureInfo.InvariantCulture)) : subjectName;
         var namedRole = (string role, string fallbackId) => citizens.Where(x => x.Role == role).OrderBy(x => x.CitizenId.Value).Select(x => name(x.CitizenId.Value)).FirstOrDefault() ?? name(long.Parse(fallbackId, CultureInfo.InvariantCulture));
         return item.EventType switch
         {
@@ -147,6 +158,12 @@ public static class HistoricalEventSummary
             HistoricalEventType.FestivalStarted => $"Settlement {payload.GetProperty("settlementId").GetString()} opened its harvest {(payload.GetProperty("mode").GetString() == "Feast" ? "feast" : "gathering without feast food")} in Year {payload.GetProperty("year").GetInt64().ToString(CultureInfo.InvariantCulture)}.",
             HistoricalEventType.FestivalEnded => $"Settlement {payload.GetProperty("settlementId").GetString()} finished its harvest festival: {payload.GetProperty("attendees").GetInt32().ToString(CultureInfo.InvariantCulture)} citizens joined and {payload.GetProperty("foodConsumed").GetInt32().ToString(CultureInfo.InvariantCulture)} food was shared.",
             HistoricalEventType.FestivalAttended => $"{subjectName} joined the harvest festival in Settlement {payload.GetProperty("settlementId").GetString()}" + (payload.GetProperty("foodConsumed").GetInt32() > 0 ? " and shared a feast meal." : "."),
+            HistoricalEventType.NewcomerAppeared => $"{visitorName}, an external newcomer, appeared at the world edge toward Settlement {payload.GetProperty("hostSettlementId").GetString()}.",
+            HistoricalEventType.VisitorArrived => $"{visitorName} arrived as a visitor in Settlement {payload.GetProperty("hostSettlementId").GetString()}.",
+            HistoricalEventType.VisitorContact => $"{visitorName} spoke with {name(long.Parse(payload.GetProperty("contactId").GetString()!, CultureInfo.InvariantCulture))} during the visit; {payload.GetProperty("interactionCount").GetInt64().ToString(CultureInfo.InvariantCulture)} interactions are recorded.",
+            HistoricalEventType.NewcomerJoined => $"{visitorName} joined Settlement {payload.GetProperty("hostSettlementId").GetString()} as a resident in Household {payload.GetProperty("householdId").GetString()}.",
+            HistoricalEventType.VisitorDeparted => $"{visitorName} departed alive from Settlement {payload.GetProperty("hostSettlementId").GetString()} ({payload.GetProperty("reason").GetString()?.Replace('_', ' ')}); later whereabouts are unknown.",
+            HistoricalEventType.VisitorDied => $"{visitorName} died while visiting Settlement {payload.GetProperty("hostSettlementId").GetString()} ({payload.GetProperty("cause").GetString()}).",
             _ => item.EventType.ToString()
         };
     }

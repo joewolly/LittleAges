@@ -7,7 +7,7 @@ import { CHUNK_TILES, isForested, isWilderness, terrainAt } from './terrain'
 import type { ShelterTier } from './tiers'
 
 /** One sprite placed on the map. `x`/`y` are world tile coordinates of its ground anchor; `lift` raises it in units; `overlay` draws on top with the same placement. */
-export type SceneSprite = { key: string; x: number; y: number; scale: number; depth: number; ground?: boolean; flip?: boolean; lift?: number; overlay?: string }
+export type SceneSprite = { key: string; x: number; y: number; scale: number; depth: number; ground?: boolean; flip?: boolean; lift?: number; overlay?: string; visitor?: boolean }
 
 const CROP_SPRITES: Record<string, string> = { Fallow: 'farm-fallow', Planted: 'farm-planted', Growing: 'farm-growing', Harvest: 'farm-harvest', Dormant: 'farm-dormant' }
 const FACILITY_SPRITES: Record<string, string> = { Hearth: 'hearth', Loom: 'loom', CareHouse: 'carehouse' }

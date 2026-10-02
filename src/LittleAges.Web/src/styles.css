@@ -276,6 +276,8 @@ footer { display: none; }
 .observer-drawer-body table { min-width: 760px; }
 .citizen-browser { display: grid; grid-template-columns: 150px minmax(0,1fr); gap: 12px; align-items: start; }
 .citizen-list { display: grid; gap: 6px; max-height: calc(100dvh - 205px); overflow: auto; }
+.citizen-list > div { display: grid; gap: 6px; }
+.citizen-list h3 { margin: 8px 0 2px; font-size: 1rem; }
 .citizen-list button { display: grid; gap: 2px; width: 100%; padding: 10px; border: 1px solid #c8a77b; border-radius: 8px; text-align: left; color: #4d3727; background: rgba(255,250,235,.68); cursor: pointer; }
 .citizen-list button.is-selected { border-color: #a45d32; background: #efd59f; box-shadow: inset 4px 0 #a45d32; }
 .citizen-list strong { font: 400 1rem/1.15 Georgia, serif; }.citizen-list span, .citizen-list small { font: 10px/1.25 'Trebuchet MS', sans-serif; color: #806d5b; }

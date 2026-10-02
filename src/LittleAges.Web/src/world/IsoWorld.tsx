@@ -1,7 +1,8 @@
+import { isCitizenGuest, isCitizenPresent } from '../newcomers'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Citizen, Map as WorldMap, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import type { LivingWorld } from '../living'
-import { PresentationClock, doorway, doorwayPlan, restingHome } from './presentation'
+import { PresentationClock, doorway, doorwayPlan, restingHome, shouldSnapToAuthority } from './presentation'
 import { ROAD_STYLES, roadSegments } from './roads'
 import { stableVisualHash, worldPointAlongMovementPlan } from './visuals'
 import { clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt, type IsoCamera } from './iso/projection'
@@ -136,7 +137,7 @@ export function IsoWorld(props: IsoWorldProps) {
     const stepCitizens = (now: number, delta: number): boolean => {
       const current = propsRef.current
       const poses = posesRef.current
-      const alive = current.citizens.filter(citizen => citizen.isAlive)
+      const alive = current.citizens.filter(isCitizenPresent)
       const minute = clock.at(now)
       const routeMotion = !current.reducedMotion && current.operationalSpeed !== null && current.operationalSpeed > 0 && current.operationalSpeed <= 10
       let moving = false
@@ -148,7 +149,7 @@ export function IsoWorld(props: IsoWorldProps) {
         let target = plan ? worldPointAlongMovementPlan(plan, minute, current.operationalSpeed) : { ...citizen.location }
         if (home) target = doorway(home)
         const pose = poses.get(citizen.citizenId)
-        if (!pose || current.reducedMotion) {
+        if (!pose || shouldSnapToAuthority(current.paused, current.reducedMotion, current.operationalSpeed)) {
           poses.set(citizen.citizenId, { x: target.x, y: target.y, visible: home === null, walking: false, facingRight: false })
           continue
         }
@@ -288,7 +289,7 @@ export function IsoWorld(props: IsoWorldProps) {
       const selected = current.selectedCitizenId
       let selectedPose: CitizenPose | null = null
       for (const citizen of current.citizens) {
-        if (!citizen.isAlive) continue
+        if (!isCitizenPresent(citizen)) continue
         const pose = posesRef.current.get(citizen.citizenId)
         if (!pose || !pose.visible) continue
         if (citizen.citizenId === selected) selectedPose = pose
@@ -296,7 +297,7 @@ export function IsoWorld(props: IsoWorldProps) {
         const frame = pose.walking && !current.reducedMotion ? (Math.floor((now + phase) / 170) % 2) as 0 | 1 : 0
         const bob = pose.walking && !current.reducedMotion ? Math.abs(Math.sin((now + phase) / 170 * Math.PI)) * 0.05 : 0
         const carried = carriedSprite(citizen, livingOrders.get(citizen.citizenId))
-        visible.push({ key: villagerSprite(current.worldSeed, citizen, frame), x: pose.x, y: pose.y, scale: lifeStageScale(citizen), depth: pose.x + pose.y + 0.3, flip: pose.facingRight, lift: bob, overlay: carried === 'empty' ? undefined : `people/carry-${carried}` })
+        visible.push({ key: villagerSprite(current.worldSeed, citizen, frame), x: pose.x, y: pose.y, scale: lifeStageScale(citizen), depth: pose.x + pose.y + 0.3, flip: pose.facingRight, lift: bob, visitor: isCitizenGuest(citizen), overlay: carried === 'empty' ? undefined : `people/carry-${carried}` })
       }
       if (selectedPose) {
         const c = project(selectedPose.x, selectedPose.y)
@@ -320,6 +321,15 @@ export function IsoWorld(props: IsoWorldProps) {
         if (sprite.flip) { context.save(); context.translate(anchor.x, 0); context.scale(-1, 1); context.translate(-anchor.x, 0) }
         for (const [layer, bitmap] of layers) context.drawImage(bitmap, anchor.x - layer.anchorX * unit, anchor.y - layer.anchorY * unit, layer.width * unit, layer.height * unit)
         if (sprite.flip) context.restore()
+        if (sprite.visitor) {
+          const badge = project(sprite.x, sprite.y, 1.35)
+          const radius = Math.max(7, camera.zoom * 0.22)
+          badge.x += radius * 1.8
+          context.fillStyle = '#218c85'; context.strokeStyle = '#fff6c8'; context.lineWidth = 2
+          context.beginPath(); context.arc(badge.x, badge.y, radius, 0, Math.PI * 2); context.fill(); context.stroke()
+          context.fillStyle = '#fff6c8'; context.font = `bold ${Math.max(9, radius * 1.4)}px sans-serif`; context.textAlign = 'center'; context.textBaseline = 'middle'
+          context.fillText('V', badge.x, badge.y)
+        }
         drawnSprites += 1
       }
       if (selectedPose) {
@@ -436,7 +446,7 @@ export function IsoWorld(props: IsoWorldProps) {
       let best: { id: string; distance: number } | null = null
       for (const citizen of current.citizens) {
         const pose = posesRef.current.get(citizen.citizenId)
-        if (!citizen.isAlive || !pose?.visible) continue
+        if (!isCitizenPresent(citizen) || !pose?.visible) continue
         const body = worldToScreen(camera, width, height, pose.x, pose.y, 0.45)
         const distance = Math.hypot(body.x - point.x, body.y - point.y)
         if (distance < Math.max(16, camera.zoom * 0.6) && (!best || distance < best.distance)) best = { id: citizen.citizenId, distance }

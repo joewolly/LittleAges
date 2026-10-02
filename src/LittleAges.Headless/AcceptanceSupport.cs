@@ -104,6 +104,12 @@ internal static class HeadlessInvariantValidator
             results.Add(Check("migration-single-daughter", () => ValidateSingleDaughter(snapshot),
                 "M14 must contain the original settlement and at most one distinct daughter settlement."));
         }
+        if (SimulationEngine.NewcomersSystemsEnabled(snapshot.SimulationRulesVersion))
+            results.Add(Check("newcomer-lifecycle-and-provisions", () =>
+            {
+                NewcomerValidation.Validate(snapshot, LivingWorldCodec.Deserialize(snapshot.LivingStateJson!));
+                return true;
+            }, "M17 visitor identity, physical lifecycle, archive events, or provisions accounting is invalid."));
         return results;
     }
 
@@ -125,7 +131,9 @@ internal static class HeadlessInvariantValidator
         var relationshipPairs = snapshot.Relationships.Select(item => (A: item.CitizenAId.Value, B: item.CitizenBId.Value)).ToArray();
         var validRelationships = relationshipPairs.All(item => item.A > 0 && item.B > item.A) && relationshipPairs.Distinct().Count() == relationshipPairs.Length;
         var valid = UniquePositive(snapshot.Citizens, item => item.Id.Value) && UniquePositive(snapshot.Structures, item => item.Id.Value) && UniquePositive(snapshot.Households, item => item.Id.Value) && UniquePositive(snapshot.ResourceStates, item => item.ResourceNodeId.Value) && validRelationships && historicalIds.All(static value => value > 0) && historicalIds.Distinct().Count() == historicalIds.Length && scheduledIds.All(static value => value > 0) && scheduledIds.Distinct().Count() == scheduledIds.Length;
-        var maxEntity = citizenIds.Concat(structureIds).Concat(householdIds).DefaultIfEmpty(0).Max();
+        var externalIds = (ResidentPopulationHistory.Read(snapshot)?.Visitors ?? []).Where(x => x.JoinedMinute is null).Select(x => x.CitizenId).ToArray();
+        valid &= externalIds.All(x => x > 0 && !citizenIds.Contains(x) && !structureIds.Contains(x) && !householdIds.Contains(x)) && externalIds.Distinct().Count() == externalIds.Length;
+        var maxEntity = citizenIds.Concat(structureIds).Concat(householdIds).Concat(externalIds).DefaultIfEmpty(0).Max();
         var maxHistorical = historicalIds.DefaultIfEmpty(0).Max();
         var maxScheduled = snapshot.ScheduledEvents.Select(item => item.Order.Sequence).DefaultIfEmpty(0).Max();
         return valid && snapshot.Counters.Validate().NextEntityId > maxEntity && snapshot.Counters.NextHistoricalEventId > maxHistorical && snapshot.Counters.NextScheduledEventSequence > maxScheduled;
@@ -165,13 +173,16 @@ internal static class HeadlessInvariantValidator
     private static bool ValidateScheduled(SimulationPersistenceSnapshot snapshot)
     {
         var citizenIds = snapshot.Citizens.Select(item => item.Id.Value).ToHashSet();
+        var guestIds = (ResidentPopulationHistory.Read(snapshot)?.Visitors ?? []).Where(x => x.JoinedMinute is null).Select(x => x.CitizenId).ToHashSet();
         var knownNames = new HashSet<string>(StringComparer.Ordinal) { CitizenEventNames.Decision, CitizenEventNames.MoveStep, CitizenEventNames.ActionComplete, CitizenEventNames.SurvivalCheck, CitizenEventNames.ResourceRegenerate, CitizenEventNames.SettlementEvaluateDemand, CitizenEventNames.FamilyCheck, CitizenEventNames.LifecycleCheck, CitizenEventNames.StatisticsSample };
         if (SimulationEngine.LivingSystemsEnabled(snapshot.SimulationRulesVersion)) knownNames.Add(SimulationEngine.LivingPulseEvent);
+        if (SimulationEngine.NewcomersSystemsEnabled(snapshot.SimulationRulesVersion)) knownNames.Add(SimulationEngine.NewcomerStepEvent);
         foreach (var item in snapshot.ScheduledEvents)
         {
             item.Validate();
             if (!knownNames.Contains(item.Name)) return false;
-            if (item.Order.EntitySortKey > 0 && !citizenIds.Contains(item.Order.EntitySortKey)) return false;
+            if (item.Order.EntitySortKey > 0 && !citizenIds.Contains(item.Order.EntitySortKey) &&
+                !(item.Name == SimulationEngine.NewcomerStepEvent && guestIds.Contains(item.Order.EntitySortKey))) return false;
         }
         return true;
     }

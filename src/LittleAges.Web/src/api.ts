@@ -1,3 +1,5 @@
+import { NEWCOMER_PHASES, type Newcomer, type NewcomerPhase } from './newcomers'
+
 export type Health = { ok: boolean; label: string }
 
 export type Status = {
@@ -12,6 +14,9 @@ export type Status = {
   totalPopulation?: number | null
   livingPopulation?: number | null
   deadPopulation?: number | null
+  guestPopulation?: number | null
+  departedPopulation?: number | null
+  archivedPopulation?: number | null
 }
 
 export type ResourceType = 'Food' | 'Wood' | 'Stone'
@@ -53,6 +58,7 @@ export type Citizen = {
   childrenIds: string[]
   targetCitizenId: string | null
   movementPlan: CitizenMovementPlan | null
+  newcomer?: Newcomer
 }
 
 export type CitizenMovementWaypoint = { x: number; y: number; arriveMinute: number }
@@ -71,6 +77,9 @@ export type Settlement = {
   livingPopulation: number
   deadPopulation: number
   totalPopulation: number
+  guestPopulation?: number
+  departedPopulation?: number
+  archivedPopulation?: number
   remainingResources: SettlementResourceQuantity[]
   resources: SettlementResource[]
   storageCapacity: number
@@ -104,6 +113,7 @@ export type SettlementSite = {
   settlementId: string
   site: { x: number; y: number }
   livingPopulation: number
+  guestPopulation?: number
   foodStored: number
   woodStored: number
   stoneStored: number
@@ -213,7 +223,7 @@ export type Map = {
   startingSite: { x: number; y: number }
 }
 
-export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned', 'TradeDeparted', 'TradeCompleted', 'TradeReturned', 'TradeLost', 'RoadWorkSeason', 'RouteConnected', 'FestivalStarted', 'FestivalEnded', 'FestivalAttended'] as const
+export const HISTORICAL_EVENT_TYPES = ['WorldCreated', 'SettlementFounded', 'CitizenBorn', 'CitizenDied', 'PartnershipFormed', 'FriendshipFormed', 'RivalryFormed', 'HouseholdCreated', 'StructureStarted', 'StructureCompleted', 'PopulationMilestone', 'ResourceShortageStarted', 'ResourceShortageEnded', 'CitizenSpecializationChanged', 'SeasonStarted', 'ExpeditionDeparted', 'ExpeditionReturned', 'ExpeditionLost', 'DaughterSettlementFounded', 'HouseholdRelocated', 'FamilyVisitDeparted', 'FamilyVisitReturned', 'TradeDeparted', 'TradeCompleted', 'TradeReturned', 'TradeLost', 'RoadWorkSeason', 'RouteConnected', 'FestivalStarted', 'FestivalEnded', 'FestivalAttended', 'NewcomerAppeared', 'VisitorArrived', 'VisitorContact', 'NewcomerJoined', 'VisitorDeparted', 'VisitorDied'] as const
 export type HistoricalEventType = typeof HISTORICAL_EVENT_TYPES[number]
 export const HISTORICAL_IMPORTANCES = ['Debug', 'Routine', 'Personal', 'Notable', 'Major', 'Historic'] as const
 export type HistoricalImportance = typeof HISTORICAL_IMPORTANCES[number]
@@ -329,7 +339,7 @@ export function parseStatus(value: unknown): Status {
     paused: typeof data.paused === 'boolean' ? data.paused : false,
     operationalSpeed: typeof data.operationalSpeed === 'number' && Number.isFinite(data.operationalSpeed) && data.operationalSpeed >= 0 ? data.operationalSpeed : null,
   }
-  for (const field of ['population', 'totalPopulation', 'livingPopulation', 'deadPopulation'] as const) {
+  for (const field of ['population', 'totalPopulation', 'livingPopulation', 'deadPopulation', 'guestPopulation', 'departedPopulation', 'archivedPopulation'] as const) {
     if (field in data) result[field] = parseOptionalNonNegativeInteger(data[field])
   }
   return result
@@ -705,6 +715,22 @@ function emptyWorkActivity(): WorkActivity {
   return { foragingMinutes: 0, woodcuttingMinutes: 0, stoneworkingMinutes: 0, constructionMinutes: 0, haulingMinutes: 0 }
 }
 
+export function parseNewcomer(value: unknown): Newcomer {
+  const message = 'The server returned invalid newcomer metadata.'
+  if (!isRecord(value) || value.origin !== 'External' || !NEWCOMER_PHASES.includes(value.phase as NewcomerPhase)) throw new Error(message)
+  const result: Newcomer = {
+    origin: 'External', phase: value.phase as NewcomerPhase,
+    hostSettlementId: parsePositiveDecimalId(value.hostSettlementId, message), shelterStructureId: parsePositiveDecimalId(value.shelterStructureId, message),
+    entryTile: parseCoordinate(value.entryTile, message), firstSeenMinute: parseRequiredNonNegativeInteger(value.firstSeenMinute, message),
+    visitingStartedMinute: parseNullableNonNegativeInteger(value.visitingStartedMinute, message), stayDeadlineMinute: parseNullableNonNegativeInteger(value.stayDeadlineMinute, message),
+    joinedMinute: parseNullableNonNegativeInteger(value.joinedMinute, message), departedMinute: parseNullableNonNegativeInteger(value.departedMinute, message), deathMinute: parseNullableNonNegativeInteger(value.deathMinute, message),
+    provisionsRemaining: parseRequiredNonNegativeInteger(value.provisionsRemaining, message),
+  }
+  if ([result.visitingStartedMinute, result.stayDeadlineMinute, result.joinedMinute, result.departedMinute, result.deathMinute].some(minute => minute !== null && minute < result.firstSeenMinute)
+    || result.phase === 'Resident' && result.joinedMinute === null || result.phase === 'Departed' && result.departedMinute === null || result.phase === 'Dead' && result.deathMinute === null) throw new Error(message)
+  return result
+}
+
 function parseMovementPlan(value: unknown, actionSequence: number, location: { x: number; y: number }, target: { x: number; y: number } | null): CitizenMovementPlan | null {
   if (value === undefined || value === null) return null
   if (!isRecord(value) || !Array.isArray(value.waypoints)) throw new Error('The server returned an invalid citizen movement plan.')
@@ -772,7 +798,7 @@ export function parseCitizens(value: unknown): Citizen[] {
     const householdId = parseNullablePositiveDecimalId(item.householdId, 'The server returned an invalid household ID.')
     const childrenIds = item.childrenIds === undefined ? [] : parseCanonicalIdList(item.childrenIds, 'The server returned invalid children IDs.')
     const targetCitizenId = parseNullablePositiveDecimalId(item.targetCitizenId, 'The server returned an invalid target citizen ID.')
-    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId, movementPlan } as unknown as Citizen)
+    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId, movementPlan, ...(item.newcomer == null ? {} : { newcomer: parseNewcomer(item.newcomer) }) } as unknown as Citizen)
   }
   return result
 }
@@ -918,6 +944,7 @@ export function parseSettlementSite(value: unknown): SettlementSite {
     settlementId: parsePositiveDecimalId(value.settlementId, 'The server returned an invalid settlement ID.'),
     site: parseCoordinate(value.site, 'The server returned an invalid settlement site coordinate.'),
     livingPopulation: parseRequiredNonNegativeInteger(value.livingPopulation, 'The server returned an invalid settlement living population.'),
+    ...(value.guestPopulation === undefined ? {} : { guestPopulation: parseRequiredNonNegativeInteger(value.guestPopulation, 'The server returned an invalid settlement guest population.') }),
     foodStored: parseRequiredNonNegativeInteger(value.foodStored, 'The server returned an invalid settlement food stockpile.'),
     woodStored: parseRequiredNonNegativeInteger(value.woodStored, 'The server returned an invalid settlement wood stockpile.'),
     stoneStored: parseRequiredNonNegativeInteger(value.stoneStored, 'The server returned an invalid settlement stone stockpile.'),
@@ -994,6 +1021,9 @@ export function parseSettlement(value: unknown): Settlement {
     livingPopulation,
     deadPopulation,
     totalPopulation,
+    ...(value.guestPopulation === undefined ? {} : { guestPopulation: parseRequiredNonNegativeInteger(value.guestPopulation, 'The server returned an invalid guest population.') }),
+    ...(value.departedPopulation === undefined ? {} : { departedPopulation: parseRequiredNonNegativeInteger(value.departedPopulation, 'The server returned an invalid departed population.') }),
+    ...(value.archivedPopulation === undefined ? {} : { archivedPopulation: parseRequiredNonNegativeInteger(value.archivedPopulation, 'The server returned an invalid archived population.') }),
     remainingResources: remainingResources.map(parseSettlementResourceQuantity),
     resources: resources.map(parseSettlementResource),
     storageCapacity, storageUsed, shelterCapacity, shelteredPopulation, unhousedPopulation, completedShelters, completedStockpiles, completedWorkshops, completedFarms, completedGranaries, completedMarketplaces, completedStorehouses, exposureGraceUntilMinute, activeConstructionProject,

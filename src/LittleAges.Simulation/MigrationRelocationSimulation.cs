@@ -44,7 +44,7 @@ public sealed partial class SimulationEngine
             if (provisionQuantity > int.MaxValue) continue;
             var incomingGoods = RelocationGoodsForDeparture(household.Id.Value, provisionQuantity);
             if (opportunity[destination] - opportunity[origin] < 5 ||
-                !HasRelocationSupport(destination, members.Length, incomingGoods))
+                !HasRelocationSupport(destination, members.Length, incomingGoods, household.Id.Value))
                 continue;
 
             var destinationSite = SiteLocation(destination);
@@ -95,6 +95,9 @@ public sealed partial class SimulationEngine
         => HasRelocationSupport(settlementId, incomingMembers, new Goods());
 
     private bool HasRelocationSupport(long settlementId, int incomingMembers, Goods incomingGoods)
+        => HasRelocationSupport(settlementId, incomingMembers, incomingGoods, long.MaxValue);
+
+    private bool HasRelocationSupport(long settlementId, int incomingMembers, Goods incomingGoods, long incomingHouseholdId)
     {
         var localFood = SettlementFor(settlementId).FoodStored;
         var requiredFood = checked(20L * checked(PopulationAt(settlementId) + incomingMembers));
@@ -104,7 +107,11 @@ public sealed partial class SimulationEngine
         var assignedResidents = CitizensAt(settlementId)
             .Count(x => x.IsAlive && x.HomeStructureId is { } home && completedShelters.Contains(home.Value));
         var freeShelterSlots = Math.Max(0, ShelterCapacityAt(settlementId) - assignedResidents);
-        return localFood >= requiredFood && freeShelterSlots >= incomingMembers &&
+        var supportedHousing = NewcomersEnabled
+            ? incomingMembers > 0 && PlanM17Housing(settlementId, incomingHouseholdId, incomingMembers)
+                .HouseholdDwellings[incomingHouseholdId] is not null
+            : freeShelterSlots >= incomingMembers;
+        return localFood >= requiredFood && supportedHousing &&
             CanStoreRelocationGoodsAt(settlementId, incomingGoods);
     }
 
@@ -203,7 +210,7 @@ public sealed partial class SimulationEngine
         var adultAtDestination = survivors.Any(x => x.AgeYears(CurrentMinute) >= 18 &&
             x.Location == party.DestinationSite);
         if (!party.FoundingAdultArrived || !adultAtDestination ||
-            !HasRelocationSupport(destination, survivors.Length, RelocationCargoGoods(party.Cargo)))
+            !HasRelocationSupport(destination, survivors.Length, RelocationCargoGoods(party.Cargo), party.HouseholdId))
         {
             BeginFoundingPartyReturn(party);
             return true;

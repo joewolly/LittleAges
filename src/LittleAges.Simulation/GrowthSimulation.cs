@@ -20,9 +20,12 @@ public sealed partial class SimulationEngine
             var livesWithParent = citizen.HouseholdId is { } home && new[] { citizen.ParentAId, citizen.ParentBId }
                 .Any(id => id is { } parentId && _citizens.TryGetValue(parentId.Value, out var parent) && parent.HouseholdId == home);
             if (citizen.HouseholdId is not null && !(citizen.AgeYears(CurrentMinute) >= 18 && citizen.PartnerId is null && livesWithParent)) continue;
+            var residence = NewcomersSystemsEnabled(SimulationRulesVersion) && _migrationState is not null
+                ? SiteIdForCitizen(citizen) : (long?)null;
             var household = new Household(_counters.AllocateHouseholdId(), CurrentMinute.Value) { DwellingStructureId = citizen.HomeStructureId };
             _households.Add(household.Id.Value, household);
             citizen.HouseholdId = household.Id;
+            if (residence is { } siteId) RecordMigrationOwner(MigrationEntityKind.Household, household.Id.Value, siteId);
         }
         ReconcileHouseholdsAndHousing();
     }
