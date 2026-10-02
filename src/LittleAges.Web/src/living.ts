@@ -1,6 +1,6 @@
 type Point = { x: number; y: number }
 export const UNIFIED_RULES_VERSION = 'm13-rng1-unified1'
-const UNIFIED_LIVING_SUCCESSOR_RULES_VERSIONS = new Set(['m14-rng1-migration1', 'm15-rng1-roads1', 'm16-rng1-planned1', 'm16-rng1-festivals1'])
+const UNIFIED_LIVING_SUCCESSOR_RULES_VERSIONS = new Set(['m14-rng1-migration1', 'm15-rng1-roads1', 'm16-rng1-planned1', 'm16-rng1-festivals1', 'm17-rng1-newcomers1'])
 const m12OwnedGoods = new Set(['Food', 'Wood', 'Stone'])
 export type LivingPerson = { citizenId: string; goal: string; mood: number; stress: number; injury: number; illness: number; toolCondition: number; clothingCondition: number; knowledge: string[]; deathObserved: boolean; experiences: { kind: string; minute: number; otherCitizenId: string | null }[] }
 export type LivingOrder = { id: string; kind: string; location: Point; citizenId: string | null; subjectId: string | null; technique: string | null; phase: string; cargoInTransit?: boolean; suppliesDelivered?: boolean; workDone: number; requiredWork: number; blockedReason: string; ingredients: { resource: string; quantity: number }[]; cargo: { good: string; quantity: number }[] }

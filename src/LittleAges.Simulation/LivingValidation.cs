@@ -85,7 +85,17 @@ public static class LivingValidation
             Require(order.CreatedMinute >= 0 && order.CreatedMinute <= minute && order.ClaimedMinute >= 0 && order.ClaimedMinute <= minute && order.Priority is >= 0 and <= 10000 && order.RequiredWork is > 0 and <= 10000 && order.WorkDone >= 0 && order.WorkDone <= order.RequiredWork, "Work timing or progress is invalid.");
             Require(order.Technique is null || Enum.IsDefined(order.Technique.Value), "Work technique is invalid.");
             Require(order.Ingredients is not null && order.Cargo is not null && order.Ingredients.All(x => x.Quantity > 0 && (x.Resource is "Food" or "Wood" or "Stone" || Enum.TryParse<LivingGood>(x.Resource, out var good) && Enum.IsDefined(good))) && order.Ingredients.Select(x => x.Resource).Distinct().Count() == order.Ingredients.Count, "Work ingredients are invalid.");
-            Require(order.RequiredWork == LivingWorkDefinitions.Work(order.Kind) && LivingWorkDefinitions.ValidIngredients(order) && LivingWorkDefinitions.ValidCargo(order, snapshot.SimulationRulesVersion), "Work recipe or outputs do not match the rules.");
+            Require(order.RequiredWork == LivingWorkDefinitions.Work(order.Kind) && LivingWorkDefinitions.ValidIngredients(order) && LivingWorkDefinitions.ValidCargo(order, snapshot.SimulationRulesVersion, snapshot.SimulationRulesVersion == SimulationEngine.NewcomersRulesVersion ? SiteForOrder(order) : null), "Work recipe or outputs do not match the rules.");
+            if (snapshot.SimulationRulesVersion == SimulationEngine.NewcomersRulesVersion && order.Kind == LivingWorkKind.Harvest)
+            {
+                Require(workOrderSites.TryGetValue(order.Id, out var harvestSite) && harvestSite is 1 or MigrationDaughterSettlementState.SettlementId &&
+                    (harvestSite == 1 || migration?.DaughterSettlement is not null) &&
+                    order.SubjectId is { } farmId && structureSites.TryGetValue(farmId, out var farmSite) && farmSite == harvestSite,
+                    "M17 harvest cargo must retain its canonical farm settlement owner.");
+                if (order.CitizenId is { } carrierId)
+                    Require(citizenSites.TryGetValue(carrierId, out var carrierSite) && carrierSite == harvestSite,
+                        "M17 harvest cargo and its carrier must share the farm settlement owner.");
+            }
             Require(order.Reserved || !order.SuppliesDelivered && order.WorkDone == 0 && !order.Produced, "Unreserved work cannot have progress or delivered supplies.");
             Require(!order.Produced || order.Phase == LivingWorkPhase.Deliver, "Produced work must be delivered.");
             Require(!order.CargoInTransit || order.Produced && order.CitizenId is not null && order.Cargo.Count > 0, "Cargo in transit requires a worker and produced goods.");
@@ -101,9 +111,23 @@ public static class LivingValidation
                 {
                     var stockpile = StockpileFor(SiteForOrder(order));
                     if (unified && order.Kind == LivingWorkKind.Harvest && worker.CurrentAction == CitizenAction.HaulHarvest)
+                    {
+                        if (snapshot.SimulationRulesVersion == SimulationEngine.NewcomersRulesVersion)
+                        {
+                            var amount = (long)worker.CarriedResourceQuantity + order.Cargo[0].Quantity;
+                            var capacity = SiteForOrder(order) == MigrationDaughterSettlementState.SettlementId ? 120 : AgricultureRules.HarvestPerShift;
+                            Require(worker.TargetStructureId?.Value == order.SubjectId && amount > 0 && amount <= capacity,
+                                "M17 physical harvest food and grain must fit the owning settlement's load capacity.");
+                            // WaitingForStorage may already have deposited part of the food; only an outbound
+                            // return load still contains the original amount used by the producer's floor split.
+                            if (worker.ActionPhase == CitizenActionPhase.ReturnToStockpile)
+                                Require(order.Cargo[0].Quantity == amount / 10 || order.Cargo[0].Quantity == (amount + 9) / 10,
+                                    "M17 harvest food and grain must match a possible cumulative tenth-grain split.");
+                        }
                         Require(order.CargoInTransit && worker.CarriedResourceType == ResourceType.Food && worker.CarriedResourceQuantity >= 0 &&
                             (worker.ActionPhase == CitizenActionPhase.ReturnToStockpile && worker.ActionTarget == stockpile || worker.ActionPhase == CitizenActionPhase.WaitingForStorage && worker.Location == stockpile && worker.ActionTarget is null),
                             "M12 food and communal grain cargo must share the physical harvest carrier until food delivery.");
+                    }
                     else
                         Require(worker.ActionPhase == CitizenActionPhase.TravelToTarget && worker.ActionTarget == (order.CargoInTransit ? stockpile : order.SupplyLocation), "Cargo movement does not match pickup or delivery.");
                 }

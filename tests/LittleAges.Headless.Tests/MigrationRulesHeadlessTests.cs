@@ -7,16 +7,38 @@ namespace LittleAges.Headless.Tests;
 
 public sealed class MigrationRulesHeadlessTests
 {
+    [Theory]
+    [InlineData("run")]
+    [InlineData("benchmark")]
+    [InlineData("acceptance")]
+    public void CommandsWithoutRulesSelectM17(string command)
+    {
+        var parsed = HeadlessCommandLine.Parse(command == "acceptance"
+            ? [command, "--years", "10", "--checkpoint-year", "8"] : [command]);
+        Assert.True(parsed.Succeeded, parsed.Error);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, parsed.Options!.Rules);
+    }
+
+    [Theory]
+    [InlineData(SimulationEngine.PlannedSimulationRulesVersion)]
+    [InlineData(SimulationEngine.FestivalsSimulationRulesVersion)]
+    public void ExplicitM16RulesRemainAvailable(string rules)
+    {
+        var parsed = HeadlessCommandLine.Parse(["run", "--rules", rules]);
+        Assert.True(parsed.Succeeded, parsed.Error);
+        Assert.Equal(rules, parsed.Options!.Rules);
+    }
+
     [Fact]
-    public void M16IsTheCurrentDefaultAndM14CanBeSelectedExplicitly()
+    public void M17IsTheCurrentDefaultAndM14CanBeSelectedExplicitly()
     {
         var run = HeadlessCommandLine.Parse(["run", "--rules", SimulationEngine.MigrationSimulationRulesVersion]);
         var acceptance = HeadlessCommandLine.Parse(["acceptance", "--rules", SimulationEngine.MigrationSimulationRulesVersion,
             "--years", "10", "--checkpoint-year", "5"]);
 
-        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
-        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
-        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, HeadlessOptions.Default(HeadlessCommand.Acceptance).Rules);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, HeadlessOptions.Default(HeadlessCommand.Run).Rules);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, HeadlessOptions.Default(HeadlessCommand.Acceptance).Rules);
         Assert.True(run.Succeeded, run.Error);
         Assert.Equal(SimulationEngine.MigrationSimulationRulesVersion, run.Options!.Rules);
         Assert.True(acceptance.Succeeded, acceptance.Error);

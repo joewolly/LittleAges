@@ -35,7 +35,7 @@ public sealed class M4DeterminismAcceptanceTests
     {
         const long target = 14 * WorldCalendar.MinutesPerDay;
         var whole = Advance(new WorldSeed(42), target);
-        var chunked = new SimulationEngine(new WorldSeed(42));
+        var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         foreach (var minute in new long[] { 1, 59, 360, 721, 1_440, 2_881, 5_760, 10_083, target })
             chunked.AdvanceUntil(new WorldMinute(minute));
 
@@ -67,7 +67,7 @@ public sealed class M4DeterminismAcceptanceTests
     [Fact]
     public void CheckpointReloadPreservesEqualCostGatherHaulBuildAndShelterRestRoutes()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var baseline = source.CreatePersistenceSnapshot();
         var gatherNode = Assert.Single(source.World.Resources, node => node.Coordinate == new TileCoordinate(15, 0));
         Assert.Equal(ResourceType.Wood, gatherNode.Type);
@@ -101,7 +101,7 @@ public sealed class M4DeterminismAcceptanceTests
 
     private static SimulationEngine Advance(WorldSeed seed, long target)
     {
-        var engine = new SimulationEngine(seed);
+        var engine = new SimulationEngine(seed, simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(target));
         return engine;
     }

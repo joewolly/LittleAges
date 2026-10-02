@@ -16,7 +16,7 @@ public sealed class M4LongHorizonAcceptanceTests
     [Fact]
     public void Seed42AutonomousSettlementEvolvesThroughConstructionWithoutImmediateExposureCollapse()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var start = Snapshot(engine);
         Assert.Empty(engine.Structures);
 

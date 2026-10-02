@@ -127,7 +127,7 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
 
     public void Validate(IReadOnlyList<Citizen> citizens, IReadOnlyList<Household> households, IReadOnlyList<Structure> structures,
         SettlementState commons, WorldMap world, long minute, int capacity, int dedicatedFoodCapacity, Goods? additionalAccounted = null,
-        MigrationWorldState? migrationState = null)
+        MigrationWorldState? migrationState = null, Goods? externalImports = null)
     {
         if (Version != 1 || CommunalPercent != EconomyRules.CommunalPercent || FoodConsumed < 0 || EmergencyFoodConsumed < 0 || EmergencyFoodConsumed > FoodConsumed || PublicWorkPaid < 0)
             throw new ArgumentException("Unsupported economy version or accounting totals.");
@@ -182,7 +182,9 @@ public sealed record EconomyState(int Version, int CommunalPercent, long NextTra
         accounted = Recoverable.Aggregate(accounted, (sum, g) => sum.Add(g.Resource, g.Quantity));
         accounted = accounted.Plus(new Goods(FoodConsumed, structures.Sum(s => (long)s.DeliveredWood), structures.Sum(s => (long)s.DeliveredStone)));
         if (additionalAccounted is not null) { additionalAccounted.Validate(); accounted = accounted.Plus(additionalAccounted); }
-        if (accounted != Produced.Plus(new Goods(400))) throw new ArgumentException($"Goods conservation failed: accounted {accounted}; produced plus founding supplies {Produced.Plus(new Goods(400))}.");
+        externalImports?.Validate();
+        var supplied = Produced.Plus(new Goods(400)).Plus(externalImports ?? new Goods());
+        if (accounted != supplied) throw new ArgumentException($"Goods conservation failed: accounted {accounted}; production, founding supplies, and external imports {supplied}.");
 
         void CheckSide(long owner, ResourceType resource, int quantity, long? carrierId, bool picked, bool delivered, BarterTrade trade)
         {

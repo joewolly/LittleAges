@@ -181,7 +181,7 @@ app.MapGet("/api/v1/history", (HttpRequest request, SimulationHost simulationHos
     var beforeEventId = ParsePositive(request.Query["beforeEventId"]);
     if ((request.Query.ContainsKey("citizenId") && citizenId is null) || (request.Query.ContainsKey("familyCitizenId") && familyCitizenId is null) || (request.Query.ContainsKey("structureId") && structureId is null) || (request.Query.ContainsKey("fromMinute") && from is null) || (request.Query.ContainsKey("toMinute") && to is null) || (request.Query.ContainsKey("beforeEventId") && beforeEventId is null)) return Results.BadRequest();
     var familyIds = familyCitizenId is { } familyRoot ? FamilyClosureRules.Closure(familyRoot.ToString(System.Globalization.CultureInfo.InvariantCulture), simulationHost.Observation.Citizens) : null;
-    var events = history.Events.Where(x => (int)x.Importance >= minimumImportance && (type is null || x.EventType == type) && (from is null || x.WorldMinute >= from) && (to is null || x.WorldMinute <= to) && (beforeEventId is null || long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture) < beforeEventId) && (citizenId is null || x.CitizenLinks.Any(link => link.CitizenId == citizenId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))) && (familyIds is null || x.CitizenLinks.Any(link => familyIds.Contains(link.CitizenId))) && (structureId is null || x.StructureLinks.Any(link => link.StructureId == structureId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)))).OrderByDescending(x => x.WorldMinute).ThenByDescending(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).Take(limit).ToArray();
+    var events = history.Events.Where(x => (int)x.Importance >= minimumImportance && (type is null || x.EventType == type) && (from is null || x.WorldMinute >= from) && (to is null || x.WorldMinute <= to) && (beforeEventId is null || long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture) < beforeEventId) && (citizenId is null || HistoricalEventSummary.InvolvesCitizen(x, citizenId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture))) && (familyIds is null || familyIds.Any(id => HistoricalEventSummary.InvolvesCitizen(x, id))) && (structureId is null || x.StructureLinks.Any(link => link.StructureId == structureId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)))).OrderByDescending(x => x.WorldMinute).ThenByDescending(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).Take(limit).ToArray();
     return Results.Ok(events);
 });
 app.MapGet("/api/v1/history/{eventId}", (string eventId, SimulationHost simulationHost) =>
@@ -200,9 +200,9 @@ app.MapGet("/api/v1/citizens/{id}/biography", (string id, SimulationHost simulat
     var history = observation.History;
     if (citizen is null) return Results.NotFound();
     if (history is null) return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-    var events = history.Events.Where(x => (int)x.Importance >= 2 && x.CitizenLinks.Any(link => link.CitizenId == id)).OrderBy(x => x.WorldMinute).ThenBy(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+    var events = history.Events.Where(x => ((int)x.Importance >= 2 || x.EventType is >= HistoricalEventType.NewcomerAppeared and <= HistoricalEventType.VisitorDied) && HistoricalEventSummary.InvolvesCitizen(x, id)).OrderBy(x => x.WorldMinute).ThenBy(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
     var memories = history.Memories.Where(x => x.CitizenId == id).OrderBy(x => x.CreatedMinute).ThenBy(x => long.Parse(x.EventId, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
-    return Results.Ok(new ServerCitizenBiographySnapshot(citizen, events, memories, new[] { citizen.ParentAId, citizen.ParentBId }.Where(x => x is not null).Select(x => x!).ToArray(), citizen.PartnerId, citizen.ChildrenIds, citizen.BirthMinute, citizen.DeathMinute, citizen.DeathCause));
+    return Results.Ok(new ServerCitizenBiographySnapshot(citizen, events, memories, new[] { citizen.ParentAId, citizen.ParentBId }.Where(x => x is not null).Select(x => x!).ToArray(), citizen.PartnerId, citizen.ChildrenIds, citizen.Newcomer is null ? citizen.BirthMinute : null, citizen.DeathMinute, citizen.DeathCause));
 });
 app.MapGet("/api/v1/citizens/{id}/memories", (string id, SimulationHost simulationHost) =>
 {
@@ -232,15 +232,10 @@ app.MapGet("/api/v1/settlements", (SimulationHost simulationHost) =>
     var settlements = simulationHost.Observation.Settlements;
     return settlements.Count == 0
         ? Results.StatusCode(StatusCodes.Status503ServiceUnavailable)
-        : Results.Ok(settlements.Select(item => new
-        {
-            settlementId = item.SettlementId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            site = item.Site,
-            livingPopulation = item.Summary.LivingPopulation,
-            foodStored = item.Summary.FoodStored,
-            woodStored = item.Summary.WoodStored,
-            stoneStored = item.Summary.StoneStored
-        }).ToArray());
+        : Results.Ok(settlements.Select(item => new ServerSettlementMapSiteSnapshot(
+            item.SettlementId.ToString(System.Globalization.CultureInfo.InvariantCulture), item.Site,
+            item.Summary.LivingPopulation, item.Summary.FoodStored, item.Summary.WoodStored, item.Summary.StoneStored,
+            item.Summary.GuestPopulation)).ToArray());
 });
 app.MapGet("/api/v1/settlements/{id}", (string id, SimulationHost simulationHost) =>
 {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Citizen, Map, Structure } from '../api'
+import { NEWCOMER_PHASES, type NewcomerPhase } from '../newcomers'
 import { WorldViewport } from './WorldViewport'
 import { SEASONS, type Season } from './iso/seasons'
 import './artSlice.css'
@@ -34,9 +35,12 @@ const baseCitizens: Citizen[] = activities.map((currentAction, i) => ({
 }))
 
 export function ArtSlice() {
+  const visitorStudy = new URLSearchParams(window.location.search).has('visitor-study')
+  const [visitorPhase, setVisitorPhase] = useState<NewcomerPhase>('Visiting')
+  const [speed, setSpeed] = useState(1)
   const [paused, setPaused] = useState(false)
   const [minute, setMinute] = useState(0)
-  const [selected, setSelected] = useState<string | null>('4')
+  const [selected, setSelected] = useState<string | null>(visitorStudy ? '21' : '4')
   const [season, setSeason] = useState<Season>('spring')
   useEffect(() => {
     if (paused) return
@@ -49,11 +53,20 @@ export function ArtSlice() {
   const toX = leg % 2 === 0 ? 24 : 20
   const citizens = baseCitizens.map(citizen => citizen.citizenId !== '9' ? citizen : { ...citizen, actionPhase: 'TravelToTarget' as const, actionSequence: leg + 1,
     location: { x: fromX, y: 24 }, movementPlan: { actionSequence: leg + 1, observedMinute: minute, waypoints: [{ x: fromX, y: 24, arriveMinute: start }, { x: toX, y: 24, arriveMinute: start + 8 }] } })
+  if (visitorStudy) citizens.push({ ...baseCitizens[0], citizenId: '21', name: 'Iria Jory', founderOrdinal: null, homeStructureId: null,
+    location: { x: visitorPhase === 'Approaching' || visitorPhase === 'Leaving' ? fromX : 21, y: 20 }, isAlive: visitorPhase !== 'Dead', currentAction: visitorPhase === 'Dead' ? 'Dead' : visitorPhase === 'Approaching' || visitorPhase === 'Leaving' ? 'Wander' : 'Idle',
+    actionPhase: visitorPhase === 'Approaching' || visitorPhase === 'Leaving' ? 'TravelToTarget' : 'Perform',
+    actionSequence: leg + 1, target: visitorPhase === 'Approaching' || visitorPhase === 'Leaving' ? { x: toX, y: 20 } : null,
+    movementPlan: visitorPhase === 'Approaching' || visitorPhase === 'Leaving' ? { actionSequence: leg + 1, observedMinute: minute, segmentStartedMinute: start, waypoints: [{ x: fromX, y: 20, arriveMinute: minute }, { x: toX, y: 20, arriveMinute: start + 8 }] } : null,
+    newcomer: { origin: 'External', phase: visitorPhase, hostSettlementId: '1', shelterStructureId: '101', entryTile: { x: 0, y: 20 }, firstSeenMinute: 0,
+      visitingStartedMinute: visitorPhase === 'Approaching' ? null : 0, stayDeadlineMinute: 1000, joinedMinute: visitorPhase === 'Resident' ? 0 : null,
+      departedMinute: visitorPhase === 'Departed' ? 0 : null, deathMinute: visitorPhase === 'Dead' ? 0 : null, provisionsRemaining: 90 } })
   return <main className="art-study">
     <header className="art-study-header"><strong>Little Ages · Art study</strong><span>Isolated presentation scene</span><button onClick={() => setPaused(value => !value)}>{paused ? 'Resume' : 'Pause'}</button>
       <label>Season <select value={season} onChange={event => setSeason(event.target.value as Season)}>{SEASONS.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}</select></label>
       <label>Villager <select value={selected ?? ''} onChange={event => setSelected(event.target.value)}>{citizens.map(citizen => <option key={citizen.citizenId} value={citizen.citizenId}>{citizen.name} · {citizen.currentAction}</option>)}</select></label>
+      {visitorStudy && <><label>Visitor phase <select value={visitorPhase} onChange={event => setVisitorPhase(event.target.value as NewcomerPhase)}>{NEWCOMER_PHASES.map(phase => <option key={phase}>{phase}</option>)}</select></label><label>Speed <select value={speed} onChange={event => setSpeed(Number(event.target.value))}>{[1, 5, 10, 100].map(value => <option key={value} value={value}>{value}</option>)}</select></label></>}
     </header>
-    <WorldViewport map={map} citizens={citizens} structures={structures} settlement={null} worldSeed="42" operationalSpeed={1} paused={paused} selectedCitizenId={selected} onSelectCitizen={setSelected} previewSeason={season} />
+    <WorldViewport map={map} citizens={citizens} structures={structures} settlement={null} worldSeed="42" worldMinute={minute} operationalSpeed={speed} paused={paused} selectedCitizenId={selected} onSelectCitizen={setSelected} previewSeason={season} />
   </main>
 }

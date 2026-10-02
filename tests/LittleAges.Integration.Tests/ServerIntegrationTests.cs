@@ -24,13 +24,66 @@ public sealed class ServerIntegrationTests
     public void FreshWorldConfigurationDefaultsToCurrentRulesWithoutChangingLegacyRules()
     {
         var options = ServerOptions.FromConfiguration(new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.Equal(SimulationEngine.CurrentSimulationRulesVersion, options.NewWorldRules);
         Assert.Equal("m12-rng1-spaced1", SimulationEngine.SpacedSimulationRulesVersion);
         Assert.Equal("m11-rng1-barter1", SimulationEngine.BarterSimulationRulesVersion);
         Assert.Equal("m8-rng1-balance1", SimulationEngine.M8SimulationRulesVersion);
         Assert.Equal("m9-rng1-growth1", SimulationEngine.GrowthSimulationRulesVersion);
         Assert.Equal("m10-rng1-agriculture1", SimulationEngine.AgricultureSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, new ServerOptions
+        {
+            DataRoot = options.DataRoot, ActiveWorld = options.ActiveWorld,
+            WorldSeed = options.WorldSeed, ListenUrls = options.ListenUrls
+        }.NewWorldRules);
+    }
+
+    [Fact]
+    public async Task FreshServerWithoutARulesSettingCreatesM17()
+    {
+        var root = CreateDataRoot();
+        try
+        {
+            using var factory = new ServerFactory(root, simulationMinutesPerSecond: 0, worldSeed: 7,
+                suppressLogs: true, newWorldRules: null);
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            var host = factory.Services.GetRequiredService<SimulationHost>();
+            var engine = Assert.IsType<SimulationEngine>(typeof(SimulationHost)
+                .GetField("_engine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(host));
+            Assert.Equal(SimulationEngine.NewcomersRulesVersion, engine.SimulationRulesVersion);
+            Assert.NotNull(LivingWorldCodec.Deserialize(engine.LivingStateJson!).Newcomers);
+            Assert.Equal(0, engine.CurrentMinute.Value);
+        }
+        finally { CleanupDataRoot(root); }
+    }
+
+    [Theory]
+    [InlineData(SimulationEngine.PlannedSimulationRulesVersion)]
+    [InlineData(SimulationEngine.FestivalsSimulationRulesVersion)]
+    public async Task M17DefaultReopensRecordedM16SQLiteWithoutMigration(string rules)
+    {
+        var root = CreateDataRoot();
+        try
+        {
+            var original = new SimulationEngine(new WorldSeed(17), simulationRulesVersion: rules);
+            original.AdvanceUntil(new WorldMinute(3L * WorldCalendar.MinutesPerDay));
+            var snapshot = original.CreatePersistenceSnapshot();
+            await using (var db = await WorldDatabase.OpenAsync(Path.Combine(root, "integration-world.db")))
+                await db.CreateCheckpointStore().CheckpointAsync(snapshot);
+
+            using var factory = new ServerFactory(root, simulationMinutesPerSecond: 0, worldSeed: 7,
+                suppressLogs: true, newWorldRules: null);
+            using var client = factory.CreateClient();
+            using var running = await WaitForRunningStatusAsync(client);
+            var host = factory.Services.GetRequiredService<SimulationHost>();
+            var restored = Assert.IsType<SimulationEngine>(typeof(SimulationHost)
+                .GetField("_engine", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(host));
+            Assert.Equal(rules, restored.SimulationRulesVersion);
+            Assert.Null(LivingWorldCodec.Deserialize(restored.LivingStateJson!).Newcomers);
+            Assert.Equal(JsonSerializer.Serialize(snapshot), JsonSerializer.Serialize(restored.CreatePersistenceSnapshot()));
+        }
+        finally { CleanupDataRoot(root); }
     }
 
     [Fact]
@@ -1034,13 +1087,13 @@ public sealed class ServerIntegrationTests
         }
     }
 
-    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false, string newWorldRules = SimulationEngine.M8SimulationRulesVersion) : WebApplicationFactory<Program>
+    private sealed class ServerFactory(string dataRoot, double simulationMinutesPerSecond = 10, ulong worldSeed = ulong.MaxValue, bool suppressLogs = false, string? newWorldRules = SimulationEngine.M8SimulationRulesVersion) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("DataRoot", dataRoot);
             builder.UseSetting("ActiveWorld", "integration-world");
-            builder.UseSetting("NewWorldRules", newWorldRules);
+            if (newWorldRules is not null) builder.UseSetting("NewWorldRules", newWorldRules);
             builder.UseSetting("WorldSeed", worldSeed.ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
             builder.UseSetting("SimulationMinutesPerSecond", simulationMinutesPerSecond.ToString(System.Globalization.CultureInfo.InvariantCulture));

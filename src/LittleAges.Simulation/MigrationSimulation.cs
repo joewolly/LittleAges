@@ -19,6 +19,7 @@ public sealed partial class SimulationEngine
     {
         if (!MigrationSystemsEnabled(SimulationRulesVersion)) return null;
         if (_living is null) throw new InvalidDataException("M14 requires Living state.");
+        if (NewcomersSystemsEnabled(SimulationRulesVersion)) return CaptureNewcomerMigrationState();
 
         SyncMigrationDaughterStocks();
         var prior = _migrationState;
@@ -79,6 +80,26 @@ public sealed partial class SimulationEngine
             prior?.FoundingPressure, prior?.LastRelocations, prior?.LastVisitAttemptYear,
             RoadSystemsEnabled(SimulationRulesVersion) ? CaptureRoadState() : null);
         return _migrationState;
+    }
+
+    // M17 observers and checkpoints describe ownership without publishing inferred owners into
+    // the simulation. The fallbacks must match the ones used by live work and housing decisions.
+    private MigrationWorldState CaptureNewcomerMigrationState()
+    {
+        var prior = _migrationState;
+        var daughter = prior?.DaughterSettlement;
+        if (daughter is not null)
+            daughter = new MigrationDaughterSettlementState(daughter.Site,
+                MigrationSettlementStockState.From(_daughterSettlementRuntime ?? daughter.CommunalStock.ToSettlementState()),
+                _daughterLivingGoodsRuntime ?? daughter.LivingGoods);
+        return new MigrationWorldState(1,
+            _citizens.Values.OrderBy(x => x.Id.Value).Select(x => new MigrationEntityResidence(x.Id.Value, SiteIdForCitizen(x))).ToArray(),
+            _households.Values.OrderBy(x => x.Id.Value).Select(x => new MigrationEntityResidence(x.Id.Value, SiteIdForHousehold(x.Id.Value))).ToArray(),
+            _structures.Values.OrderBy(x => x.Id.Value).Select(x => new MigrationEntityResidence(x.Id.Value, SiteIdForStructure(x.Id.Value))).ToArray(),
+            _living!.Facilities.OrderBy(x => x.Id).Select(x => new MigrationEntityResidence(x.Id, SiteIdForFacility(x))).ToArray(),
+            _living.Orders.OrderBy(x => x.Id).Select(x => new MigrationEntityResidence(x.Id, SiteIdForOrder(x))).ToArray(),
+            daughter, prior?.InTransitParties, prior?.FoundingPressure, prior?.LastRelocations,
+            prior?.LastVisitAttemptYear, CaptureRoadState());
     }
 
     private void InitializeMigrationRuntime()
@@ -285,6 +306,17 @@ public sealed partial class SimulationEngine
             kind == MigrationEntityKind.WorkOrder ? updated : state.WorkOrderOwners,
             state.DaughterSettlement, state.InTransitParties, state.FoundingPressure, state.LastRelocations,
             state.LastVisitAttemptYear);
+    }
+
+    private void RemoveLivingOrder(LivingWorkOrder order)
+    {
+        _living!.Orders.Remove(order);
+        if (!NewcomersSystemsEnabled(SimulationRulesVersion) || _migrationState is not { } state) return;
+        _migrationState = new MigrationWorldState(state.Version, state.CitizenResidences,
+            state.HouseholdResidences, state.StructureOwners, state.FacilityOwners,
+            state.WorkOrderOwners.Where(x => x.EntityId != order.Id).ToArray(), state.DaughterSettlement,
+            state.InTransitParties, state.FoundingPressure, state.LastRelocations,
+            state.LastVisitAttemptYear, state.Roads);
     }
 
     private static MigrationEntityResidence? ResidenceFor(IReadOnlyList<MigrationEntityResidence>? residences, long entityId)

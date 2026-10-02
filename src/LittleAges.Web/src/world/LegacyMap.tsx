@@ -1,3 +1,4 @@
+import { isCitizenPresent } from '../newcomers'
 import type { LivingWorld } from '../living'
 import { useLayoutEffect, useRef } from 'react'
 import type { Citizen, Map, RoadOverlay, SettlementSite, Structure } from '../api'
@@ -110,7 +111,7 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
         context.lineWidth = Math.max(2, scale * .12)
         context.beginPath(); context.moveTo(x - scale, y - scale * .65); context.lineTo(x + scale, y - scale * .65); context.stroke()
       }
-      for (const citizen of citizens.filter(entry => entry.isAlive)) {
+      for (const citizen of citizens.filter(isCitizenPresent)) {
         context.fillStyle = citizen.currentAction === 'WorkFarm' ? '#d3ef9a' : citizen.currentAction === 'HaulHarvest' ? '#ffe375' : citizen.currentAction === 'TradeDelivery' ? '#f54aa1' : '#302a24'
         context.fillRect(offsetX + citizen.location.x * scale + scale * 0.38, offsetY + citizen.location.y * scale + scale * 0.38, Math.max(2, scale * 0.24), Math.max(2, scale * 0.24))
       }

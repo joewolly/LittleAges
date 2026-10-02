@@ -26,8 +26,8 @@ public sealed class M4SettlementAcceptanceTests
     [Fact]
     public void DemandPlacementUsesCanonicalCostDistanceRowAndColumnOrderingAndExcludesInvalidTiles()
     {
-        var first = new SimulationEngine(new WorldSeed(42));
-        var second = new SimulationEngine(new WorldSeed(42));
+        var first = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
+        var second = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         first.AdvanceUntil(new WorldMinute(CitizenSimulationRules.SettlementDemandIntervalMinutes));
         second.AdvanceUntil(new WorldMinute(CitizenSimulationRules.SettlementDemandIntervalMinutes));
 
@@ -45,7 +45,7 @@ public sealed class M4SettlementAcceptanceTests
     [Fact]
     public void HaulingUsesExactCarryCapacityReservesInTransitMaterialAndRecordsDelivery()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var site = ValidSites(source.World, 1)[0];
         var project = Shelter(new StructureId(snapshot.Counters.NextEntityId), site);
@@ -90,7 +90,7 @@ public sealed class M4SettlementAcceptanceTests
     [Fact]
     public void BuildShiftsUseExactWorkWorkshopMultiplierConcurrentBuildersAndSingleCompletion()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, 2);
         var project = Shelter(new StructureId(snapshot.Counters.NextEntityId), sites[0]);
@@ -129,7 +129,7 @@ public sealed class M4SettlementAcceptanceTests
     [Fact]
     public void ShelterAssignmentIsIdOrderedHasCapacityFourAndReconcilesOnNewCompletion()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, 2);
         var existing = CompleteShelter(new StructureId(snapshot.Counters.NextEntityId), sites[0], snapshot.Citizens[0].Id);
@@ -153,7 +153,7 @@ public sealed class M4SettlementAcceptanceTests
     [Fact]
     public void RestReducesShelterNeedOnlyAtCompletedAssignedHome()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var shelter = CompleteShelter(new StructureId(snapshot.Counters.NextEntityId), ValidSites(source.World, 1)[0], snapshot.Citizens[0].Id);
         var sheltered = snapshot.Citizens[0];
@@ -220,7 +220,7 @@ public sealed class M4SettlementAcceptanceTests
 
     private static SimulationEngine RestoreWithCompletedShelters(int count, int food, int wood, int stone)
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, count);
         var structures = sites.Select((site, index) => CompleteShelter(new StructureId(snapshot.Counters.NextEntityId + index), site, snapshot.Citizens[index].Id)).ToArray();
@@ -231,7 +231,7 @@ public sealed class M4SettlementAcceptanceTests
 
     private static SimulationEngine ExposureEngine(long initialMinute, int health, int shelter, int hunger = 0, int rest = 0, long? exposureStart = null)
     {
-        var source = new SimulationEngine(new WorldSeed(42), new WorldMinute(initialMinute));
+        var source = new SimulationEngine(new WorldSeed(42), new WorldMinute(initialMinute), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var citizen = snapshot.Citizens[0];
         citizen.Health = health;

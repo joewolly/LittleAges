@@ -2,6 +2,10 @@
 
 This is the exact deterministic model implemented by M0 through M8 candidate acceptance. M1 adds immutable deterministic geography/resource definitions, M2 adds founders and movement, M3 adds the survival loop over mutable resource quantities, stockpile, needs, gathering, health, and mortality, M4 adds deterministic settlement/construction, M5 adds social/family/lifecycle systems, and M6 adds append-only factual history, structured memories, biographies, and monthly statistics. M7 adds operational hosting and delivery; M8 adds headless/MAX execution, acceptance checkpoint comparison, and the versioned sampled shortage-recovery boundary around this unchanged event engine.
 
+Later contracts are linked below. New worlds default to M17 visitors and
+newcomers, building on M16 festivals. Explicit older rules remain available.
+Older milestone defaults in this record do not migrate saved worlds.
+
 ## World minute and calendar
 
 `WorldMinute` is a non-negative signed 64-bit (`Int64`/`long`) count of simulated minutes since world creation. World creation starts at `0`; it has no wall-clock relationship. `Add`/`AdvanceBy` accepts only non-negative deltas and rejects overflow. `AdvanceTo` rejects a target below the current minute, so canonical time never moves backward.
@@ -595,3 +599,27 @@ Festival state is optional canonical Living JSON for earlier rules, with
 appended event values 29-31 and memory value 7. An additive SQLite migration
 preserves earlier worlds' recorded rules and history. The observer reports
 factual attendance and renders temporary scenery without mutating the world.
+
+## M17 visitor contract
+
+[`m17-newcomers.md`](m17-newcomers.md) specifies the new-world default
+`m17-rng1-newcomers1`, building on M16 festivals. It preserves original founder
+ordinals and uses the shared entity counter for adult external identities.
+Approaching, visiting and leaving guests are outside the resident roster and
+have one `newcomer.step.v1` event at priority 10 with an action-sequence token.
+Their persisted route, provisions, contacts, host, spare shelter reservation and
+deadline control physical travel and autonomous admission. Guests have no
+household, work, teaching, partnership or reproduction rights.
+
+Admission atomically creates an ordinary household and account, transfers
+leftover provisions as an external import, and retains the citizen identity.
+Actual descendants use normal parent links; the external adult is an ancestry
+root with unknown outside parents. Admission adds a resident population fact
+without a birth. Departure archives the last living observation and has no
+death or future scheduled event. Guest deaths remain separate from resident
+mortality. Headless trajectories and observer counts follow these boundaries.
+
+The optional newcomer JSON extension and appended history values 32-37 are
+version-gated. The SQLite history migration preserves old rules, facts and
+fingerprints. M17 also corrects demand for fragmented household shelter without
+changing M16 behavior; see [`m17-exposure-diagnosis.md`](m17-exposure-diagnosis.md).

@@ -9,7 +9,8 @@ public enum RandomDomain : uint
     Relationships = 4,
     Reproduction = 5,
     Mortality = 6,
-    ResourceRegeneration = 7
+    ResourceRegeneration = 7,
+    Newcomers = 8
 }
 
 public interface IDeterministicRandom

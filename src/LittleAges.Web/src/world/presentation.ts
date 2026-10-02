@@ -1,4 +1,9 @@
 import type { Citizen, CitizenMovementPlan, Structure } from '../api'
+import { isCitizenGuest, isCitizenPresent } from '../newcomers'
+
+export function shouldSnapToAuthority(paused: boolean, reducedMotion: boolean, operationalSpeed: number | null): boolean {
+  return paused || reducedMotion || operationalSpeed === null || operationalSpeed <= 0 || operationalSpeed > 10
+}
 
 /** Shared clock, bounded to one observation interval plus a small jitter allowance. */
 export class PresentationClock {
@@ -18,7 +23,7 @@ export class PresentationClock {
 }
 
 export function restingHome(citizen: Citizen, structures: Structure[]): Structure | null {
-  if (!citizen.isAlive || citizen.currentAction !== 'Rest' || citizen.actionPhase !== 'Perform') return null
+  if (!isCitizenPresent(citizen) || isCitizenGuest(citizen) || citizen.currentAction !== 'Rest' || citizen.actionPhase !== 'Perform') return null
   return structures.find(s => s.structureId === citizen.homeStructureId && s.type === 'Shelter' && s.status === 'Complete' && s.location.x === citizen.location.x && s.location.y === citizen.location.y) ?? null
 }
 

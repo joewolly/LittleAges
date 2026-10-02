@@ -43,6 +43,11 @@ Cosmetic values are neither persisted nor fingerprinted.
   segments; faster speeds, pause and reduced motion snap to authority without
   inventing a path. Resting citizens walk to their shelter's door and disappear
   indoors.
+- External newcomers use the same server movement plans while approaching and
+  leaving. Present guests carry a teal `V` badge and can be selected and followed;
+  joining retains their citizen identity and follow target. Departed people stay
+  in the records as last observed alive and no longer appear on the map or offer
+  Follow. Resident, visitor and archive counts remain separate.
 - Seasons follow the world calendar (four 90-day seasons in a 360-day year).
   Each season has its own ground palette and sprite set: spring blossom, summer
   gold wheat, autumn leaves and hay bales, winter snow on roofs, fields and pines,
@@ -139,3 +144,7 @@ Run the web dev server and open `/?art-slice`. This development-only entry loads
 typed observation fixtures through the production viewport without any server
 connection, persistence writes, or saved-world mutation. Production builds
 exclude the fixture module and its stylesheet.
+
+For visitor presentation review, open `/?art-slice&visitor-study`. The isolated
+fixture exposes approach, visit, exit, resident and archive phases plus speed and
+pause controls, without connecting to or modifying a world.

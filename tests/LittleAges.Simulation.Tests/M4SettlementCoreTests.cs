@@ -20,7 +20,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void DemandCreatesOneDeterministicallyValidShelter()
     {
-        var engine = new SimulationEngine(new WorldSeed(42));
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         engine.AdvanceUntil(new WorldMinute(CitizenSimulationRules.SettlementDemandIntervalMinutes));
         var project = Assert.Single(engine.Structures);
         Assert.Equal(StructureType.Shelter, project.Type); Assert.Equal(StructureStatus.UnderConstruction, project.Status);
@@ -30,7 +30,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void M4SnapshotAcceptsConstructionHaulingState()
     {
-        var source = new SimulationEngine(new WorldSeed(42)); var baseSnapshot = source.CreatePersistenceSnapshot(); var citizen = baseSnapshot.Citizens[0];
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion); var baseSnapshot = source.CreatePersistenceSnapshot(); var citizen = baseSnapshot.Citizens[0];
         var site = source.World.Tiles.First(x => x.Buildable && x.Coordinate != source.World.StartingSite && source.World.GetResources(x.Coordinate).Count == 0).Coordinate;
         var route = source.World.Tiles.Select(x => DeterministicPathfinder.Find(source.World, x.Coordinate, source.World.StartingSite)).First(x => x is { Count: > 1 })!;
         citizen.Location = route[0]; citizen.CurrentAction = CitizenAction.HaulConstruction; citizen.ActionPhase = CitizenActionPhase.TravelToStockpile; citizen.TargetStructureId = new StructureId(baseSnapshot.Counters.NextEntityId); citizen.ActionTarget = source.World.StartingSite; citizen.ActionStartedMinute = new WorldMinute(0); citizen.ActionCompletesMinute = new WorldMinute(RouteCost(route, source.World));
@@ -46,7 +46,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void M4SnapshotRejectsEntityIdCollisionsAndStaleEntityCounters()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var site = NearbyValidSite(source.World);
         var project = new Structure(new StructureId(snapshot.Counters.NextEntityId), StructureType.Shelter, site, snapshot.WorldMinute.Value, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
@@ -62,7 +62,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void M4SnapshotEnforcesStructureTimelineAndProgressCoherence()
     {
-        var source = new SimulationEngine(new WorldSeed(42), new WorldMinute(10));
+        var source = new SimulationEngine(new WorldSeed(42), new WorldMinute(10), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var site = NearbyValidSite(source.World);
         Structure Project(long started = 5) => new(new StructureId(snapshot.Counters.NextEntityId), StructureType.Shelter, site, started, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
@@ -86,7 +86,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void FullStorageRetainsCargoAndRetriesWithoutLoss()
     {
-        var source = new SimulationEngine(new WorldSeed(42)); var baseSnapshot = source.CreatePersistenceSnapshot(); var citizen = baseSnapshot.Citizens[0]; var node = source.World.Resources.First(x => x.Type == ResourceType.Wood); var initialQuantity = source.GetResourceState(node.Id)!.CurrentQuantity;
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion); var baseSnapshot = source.CreatePersistenceSnapshot(); var citizen = baseSnapshot.Citizens[0]; var node = source.World.Resources.First(x => x.Type == ResourceType.Wood); var initialQuantity = source.GetResourceState(node.Id)!.CurrentQuantity;
         foreach (var other in baseSnapshot.Citizens.Skip(1)) { other.CurrentAction = CitizenAction.Idle; other.ActionPhase = CitizenActionPhase.Perform; other.ActionStartedMinute = new WorldMinute(0); other.ActionCompletesMinute = new WorldMinute(10_000); }
         citizen.Location = source.World.StartingSite; citizen.CurrentAction = CitizenAction.GatherWood; citizen.ActionPhase = CitizenActionPhase.WaitingForStorage; citizen.TargetResourceNodeId = node.Id; citizen.CarriedResourceType = ResourceType.Wood; citizen.CarriedResourceQuantity = 10; citizen.ActionStartedMinute = new WorldMinute(0); citizen.ActionCompletesMinute = new WorldMinute(CitizenSimulationRules.StorageRetryIntervalMinutes);
         baseSnapshot.Settlement!.WoodStored = CitizenSimulationRules.BaseStorageCapacity - baseSnapshot.Settlement.FoodStored;
@@ -109,7 +109,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void FullyReservedConstructionMaterialIsNotOfferedToAnotherHauler()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var site = NearbyValidSite(source.World);
         var project = new Structure(new StructureId(snapshot.Counters.NextEntityId), StructureType.Shelter, site, 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork) { DeliveredWood = CitizenSimulationRules.ShelterRequiredWood - CitizenSimulationRules.BaseConstructionCarryCapacity };
@@ -133,7 +133,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void HaulerDeterministicallyFallsBackToAvailableStoneWhenWoodIsUnavailable()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var site = NearbyValidSite(source.World);
         var project = new Structure(new StructureId(snapshot.Counters.NextEntityId), StructureType.Shelter, site, 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
@@ -155,7 +155,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void ExposureUsesTheResilienceAdjustedBaseDamage()
     {
-        var source = new SimulationEngine(new WorldSeed(42)); var snapshot = source.CreatePersistenceSnapshot(); var citizen = snapshot.Citizens[0];
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion); var snapshot = source.CreatePersistenceSnapshot(); var citizen = snapshot.Citizens[0];
         citizen.Needs = new CitizenNeeds(0, 0, CitizenSimulationRules.ShelterCriticalThreshold, 0); citizen.NeedsUpdatedMinute = 0; citizen.Health = 10000; citizen.HealthUpdatedMinute = 0; snapshot.Settlement!.ExposureConsequencesStartMinute = 0;
         var engine = SimulationEngine.FromPersistenceSnapshot(snapshot); engine.AdvanceUntil(new WorldMinute(CitizenSimulationRules.SurvivalCheckIntervalMinutes));
         var expected = CitizenSimulationRules.ExposureDamagePerCheck * (10000 - citizen.Traits.Resilience / 4) / 10000;
@@ -165,7 +165,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void SettlementFingerprintIsIndependentOfAdvanceChunking()
     {
-        var whole = new SimulationEngine(new WorldSeed(42)); var chunked = new SimulationEngine(new WorldSeed(42));
+        var whole = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion); var chunked = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         whole.AdvanceUntil(new WorldMinute(720)); chunked.AdvanceUntil(new WorldMinute(360)); chunked.AdvanceUntil(new WorldMinute(720));
         Assert.Equal(whole.ComputeSettlementFingerprint(), chunked.ComputeSettlementFingerprint());
     }
@@ -173,7 +173,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void PostGraceSnapshotRemainsValidAfterTheGraceWindowHasElapsed()
     {
-        var engine = new SimulationEngine(new WorldSeed(42), new WorldMinute(CitizenSimulationRules.ExposureGraceDurationMinutes + 1));
+        var engine = new SimulationEngine(new WorldSeed(42), new WorldMinute(CitizenSimulationRules.ExposureGraceDurationMinutes + 1), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var current = engine.CreatePersistenceSnapshot();
         var settlement = new SettlementState(current.Settlement!.FoodStored, current.Settlement.WoodStored, current.Settlement.StoneStored, current.Settlement.BaseStorageCapacity, current.Settlement.DemandUpdatedMinute, CitizenSimulationRules.ExposureGraceDurationMinutes);
         var snapshot = Copy(current, settlement: settlement);
@@ -187,7 +187,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void M4SnapshotRejectsConstructionAndRestTargetsThatDoNotMatchTheirRequiredState()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var snapshot = source.CreatePersistenceSnapshot();
         var sites = ValidSites(source.World, 2);
         var completedShelter = CompletedShelter(new StructureId(snapshot.Counters.NextEntityId), sites[0], snapshot.Citizens[0].Id);
@@ -216,7 +216,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void FullStorageSuppressesGatherCandidatesAndConstructionUsesExactWeightedTravelPenalty()
     {
-        var source = new SimulationEngine(new WorldSeed(42));
+        var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var fullStorage = new SettlementState(CitizenSimulationRules.BaseStorageCapacity, 0, 0, CitizenSimulationRules.BaseStorageCapacity, 0, CitizenSimulationRules.ExposureGraceDurationMinutes);
         var fullEngine = SimulationEngine.FromPersistenceSnapshot(Copy(source.CreatePersistenceSnapshot(), settlement: fullStorage));
         var fullCandidates = fullEngine.EvaluateDecision(fullEngine.Citizens[0].Id).Select(value => value.Action);
@@ -242,7 +242,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void ReadSnapshotDeepCopiesAndOrdersStructuresAndContributions()
     {
-        var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+        var baseline = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
         var sites = baseline.World!.Tiles.Where(tile => tile.Coordinate != baseline.World.StartingSite && tile.Buildable && baseline.World.GetResources(tile.Coordinate).Count == 0).Select(tile => tile.Coordinate).Take(3).ToArray();
         Assert.Equal(3, sites.Length);
         var shelter = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, sites[0], 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork), CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
@@ -293,7 +293,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void M4SnapshotRejectsOffCadenceSurvivalAndInvalidActionEvents()
     {
-        var snapshot = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+        var snapshot = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
         var survival = snapshot.ScheduledEvents.First(x => x.Name == CitizenEventNames.SurvivalCheck);
         var badSurvival = snapshot.ScheduledEvents.Select(x => x.Id == survival.Id ? x with { Order = new ScheduledEventOrder(survival.Order.DueWorldMinute.Add(1), survival.Order.Priority, survival.Order.EntitySortKey, survival.Order.Sequence) } : x).ToArray();
         Assert.Throws<ArgumentException>(() => Copy(snapshot, events: badSurvival));
@@ -305,7 +305,7 @@ public sealed class M4SettlementCoreTests
     [Fact]
     public void M4SnapshotRejectsMissingOrMalformedDemandEvent()
     {
-        var snapshot = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+        var snapshot = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
         Assert.Throws<ArgumentException>(() => Copy(snapshot, events: snapshot.ScheduledEvents.Where(x => x.Name != CitizenEventNames.SettlementEvaluateDemand).ToArray()));
         var demand = snapshot.ScheduledEvents.Single(x => x.Name == CitizenEventNames.SettlementEvaluateDemand);
         var badPriority = snapshot.ScheduledEvents.Select(x => x.Id == demand.Id ? x with { Order = new ScheduledEventOrder(demand.Order.DueWorldMinute, demand.Order.Priority + 1, demand.Order.EntitySortKey, demand.Order.Sequence) } : x).ToArray();

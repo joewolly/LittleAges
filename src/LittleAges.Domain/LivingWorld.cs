@@ -50,6 +50,8 @@ public sealed class LivingWorldState
     public List<FestivalState>? Festivals { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public FestivalVisitPlan? FestivalVisit { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public NewcomersWorldState? Newcomers { get; set; }
 }
 
 public sealed class LivingPerson
@@ -153,7 +155,7 @@ public static class LivingWorldCodec
     public static JsonElement Observe(LivingWorldState state, long worldMinute, string rulesVersion) => JsonSerializer.SerializeToElement(new
     {
         state.Version, RulesVersion = rulesVersion, WorldMinute = worldMinute,
-        Capabilities = state.Festivals is null ? Capabilities : [.. Capabilities, "festivals"],
+        Capabilities = state.Newcomers is not null ? [.. Capabilities, "festivals", "newcomers"] : state.Festivals is null ? Capabilities : [.. Capabilities, "festivals"],
         Age = state.People.Any(x => !x.DeathObserved && x.Knowledge.Contains(LivingTechnique.Cultivation)) && state.FoodHarvested > 0 ? "Agrarian" : "Foraging",
         state.Weather, state.Temperature, state.Rainfall, state.CompletedOrders, state.FoodHarvested, state.FoodPrepared, state.GoodsSpoiled, state.CareGiven,
         state.Festivals, state.FestivalVisit, state.Stock, state.People, state.Orders, state.Fields, state.Facilities, state.Animals,

@@ -1,3 +1,4 @@
+import { citizenObservationLabel, isCitizenPresent } from '../newcomers'
 import type { ReactNode } from 'react'
 import type { Citizen, Settlement } from '../api'
 import type { LivingWorld } from '../living'
@@ -77,6 +78,7 @@ export function ResourceMeters({ settlement }: { settlement: Settlement | null }
     <Meter icon="stone" kind="stone" label="Stone" value={number(settlement.stoneStored)} detail={`${number(settlement.stoneStored)} stored`} fraction={settlement.stoneStored / capacity} />
     <p className="hud-storage">Shared storage {number(settlement.storageUsed)} / {number(settlement.storageCapacity)}</p>
     <Meter icon="people" kind="people" label="Citizens" value={number(settlement.livingPopulation)} detail={`${number(settlement.livingPopulation)} living, ${number(settlement.shelteredPopulation)} housed`} fraction={housed} />
+    {settlement.guestPopulation !== undefined && <p className="hud-storage">Visitors {number(settlement.guestPopulation)} · residents {number(settlement.livingPopulation)}</p>}
   </section>
 }
 
@@ -91,12 +93,12 @@ export function VillagerCard({ citizen, activity, portrait, following, onFollow,
     <div className="hud-card-body">
       <div className="hud-portrait"><img src={portrait} alt="" /></div>
       <div className="hud-card-facts">
-        <div className="hud-chips"><span className="hud-chip hud-chip-blue">{citizen.lifeStage}</span><span className="hud-chip hud-chip-gold">{citizen.occupation}</span></div>
+        <div className="hud-chips"><span className="hud-chip hud-chip-blue">{citizen.lifeStage}</span><span className="hud-chip hud-chip-gold">{citizen.newcomer ? citizenObservationLabel(citizen) : citizen.occupation}</span></div>
         <span className="hud-card-activity">{activity}</span>
         {citizen.carriedResource && <span className="hud-card-detail">Carrying {citizen.carriedQuantity ?? 0} {citizen.carriedResource.toLowerCase()}</span>}
       </div>
     </div>
-    {citizen.isAlive && <div className="hud-needs">{NEEDS.map(({ key, label }) => {
+    {isCitizenPresent(citizen) && <div className="hud-needs">{NEEDS.map(({ key, label }) => {
       const need = citizen[key]
       if (need === null) return null
       const met = Math.round((1 - Math.max(0, Math.min(10000, need)) / 10000) * 100)
@@ -105,7 +107,7 @@ export function VillagerCard({ citizen, activity, portrait, following, onFollow,
       </div>
     })}</div>}
     <div className="hud-card-actions">
-      {citizen.isAlive && <button type="button" className="hud-button hud-button-green" onClick={onFollow}><HudIcon name="eye" size={20} />{following ? 'Unfollow' : 'Follow'}</button>}
+      {isCitizenPresent(citizen) && <button type="button" className="hud-button hud-button-green" onClick={onFollow}><HudIcon name="eye" size={20} />{following ? 'Unfollow' : 'Follow'}</button>}
       {onOpen && <button type="button" className="hud-button hud-button-gold" onClick={onOpen}><HudIcon name="book" size={20} />Open record</button>}
     </div>
   </div>

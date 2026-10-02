@@ -95,9 +95,11 @@ explicitly return to loopback.
 Growing Settlement and Living Settlement saves retain their own rules during
 upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`,
 `m13-rng1-unified1`, `m14-rng1-migration1`, `m15-rng1-roads1`, `m16-rng1-planned1`,
+`m16-rng1-festivals1`, `m17-rng1-newcomers1`,
 `v02-rng1-living1`, and `v02-rng1-living2`; installing it does not convert one
 civilization or Living Settlement rules version into another. New worlds keep
-the configured `NewWorldRules`, with M16 as the application default. M12 remains a historical
+the configured `NewWorldRules`, with M17 as the application default. Existing
+worlds use their saved rules even when the application default changes. M12 remains a historical
 rules boundary for existing worlds. Living2 is an opt-in rule for newly created
 worlds; existing living1 worlds continue under their saved living1 rules.
 

@@ -28,6 +28,39 @@ public sealed record FarmCrop(long StructureId, long Year, CropStage Stage, int 
 public sealed record HarvestRecord(long StructureId, long Year, int PlantingWork, int TendingWork,
     int Yield, int Harvested, int Lost);
 
+/// <summary>Exact farm ownership and resident return destinations for a validated multi-settlement world.</summary>
+public sealed class AgricultureWorkSiteContext
+{
+    private readonly Dictionary<long, long> _citizenSites;
+    private readonly Dictionary<long, long> _structureSites;
+    private readonly Dictionary<long, TileCoordinate> _stockpiles;
+
+    private AgricultureWorkSiteContext(MigrationWorldState migration, WorldMap world)
+    {
+        _citizenSites = migration.CitizenResidences.ToDictionary(x => x.EntityId, x => x.SettlementId);
+        _structureSites = migration.StructureOwners.ToDictionary(x => x.EntityId, x => x.SettlementId);
+        var stockpiles = new Dictionary<long, TileCoordinate> { [1] = world.StartingSite };
+        if (migration.DaughterSettlement is { } daughter) stockpiles.Add(MigrationDaughterSettlementState.SettlementId, daughter.Site);
+        _stockpiles = stockpiles;
+    }
+
+    public static AgricultureWorkSiteContext FromMigration(MigrationWorldState migration, WorldMap world)
+    {
+        ArgumentNullException.ThrowIfNull(migration);
+        ArgumentNullException.ThrowIfNull(world);
+        return new(migration, world);
+    }
+
+    internal TileCoordinate ReturnStockpile(Citizen citizen, Structure farm)
+    {
+        if (!_citizenSites.TryGetValue(citizen.Id.Value, out var citizenSite) ||
+            !_structureSites.TryGetValue(farm.Id.Value, out var farmSite) || citizenSite != farmSite ||
+            !_stockpiles.TryGetValue(citizenSite, out var stockpile))
+            throw new ArgumentException("Farm work must belong to the citizen's resident settlement.");
+        return stockpile;
+    }
+}
+
 public sealed record AgricultureState(int Version, long SeasonIndex, IReadOnlyList<FarmCrop> Farms,
     IReadOnlyList<HarvestRecord> Harvests)
 {
@@ -48,7 +81,8 @@ public sealed record AgricultureState(int Version, long SeasonIndex, IReadOnlyLi
         return value;
     }
 
-    public void Validate(WorldMap world, IReadOnlyList<Structure> structures, IReadOnlyList<Citizen> citizens, long demandMinute, long? currentMinute = null)
+    public void Validate(WorldMap world, IReadOnlyList<Structure> structures, IReadOnlyList<Citizen> citizens, long demandMinute, long? currentMinute = null,
+        AgricultureWorkSiteContext? workSites = null)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(structures);
@@ -93,10 +127,11 @@ public sealed record AgricultureState(int Version, long SeasonIndex, IReadOnlyLi
         foreach (var citizen in citizens.Where(c => c.CurrentAction is CitizenAction.WorkFarm or CitizenAction.HaulHarvest))
         {
             var farm = farmStructures.SingleOrDefault(s => s.Id == citizen.TargetStructureId);
+            var returnStockpile = farm is null || workSites is null ? world.StartingSite : workSites.ReturnStockpile(citizen, farm);
             if (farm is null || farm.Status != StructureStatus.Complete || !citizen.IsAlive || citizen.AgeYears(new WorldMinute(currentMinute ?? demandMinute)) < 13 ||
                 (citizen.ActionPhase == CitizenActionPhase.TravelToTarget && citizen.ActionTarget != farm.Location) ||
                 (citizen.ActionPhase == CitizenActionPhase.Perform && citizen.Location != farm.Location) ||
-                (citizen.ActionPhase == CitizenActionPhase.ReturnToStockpile && citizen.ActionTarget != world.StartingSite))
+                (citizen.ActionPhase == CitizenActionPhase.ReturnToStockpile && citizen.ActionTarget != returnStockpile))
                 throw new ArgumentException("Farm work must reference a completed reachable farm.");
         }
     }

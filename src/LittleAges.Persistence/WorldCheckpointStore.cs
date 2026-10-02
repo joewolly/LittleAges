@@ -569,6 +569,7 @@ public sealed class WorldCheckpointStore
                 existingMetadata[0].SimulationRulesVersion != snapshot.SimulationRulesVersion)
                 throw new InvalidDataException("M14 and M15 state is supported only for new worlds on those rules and cannot convert an existing world.");
             if (existingMetadata.Count == 1) LivingValidation.ValidateRetainedFacts(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson);
+            if (existingMetadata.Count == 1) NewcomerValidation.ValidateRetainedEpisodes(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson, snapshot.Citizens);
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
 
             await WriteSnapshotRowsAsync(snapshot, world, createdUtc, checkpointUtc, cancellationToken);
@@ -585,7 +586,10 @@ public sealed class WorldCheckpointStore
             var agricultureRow = await _context.AgricultureStates.SingleOrDefaultAsync(cancellationToken);
             if (snapshot.Agriculture is { } agriculture)
             {
-                agriculture.Validate(world, snapshot.Structures, snapshot.Citizens, snapshot.Settlement!.DemandUpdatedMinute, snapshot.WorldMinute.Value);
+                var workSites = snapshot.SimulationRulesVersion == SimulationEngine.NewcomersRulesVersion
+                    ? AgricultureWorkSiteContext.FromMigration(snapshot.MigrationState ?? throw new InvalidDataException("An M17 agricultural checkpoint requires settlement ownership."), world)
+                    : null;
+                agriculture.Validate(world, snapshot.Structures, snapshot.Citizens, snapshot.Settlement!.DemandUpdatedMinute, snapshot.WorldMinute.Value, workSites);
                 if (agricultureRow is null) _context.AgricultureStates.Add(new AgricultureStateRow { CanonicalJson = agriculture.ToCanonicalJson() });
                 else agricultureRow.CanonicalJson = agriculture.ToCanonicalJson();
             }

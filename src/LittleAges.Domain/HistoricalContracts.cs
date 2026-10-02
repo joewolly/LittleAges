@@ -37,7 +37,13 @@ public enum HistoricalEventType : int
     RouteConnected = 28,
     FestivalStarted = 29,
     FestivalEnded = 30,
-    FestivalAttended = 31
+    FestivalAttended = 31,
+    NewcomerAppeared = 32,
+    VisitorArrived = 33,
+    VisitorContact = 34,
+    NewcomerJoined = 35,
+    VisitorDeparted = 36,
+    VisitorDied = 37
 }
 
 public enum HistoricalImportance : int
@@ -169,7 +175,7 @@ public sealed record HistoricalEvent
     {
         WorldIdValidation.RequirePositive(Id.Value, nameof(Id));
         if (WorldMinute < 0 || WorldMinute > currentMinute) throw new ArgumentException("Historical event minute is outside the world timeline.");
-        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.FestivalAttended) throw new ArgumentException("Historical event type is unsupported.");
+        if (!Enum.IsDefined(EventType) || EventType is < HistoricalEventType.WorldCreated or > HistoricalEventType.VisitorDied) throw new ArgumentException("Historical event type is unsupported.");
         if (!Enum.IsDefined(Importance) || Importance is < HistoricalImportance.Debug or > HistoricalImportance.Historic) throw new ArgumentException("Historical event importance is unsupported.");
         if (!Enum.IsDefined(Origin) || Origin is not (HistoricalEventOrigin.Live or HistoricalEventOrigin.MigrationBackfill)) throw new ArgumentException("Historical event origin is unsupported.");
         if (SchemaVersion != CurrentSchemaVersion) throw new NotSupportedException($"Historical event schema version '{SchemaVersion}' is not supported.");
@@ -208,7 +214,16 @@ public sealed record HistoricalEvent
             case HistoricalEventType.RouteConnected:
             case HistoricalEventType.FestivalStarted:
             case HistoricalEventType.FestivalEnded:
+            case HistoricalEventType.NewcomerAppeared:
+            case HistoricalEventType.VisitorArrived:
+            case HistoricalEventType.VisitorContact:
+            case HistoricalEventType.VisitorDeparted:
+            case HistoricalEventType.VisitorDied:
                 if (citizens.Length != 0 || structures.Length != 0) throw new ArgumentException("This historical event cannot have entity links.");
+                break;
+            case HistoricalEventType.NewcomerJoined:
+                RequireRoles(citizens, "subject", 1, 1);
+                if (structures.Length != 0 || citizens[0].CitizenId.Value != CanonicalPayloadId("citizenId")) throw new ArgumentException("NewcomerJoined must link its admitted citizen alone.");
                 break;
             case HistoricalEventType.TradeDeparted:
             case HistoricalEventType.TradeCompleted:
@@ -503,6 +518,35 @@ public static class HistoricalEventPayloads
         return $"{{\"settlementId\":\"{Id(settlementId)}\",\"year\":{year.ToString(CultureInfo.InvariantCulture)},\"mode\":{JsonSerializer.Serialize(mode.ToString())},\"attendees\":{attendees.ToString(CultureInfo.InvariantCulture)},\"foodConsumed\":{foodConsumed.ToString(CultureInfo.InvariantCulture)}}}";
     }
 
+    public static string NewcomerAppeared(long citizenId, long hostSettlementId) => VisitorIdentity(citizenId, hostSettlementId) + "}";
+    public static string VisitorArrived(long citizenId, long hostSettlementId) => VisitorIdentity(citizenId, hostSettlementId) + "}";
+    public static string VisitorContact(long citizenId, long hostSettlementId, long contactId, int familiarity, int affinity, int trust, int conflict, long interactionCount)
+    {
+        if (contactId <= 0 || contactId == citizenId || familiarity is < 0 or > 10000 || affinity is < -10000 or > 10000 || trust is < 0 or > 10000 || conflict is < 0 or > 10000 || interactionCount <= 0)
+            throw new ArgumentException("Visitor contact evidence is invalid.");
+        return VisitorIdentity(citizenId, hostSettlementId) + $",\"contactId\":\"{Id(contactId)}\",\"familiarity\":{Id(familiarity)},\"affinity\":{Id(affinity)},\"trust\":{Id(trust)},\"conflict\":{Id(conflict)},\"interactionCount\":{Id(interactionCount)}}}";
+    }
+    public static string NewcomerJoined(long citizenId, long hostSettlementId, long householdId, long shelterStructureId, int provisionsTransferred)
+    {
+        if (householdId <= 0 || shelterStructureId <= 0 || provisionsTransferred < 0) throw new ArgumentException("Newcomer admission facts are invalid.");
+        return VisitorIdentity(citizenId, hostSettlementId) + $",\"householdId\":\"{Id(householdId)}\",\"shelterStructureId\":\"{Id(shelterStructureId)}\",\"provisionsTransferred\":{Id(provisionsTransferred)}}}";
+    }
+    public static string VisitorDeparted(long citizenId, long hostSettlementId, string reason, int remainingProvisions)
+    {
+        if (reason is not ("deadline" or "choice" or "lost_support" or "extinction") || remainingProvisions < 0) throw new ArgumentException("Visitor departure facts are invalid.");
+        return VisitorIdentity(citizenId, hostSettlementId) + $",\"reason\":{JsonSerializer.Serialize(reason)},\"remainingProvisions\":{Id(remainingProvisions)}}}";
+    }
+    public static string VisitorDied(long citizenId, long hostSettlementId, string cause, int ageYears)
+    {
+        if (cause is not ("starvation" or "exhaustion" or "exposure" or "deprivation" or "natural") || ageYears < 18) throw new ArgumentException("Visitor death facts are invalid.");
+        return VisitorIdentity(citizenId, hostSettlementId) + $",\"cause\":{JsonSerializer.Serialize(cause)},\"ageYears\":{Id(ageYears)}}}";
+    }
+    private static string VisitorIdentity(long citizenId, long hostSettlementId)
+    {
+        if (citizenId <= 0 || hostSettlementId is not (1 or 2)) throw new ArgumentException("Visitor identity or host is invalid.");
+        return $"{{\"citizenId\":\"{Id(citizenId)}\",\"hostSettlementId\":\"{Id(hostSettlementId)}\"";
+    }
+
     /// <summary>Validates the event-specific canonical JSON representation.</summary>
     public static void Validate(HistoricalEventType eventType, string payloadJson)
     {
@@ -515,6 +559,27 @@ public static class HistoricalEventPayloads
 
             switch (eventType)
             {
+                case HistoricalEventType.NewcomerAppeared:
+                case HistoricalEventType.VisitorArrived:
+                    RequireCanonical(payloadJson, root, ["citizenId", "hostSettlementId"], () => NewcomerAppeared(RequiredPositiveId(root, "citizenId"), RequiredPositiveId(root, "hostSettlementId")));
+                    break;
+                case HistoricalEventType.VisitorContact:
+                    RequireCanonical(payloadJson, root, ["citizenId", "hostSettlementId", "contactId", "familiarity", "affinity", "trust", "conflict", "interactionCount"], () =>
+                        VisitorContact(RequiredPositiveId(root, "citizenId"), RequiredPositiveId(root, "hostSettlementId"), RequiredPositiveId(root, "contactId"),
+                            RequiredRange(root, "familiarity", 0, 10000), RequiredRange(root, "affinity", -10000, 10000), RequiredRange(root, "trust", 0, 10000), RequiredRange(root, "conflict", 0, 10000), RequiredNonNegativeLong(root, "interactionCount")));
+                    break;
+                case HistoricalEventType.NewcomerJoined:
+                    RequireCanonical(payloadJson, root, ["citizenId", "hostSettlementId", "householdId", "shelterStructureId", "provisionsTransferred"], () =>
+                        NewcomerJoined(RequiredPositiveId(root, "citizenId"), RequiredPositiveId(root, "hostSettlementId"), RequiredPositiveId(root, "householdId"), RequiredPositiveId(root, "shelterStructureId"), RequiredNonNegativeInt(root, "provisionsTransferred")));
+                    break;
+                case HistoricalEventType.VisitorDeparted:
+                    RequireCanonical(payloadJson, root, ["citizenId", "hostSettlementId", "reason", "remainingProvisions"], () =>
+                        VisitorDeparted(RequiredPositiveId(root, "citizenId"), RequiredPositiveId(root, "hostSettlementId"), RequiredString(root, "reason"), RequiredNonNegativeInt(root, "remainingProvisions")));
+                    break;
+                case HistoricalEventType.VisitorDied:
+                    RequireCanonical(payloadJson, root, ["citizenId", "hostSettlementId", "cause", "ageYears"], () =>
+                        VisitorDied(RequiredPositiveId(root, "citizenId"), RequiredPositiveId(root, "hostSettlementId"), RequiredString(root, "cause"), RequiredNonNegativeInt(root, "ageYears")));
+                    break;
                 case HistoricalEventType.WorldCreated:
                     RequireCanonical(payloadJson, root, ["seed"], () =>
                     {
