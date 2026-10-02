@@ -11,7 +11,7 @@ public sealed class LivingTravelCostsTests
     [InlineData(12345UL)]
     public void CompactDerivedCostsExactlyMatchExistingPathfinder(ulong seed)
     {
-        var world = new SimulationEngine(new WorldSeed(seed)).World;
+        var world = new SimulationEngine(new WorldSeed(seed), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).World;
         var starts = new[] { world.StartingSite, world.Tiles.First(x => x.Walkable).Coordinate, world.Tiles.Last(x => x.Walkable).Coordinate };
         foreach (var start in starts)
         {

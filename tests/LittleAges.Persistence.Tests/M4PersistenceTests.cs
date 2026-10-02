@@ -14,7 +14,7 @@ public sealed class M4PersistenceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
             var site = source.World!.Tiles.First(tile => tile.Coordinate != source.World.StartingSite && tile.Buildable && source.World.GetResources(tile.Coordinate).Count == 0).Coordinate;
             var structure = new Structure(new StructureId(source.Counters.NextEntityId), StructureType.Shelter, site, source.WorldMinute.Value, 40, 10, 600)
             {
@@ -378,7 +378,7 @@ public sealed class M4PersistenceTests
 
     private static SimulationPersistenceSnapshot CreateStructuredSnapshot()
     {
-        var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+        var baseline = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
         var sites = baseline.World!.Tiles.Where(tile => tile.Coordinate != baseline.World.StartingSite && tile.Buildable && baseline.World.GetResources(tile.Coordinate).Count == 0 && DeterministicPathfinder.Find(baseline.World, baseline.World.StartingSite, tile.Coordinate) is { Count: >= 2 }).Select(tile => tile.Coordinate).Take(3).ToArray();
         Assert.Equal(3, sites.Length);
         var shelter = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, sites[0], 0, 40, 10, 600), 40, 10, 600);

@@ -83,7 +83,7 @@ public sealed class M4PersistenceAcceptanceTests
     {
         await WithDatabaseAsync(async path =>
         {
-            var source = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+            var source = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
             source.Settlement!.FoodStored = CitizenSimulationRules.BaseStorageCapacity;
             var citizen = source.Citizens[0];
             citizen.CurrentAction = CitizenAction.GatherFood;
@@ -163,7 +163,7 @@ public sealed class M4PersistenceAcceptanceTests
 
     private static SimulationPersistenceSnapshot CreateTransportSnapshot(out CitizenId haulerId, out StructureId projectId, out WorldMinute completionMinute)
     {
-        var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+        var baseline = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var site = Sites(world, 1)[0];
         var project = new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, site, 0, CitizenSimulationRules.ShelterRequiredWood, CitizenSimulationRules.ShelterRequiredStone, CitizenSimulationRules.ShelterRequiredWork);
@@ -186,7 +186,7 @@ public sealed class M4PersistenceAcceptanceTests
 
     private static SimulationPersistenceSnapshot CreatePhaseSnapshot()
     {
-        var baseline = new SimulationEngine(new WorldSeed(42)).CreatePersistenceSnapshot();
+        var baseline = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion).CreatePersistenceSnapshot();
         var world = baseline.World!;
         var sites = Sites(world, 3);
         var shelter = Complete(new Structure(new StructureId(baseline.Counters.NextEntityId), StructureType.Shelter, sites[0], 0, 40, 10, 600));

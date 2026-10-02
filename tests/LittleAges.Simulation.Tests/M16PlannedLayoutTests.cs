@@ -11,7 +11,7 @@ public sealed class M16PlannedLayoutTests
     [Fact]
     public void M16IncludesEveryM15SystemAndFestivalsSucceedIt()
     {
-        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.True(SimulationEngine.RoadSystemsEnabled(Planned));
         Assert.True(SimulationEngine.MigrationSystemsEnabled(Planned));
         Assert.True(SimulationEngine.UnifiedSimulationRulesEnabled(Planned));

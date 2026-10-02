@@ -7,6 +7,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Release notes
 
+- [`release-v0.6.0.md`](./release-v0.6.0.md) - visitors and newcomers, M17
+  new-world default, housing corrections and retained save compatibility.
 - [`release-v0.5.0.md`](./release-v0.5.0.md) - published M16 planned settlements,
   festivals and painted observer.
 - [`release-v0.4.0.md`](./release-v0.4.0.md) — release notes for M15, published
@@ -16,12 +18,12 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
-- [`m17-newcomers.md`](./m17-newcomers.md) - opt-in visitors and newcomers,
+- [`m17-newcomers.md`](./m17-newcomers.md) - default visitors and newcomers,
   physical travel, spare shelter, autonomous admission, external ancestry and
-  provisions accounting; M16 remains the new-world default.
+  provisions accounting; existing worlds retain their saved rules.
 - [`m17-exposure-diagnosis.md`](./m17-exposure-diagnosis.md) - reproduced seed-7
   exposure deaths and the M17-only correction for fragmented household housing.
-- [`m16-festivals.md`](./m16-festivals.md) — current new-world default: shared
+- [`m16-festivals.md`](./m16-festivals.md) - retained v0.5.0 default: shared
   harvest afternoons, optional feasts, timed family visits, factual memories,
   temporary observer scenery, and century save/reload acceptance evidence.
 - [`m16-planned-layout.md`](./m16-planned-layout.md) — M16 settlement planner,

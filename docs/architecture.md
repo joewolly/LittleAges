@@ -3,8 +3,8 @@
 The sections below retain the implementation record through M8 candidate acceptance.
 For the M9 growth, M10 agriculture, and M11 household barter extensions,
 see [Growing Settlement](growing-settlement.md). Fresh worlds now select
-`m16-rng1-festivals1`; [M17 visitors and newcomers](m17-newcomers.md) are an
-explicit new-world option. All statements below about older defaults describe their
+`m17-rng1-newcomers1`; [M17 visitors and newcomers](m17-newcomers.md) inherit
+M16 festivals. All statements below about older defaults describe their
 historical milestone. Existing saves retain their rules. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
 
 The opt-in successor is documented in [Living Settlement v0.2](living-settlement-v0.2.md).

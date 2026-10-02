@@ -17,7 +17,7 @@ public sealed class M16FestivalTests
     [Fact]
     public void FestivalsInheritM15ButDoNotChangeEarlierWorlds()
     {
-        Assert.Equal(SimulationEngine.FestivalsSimulationRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
+        Assert.Equal(SimulationEngine.NewcomersRulesVersion, SimulationEngine.CurrentSimulationRulesVersion);
         Assert.True(SimulationEngine.RoadSystemsEnabled(SimulationEngine.FestivalsSimulationRulesVersion));
         Assert.True(SimulationEngine.MigrationSystemsEnabled(SimulationEngine.FestivalsSimulationRulesVersion));
         var old = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.RoadsSimulationRulesVersion);

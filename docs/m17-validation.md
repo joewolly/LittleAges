@@ -2,8 +2,11 @@
 
 Baseline main: `796c7306e4f92915b6e7a222e94b489a8be92871` (published v0.5.0).
 Validation uses Windows, .NET SDK 10.0.401, Release backend binaries and the
-locked frontend dependencies. M16 festivals remain the new-world default;
-`m17-rng1-newcomers1` is explicit opt-in. Existing saves retain their rules.
+locked frontend dependencies. The frozen acceptance runs below selected
+`m17-rng1-newcomers1` explicitly while M16 festivals was the default. The v0.6.0
+promotion changes only the current-rules declaration and the fresh-engine
+constructor default to M17. Explicit M17 simulation algorithms are unchanged;
+the nine completed horizons remain valid. Existing saves retain their rules.
 
 The definitive version-five frozen simulation SHA256 is
 `6A8C0395DEF5E15D9A9E485F35A111F88C2D8396D282DE6DC2A1D57D823E1A9A`.
@@ -13,12 +16,37 @@ The definitive version-five frozen simulation SHA256 is
 All nine horizons started fresh on this reviewed build. All six decades and
 three centuries are complete with invariant and canonical equivalence passes. After freezing,
 only trailing blank lines in a test file were removed; the original file and
-before/after hashes are retained in `v5/test-formatting/`. Production source and
-frozen binaries are unchanged. Raw reports, SQLite
+before/after hashes are retained in `v5/test-formatting/`. Frozen production source
+and binaries remain archived unchanged; the later default-selection promotion
+is validated separately. Raw reports, SQLite
 checkpoints, TRX files and interrupted attempts are
 local ignored artifacts, separate from this checked-in evidence summary.
 
 ## Backend and frontend checks
+
+### v0.6.0 default promotion
+
+The public fresh-engine constructor, server options and all headless commands
+now select M17 without an explicit rules argument. Saved snapshots still restore
+their recorded rules. Eleven additional cases check default/explicit M17
+canonical equivalence across chunks and restore, explicit M16 selection, and
+actual server creation and M16 planned/festivals SQLite reopen without migration.
+Historical M4 fixtures explicitly select M4, preserving their original scope.
+
+The local Release build passed with zero warnings. The affected simulation
+selection passed 48 cases, the server-default/save selection passed 4, and all
+36 non-Long headless cases passed, with zero failures or skips. Frontend lint,
+typecheck, all 216 tests in 17 files and the production build passed.
+`artifacts/m17-default-release/` retains the build log, TRX files and source audit.
+The only engine differences from the previously checked PR head are two default
+declarations and their explanatory comment. The rebuilt observer entry file has
+the same SHA256 as frozen v5, so browser evidence below remains applicable.
+
+The nine completed explicit-M17 horizons are reused for this declaration-only
+promotion. They are not represented as rerun on the default-promotion binary.
+Hosted checks and package smoke results are recorded with the release evidence.
+
+### Frozen v5 implementation checks
 
 The Release non-Long cases have passing results across all five projects:
 

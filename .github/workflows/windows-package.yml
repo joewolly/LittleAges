@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Candidate artifact version (for example 0.3.0)
+        description: Candidate artifact version (for example 0.6.0)
         required: true
-        default: 0.5.0
+        default: 0.6.0
         type: string
 
 permissions:

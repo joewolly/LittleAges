@@ -14,7 +14,7 @@ people, leave them alone, and come back later to discover what happened.
 
 ## Overview
 
-New worlds default to `m16-rng1-festivals1`. It keeps every M15 system (worn
+New worlds default to `m17-rng1-newcomers1`. It keeps every M15 system (worn
 trails, paved roads, trade between two settlements) and the M16 settlement
 planner: each village gets organic districts for homes, storage, crafts, and
 farmland, storage grows through large storehouses in one yard instead of
@@ -28,13 +28,13 @@ keep their recorded rules and behavior. See the
 [M15 rules contract](docs/m15-roads-trade.md), and the
 [M14 rules contract](docs/m14-migration.md).
 
-The opt-in [M17 visitors and newcomers](docs/m17-newcomers.md) ruleset,
+The default [M17 visitors and newcomers](docs/m17-newcomers.md) ruleset,
 `m17-rng1-newcomers1`, adds rare adult outsiders who walk in from the map edge,
 visit an inhabited settlement and autonomously join or leave. Guests use their
 own provisions and a spare shelter; their counts and histories stay separate
 from residents. It also corrects fragmented household housing demand for M17.
-Select it with `--NewWorldRules m17-rng1-newcomers1` when creating a new world.
-Existing saves and the M16 default retain their rules and behavior.
+Fresh worlds select it automatically. Explicit older rules, including M16
+festivals, remain available. Existing saves retain their rules and behavior.
 
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
 adds coordinated work, farming and production, personal lives, weather and
@@ -170,7 +170,7 @@ run:
 ```powershell
 dotnet run --project .\src\LittleAges.Headless\LittleAges.Headless.csproj `
   --configuration Release --no-build -- acceptance `
-  --seed 42 --years 100 --rules m16-rng1-festivals1 `
+  --seed 42 --years 100 --rules m17-rng1-newcomers1 `
   --checkpoint-year 80 --database .\artifacts\acceptance.db `
   --output .\artifacts
 ```
@@ -196,9 +196,10 @@ version is:
 
 ## Project status
 
-`v0.5.0` is the latest published Windows release and describes M16 planned
-settlements, festivals and the painted observer; see its
-[release notes](docs/release-v0.5.0.md). M17 is an opt-in development ruleset.
+`v0.6.0` adds visitors and newcomers and makes M17 the default for new worlds;
+see its [release notes](docs/release-v0.6.0.md) and the
+[Windows downloads](https://github.com/joewolly/LittleAges/releases).
+Existing civilizations continue under their saved rules.
 
 ## License
 

@@ -10,8 +10,8 @@ public sealed class M4PerformanceTests
     [Fact]
     public void ImmutableMapPathAndTravelCachesEvictDeterministicallyWithoutChangingSettlementState()
     {
-        var cold = new SimulationEngine(new WorldSeed(42));
-        var warmed = new SimulationEngine(new WorldSeed(42));
+        var cold = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
+        var warmed = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var findPath = GetMethod("FindPathCached");
         var travelCosts = GetMethod("GetTravelCostsCached");
         var regenerate = GetMethod("RegenerateResources");
@@ -38,8 +38,8 @@ public sealed class M4PerformanceTests
     [Fact]
     public void ReloadStartsWithEmptyCachesAndRetainsCanonicalSettlementEvolution()
     {
-        var uninterrupted = new SimulationEngine(new WorldSeed(0));
-        var checkpointSource = new SimulationEngine(new WorldSeed(0));
+        var uninterrupted = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
+        var checkpointSource = new SimulationEngine(new WorldSeed(0), simulationRulesVersion: SimulationEngine.M4SimulationRulesVersion);
         var findPath = GetMethod("FindPathCached");
         _ = findPath.Invoke(checkpointSource, [checkpointSource.World.StartingSite, checkpointSource.World.Resources[0].Coordinate]);
         var checkpoint = checkpointSource.CreatePersistenceSnapshot();

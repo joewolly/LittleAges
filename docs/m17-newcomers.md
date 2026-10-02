@@ -1,7 +1,8 @@
 # M17 - Visitors and newcomers
 
-`m17-rng1-newcomers1` builds on M16 festivals. It is an explicit opt-in ruleset
-for new worlds. Saved worlds retain their recorded rules;
+`m17-rng1-newcomers1` builds on M16 festivals. It is the v0.6.0 default ruleset
+for new worlds, including the engine constructor, server and headless commands.
+Explicit older rules remain available. Saved worlds retain their recorded rules;
 loading M16 does not add visitors or apply the M17 housing corrections. The
 released M16 rules remain available.
 
@@ -24,13 +25,13 @@ damage nor work priorities. M16 keeps its existing behavior and fingerprints.
 | M16 planned with sharing | 25 | 8 |
 | M16 planned diagnostic without sharing | 34 | 2 |
 | Same M16 planned rules with only the housing correction | 36 | 0 |
-| Unchanged default M16 festivals, exact released baseline | 35 | 0 |
+| Unchanged v0.5.0 default M16 festivals, exact released baseline | 35 | 0 |
 | Pre-newcomer M17 housing and festivals | 35 | 0 |
 
 [The diagnosis](m17-exposure-diagnosis.md) records the affected households,
 construction state, regression checks and frozen evidence. The 35/0 result
 includes festivals and is not a causal isolation of the housing correction.
-The eight-death control uses retained M16 planned rules; the default M16 festivals
+The eight-death control uses retained M16 planned rules; the v0.5.0 default M16 festivals
 control is distinct and has no deaths in this seed's measured ten-year run.
 The matched M16-planned diagnostic changes only the housing-demand predicate;
 its source, binary and trace hashes are retained with the diagnosis. All these
@@ -151,7 +152,8 @@ traveler. REST recovery and map fallback retain the same presence distinction.
 
 ## Local reproduction
 
-Select M17 only for a new disposable world:
+New worlds select M17 automatically. This explicit selection also reproduces
+the same rules in a disposable world:
 
 ```powershell
 dotnet run --project src/LittleAges.Server --configuration Release --no-build -- `

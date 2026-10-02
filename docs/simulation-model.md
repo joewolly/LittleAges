@@ -2,8 +2,8 @@
 
 This is the exact deterministic model implemented by M0 through M8 candidate acceptance. M1 adds immutable deterministic geography/resource definitions, M2 adds founders and movement, M3 adds the survival loop over mutable resource quantities, stockpile, needs, gathering, health, and mortality, M4 adds deterministic settlement/construction, M5 adds social/family/lifecycle systems, and M6 adds append-only factual history, structured memories, biographies, and monthly statistics. M7 adds operational hosting and delivery; M8 adds headless/MAX execution, acceptance checkpoint comparison, and the versioned sampled shortage-recovery boundary around this unchanged event engine.
 
-Later contracts are linked below. New worlds default to M16 festivals;
-M17 visitors and newcomers require an explicit new-world rules selection.
+Later contracts are linked below. New worlds default to M17 visitors and
+newcomers, building on M16 festivals. Explicit older rules remain available.
 Older milestone defaults in this record do not migrate saved worlds.
 
 ## World minute and calendar
@@ -602,7 +602,7 @@ factual attendance and renders temporary scenery without mutating the world.
 
 ## M17 visitor contract
 
-[`m17-newcomers.md`](m17-newcomers.md) specifies opt-in
+[`m17-newcomers.md`](m17-newcomers.md) specifies the new-world default
 `m17-rng1-newcomers1`, building on M16 festivals. It preserves original founder
 ordinals and uses the shared entity counter for adult external identities.
 Approaching, visiting and leaving guests are outside the resident roster and

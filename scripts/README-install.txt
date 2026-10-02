@@ -13,6 +13,8 @@ Your civilization is stored separately in:
 C:\ProgramData\LittleAges\worlds
 
 Running install.ps1 again upgrades Little Ages without deleting the world.
+New worlds default to M17 visitors and newcomers. Existing worlds retain their
+saved rules and history; upgrading does not add visitors to an older world.
 
 To uninstall while preserving the world:
 
