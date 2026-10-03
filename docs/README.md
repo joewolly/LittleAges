@@ -7,6 +7,9 @@ historical or design context rather than a claim about the current runtime.
 
 ## Release notes
 
+- [`release-v0.7.0.md`](./release-v0.7.0.md) - family and lineage records,
+  clearer citizen crowds and explicit observer navigation.
+
 - [`release-v0.6.0.md`](./release-v0.6.0.md) - visitors and newcomers, M17
   new-world default, housing corrections and retained save compatibility.
 - [`release-v0.5.0.md`](./release-v0.5.0.md) - published M16 planned settlements,

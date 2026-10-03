@@ -198,9 +198,10 @@ version is:
 
 ## Project status
 
-`v0.6.0` adds visitors and newcomers and makes M17 the default for new worlds;
-see its [release notes](docs/release-v0.6.0.md) and the
+`v0.7.0` adds the Family & lineage explorer and clearer citizen crowds;
+see its [release notes](docs/release-v0.7.0.md) and the
 [Windows downloads](https://github.com/joewolly/LittleAges/releases).
+M17 visitors and newcomers remain the default for new worlds.
 Existing civilizations continue under their saved rules.
 
 ## License
