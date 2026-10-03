@@ -18,6 +18,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
+- [`family-lineage.md`](./family-lineage.md) - observer-only family records,
+  factual ancestry, bounded graphs, exact descendant counts and compatibility.
 - [`m17-newcomers.md`](./m17-newcomers.md) - default visitors and newcomers,
   physical travel, spare shelter, autonomous admission, external ancestry and
   provisions accounting; existing worlds retain their saved rules.

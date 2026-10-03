@@ -1,5 +1,5 @@
 import { isCitizenPresent } from '../newcomers'
-import { Component, useState, type ReactNode } from 'react'
+import { Component, useEffect, useState, type ReactNode } from 'react'
 import type { Citizen, Map, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import type { LivingWorld } from '../living'
 import { HudIcon, ResourceMeters, SettlementBadge, VillagerCard } from './Hud'
@@ -44,6 +44,9 @@ export type WorldViewportProps = {
   selectedCitizenId: string | null
   onSelectCitizen: (citizenId: string) => void
   onOpenSelected?: (citizenId: string) => void
+  onViewFamily?: (citizenId: string) => void
+  /** Only explicit family follow actions issue this request. */
+  followRequest?: { citizenId: string; sequence: number } | null
   /** Development art review only; ignored by production builds. */
   previewSeason?: Season
 }
@@ -58,6 +61,12 @@ export function WorldViewport(props: WorldViewportProps) {
   const [stats, setStats] = useState<IsoStats | null>(null)
   const [crowdIds, setCrowdIds] = useState<string[]>([])
   const [nudge, setNudge] = useState<CameraNudge>({ x: 0, z: 0, zoom: 0, sequence: 0 })
+  useEffect(() => {
+    if (props.followRequest) {
+      const id = props.followRequest.citizenId
+      queueMicrotask(() => { setCrowdIds([]); setFollowCitizenId(id) })
+    }
+  }, [props.followRequest])
   const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
   const selected = props.citizens.find(citizen => citizen.citizenId === props.selectedCitizenId) ?? null
   const settlementSites = props.settlementSites ?? []
@@ -121,7 +130,7 @@ export function WorldViewport(props: WorldViewportProps) {
         const activity = citizenActivity(citizen, props.living, props.structures).label
         return <li key={citizen.citizenId}><button type="button" aria-label={`${citizen.name} · ${activity}`} onClick={() => selectCitizen(citizen.citizenId)}><strong>{citizen.name}</strong><span>{activity}</span></button></li>
       })}</ul>
-    </section> : selected && <VillagerCard citizen={selected} activity={selectedActivity} portrait={`/assets/sprites/${villagerSprite(props.worldSeed, selected)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} />}
+    </section> : selected && <VillagerCard citizen={selected} activity={selectedActivity} portrait={`/assets/sprites/${villagerSprite(props.worldSeed, selected)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} onViewFamily={props.onViewFamily ? () => props.onViewFamily?.(selected.citizenId) : undefined} />}
     {!overview && <p className="world-activity-legend">→ travel · W work phase · ! blocked · Z rest · tap counts to choose{props.paused ? ' · Paused' : reducedMotion ? ' · Reduced motion' : ''}</p>}
     {diagnosticsEnabled && !overview && stats && <output className="world-perf" aria-label="World view performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · {stats.sprites} sprites · {stats.chunks} ground chunks · {props.citizens.filter(isCitizenPresent).length} villagers · {stats.season} · shelter tier {stats.tier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom. All citizen details remain available in Observer records.</span>

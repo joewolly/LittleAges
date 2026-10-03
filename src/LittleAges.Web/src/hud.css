@@ -198,3 +198,36 @@ button.hud-button:disabled, .world-hud button:disabled { filter: grayscale(.8); 
 .world-viewport button.hud-button:hover, .world-viewport button.hud-button:focus-visible {
   background: linear-gradient(180deg, var(--hud-top, #fff6de) 0%, var(--hud-mid, #ecd9a8) 55%, var(--hud-low, #b89a5c) 100%);
 }
+
+/* Family records share the ledger's parchment, ink and quiet factual tone. */
+.observer-drawer-body[data-tab="family"] > .family-surface { display: block; }
+.observer-drawer.has-family { width: min(1040px, calc(100vw - 48px)); }
+.observer-tabs { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+@media (max-width: 699px) { .observer-tabs { grid-template-columns: repeat(7, minmax(78px, 1fr)); } }
+.family-controls { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 16px; }
+.family-controls label { display: grid; gap: 6px; min-width: 0; }
+.family-controls label:first-child { flex: 1 1 260px; }
+.family-controls input, .family-controls select { width: 100%; min-height: 44px; padding: 8px; border: 2px solid var(--hud-wood); border-radius: 8px; background: #fff8e8; color: var(--hud-ink); }
+.family-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-block: 12px; }
+.family-immediate { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-block: 16px; }
+.family-relatives { padding: 12px; border: 1px solid #b89a5c; border-radius: 10px; background: #fff3d8; min-width: 0; }
+.family-relatives h4 { margin: 0 0 8px; }
+.family-relatives ul, .family-search ul { list-style: none; margin: 0; padding: 0; }
+.family-link { display: inline-block; border: 0; background: none; color: #155e56; text-decoration: underline; text-underline-offset: 3px; padding: 5px 2px; text-align: left; overflow-wrap: anywhere; font: inherit; cursor: pointer; }
+.family-counts { font-weight: 800; }.family-counts small { display: block; font-weight: 600; }
+.family-graph-scroll { max-height: 65vh; overflow: auto; border: 2px solid var(--hud-wood); border-radius: 12px; padding: 12px; background: #e8d3a2; scrollbar-gutter: stable; }
+.family-graph { position: relative; }
+.family-nodes { list-style: none; margin: 0; padding: 0; }
+.family-node { position: absolute; width: 240px; height: 260px; overflow: auto; padding: 12px; border: 2px solid var(--hud-wood); border-radius: 10px; background: #fff5df; box-sizing: border-box; font-size: 12px; }
+.family-node.is-root { border: 3px solid #167a6c; background: #fff9e8; }
+.family-node-name { display: block; border: 0; background: none; padding: 6px 0; font: 400 18px var(--hud-display); color: var(--hud-ink); text-align: left; cursor: pointer; }
+.family-id { display: block; overflow-wrap: anywhere; }.family-node p { margin: 8px 0; }.family-node .section-kicker { font-size: 10px; }
+.family-node-links button { display: block; font-size: 11px; }.family-edges { position: absolute; inset: 0; pointer-events: none; }.family-edges path { fill: none; stroke: #82552d; stroke-width: 2; }.family-edges .family-partner-edge { stroke: #167a6c; stroke-dasharray: 5 4; }
+.family-surface button:focus-visible, .family-graph-scroll:focus-visible, #family-root-heading:focus-visible { outline: 3px solid #167a6c; outline-offset: 2px; }
+@media (max-width: 699px) {
+  .observer-drawer.has-family { width: 100vw; }
+  .family-immediate { grid-template-columns: 1fr; }
+  .family-graph { width: auto !important; height: auto !important; }.family-edges { display: none; }
+  .family-nodes { display: grid; gap: 12px; }.family-node { position: static; width: 100%; height: auto; overflow: visible; font-size: 14px; }.family-node-links button { font-size: 14px; }
+  .family-controls label { flex: 1 1 130px; }.family-link { min-height: 40px; }
+}

@@ -17,8 +17,10 @@ from the simulation without inventing events.
 - **Periodic newspaper.** Publish a readable account of births, deaths,
   discoveries, shortages, and changes in settlement life for each season or
   year. Different periods would feel distinct when revisited later.
-- **Family tree and lineage view.** Follow descendants across generations and
-  see how homes, occupations, relationships, and possessions changed.
+- **Family tree and lineage view.** The observer [Family explorer](family-lineage.md)
+  now follows recorded ancestors and descendants, with named relatives and links
+  to existing biographies/history. Comparing homes, occupations and possessions
+  across historical snapshots remains an open idea.
 - **Time travel for observers.** Scrub through saved historical snapshots or
   reconstructable events to see how the map and settlement changed. This needs
   an honest distinction between recorded state and anything inferred.

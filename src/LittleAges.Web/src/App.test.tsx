@@ -115,7 +115,7 @@ function responseFor(path: string, worldMinute: number, name = citizen.name) {
   return new Response(JSON.stringify([{ ...citizen, name }]))
 }
 
-function renderAppWithRecords(tab: 'Overview' | 'Citizens' | 'Buildings' | 'Living' | 'History' | 'Statistics' = 'Citizens') {
+function renderAppWithRecords(tab: 'Overview' | 'Citizens' | 'Buildings' | 'Living' | 'Family' | 'History' | 'Statistics' = 'Citizens') {
   const result = render(<App />)
   fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
   if (tab !== 'Overview') fireEvent.click(screen.getByRole('tab', { name: tab }))
@@ -137,6 +137,58 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it('opens family from a citizen, retains controls across close/reopen and sends the existing family history filter', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => responseFor(String(input), 12))
+    renderAppWithRecords()
+    await screen.findByRole('heading', { name: 'Elara Venn' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'View family' }).at(-1)!)
+    await screen.findByRole('heading', { name: `Elara Venn · #${citizen.citizenId}` })
+    fireEvent.change(screen.getByLabelText('Direction'), { target: { value: 'descendants' } })
+    fireEvent.change(screen.getByLabelText('Generations'), { target: { value: '4' } })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Family' }))
+    expect(screen.getByLabelText('Generations')).toHaveValue('4')
+    expect(screen.getByLabelText('Direction')).toHaveValue('descendants')
+    fireEvent.click(screen.getByRole('button', { name: 'Family history' }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([path]) => String(path).includes(`familyCitizenId=${citizen.citizenId}`))).toBe(true))
+  })
+  it('ignores late biography and history responses after navigating family roots', async () => {
+    const second = { ...citizen, citizenId: '2', name: 'Bram Vale', parentAId: citizen.citizenId }
+    const bioRequests = new Map<string, Deferred<Response>>()
+    const historyRequests: Array<Deferred<Response>> = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/biography')) { const request = deferred<Response>(); bioRequests.set(path.split('/')[4], request); return request.promise }
+      if (path.includes('/history?')) { const request = deferred<Response>(); historyRequests.push(request); return request.promise }
+      if (path.endsWith('/citizens')) return new Response(JSON.stringify([citizen, second]))
+      return responseFor(path, 12)
+    })
+    renderAppWithRecords('Family')
+    await screen.findByRole('heading', { name: `Elara Venn · #${citizen.citizenId}` })
+    fireEvent.click(screen.getByRole('button', { name: 'Biography' }))
+    await waitFor(() => expect(bioRequests.size).toBe(1))
+    fireEvent.click(screen.getByRole('tab', { name: 'Family' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Recenter on Bram Vale · 2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Biography' }))
+    await waitFor(() => expect(bioRequests.size).toBe(2))
+    const biographyFor = (c: typeof citizen | typeof second) => new Response(JSON.stringify({ citizen: c, events: [], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 0, deathMinute: null, deathCause: null }))
+    await act(async () => { bioRequests.get('2')!.resolve(biographyFor(second)) })
+    await within(document.querySelector('.biography-summary')!).findByRole('heading', { name: 'Bram Vale', level: 3 })
+    await act(async () => { bioRequests.get(citizen.citizenId)!.resolve(biographyFor({ ...citizen, name: 'Stale biography' })) })
+    expect(screen.queryByRole('heading', { name: 'Stale biography' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Family' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Family history' }))
+    await waitFor(() => expect(historyRequests).toHaveLength(1))
+    fireEvent.click(screen.getByRole('tab', { name: 'Family' }))
+    fireEvent.click(screen.getByRole('button', { name: `Recenter on Elara Venn · ${citizen.citizenId}` }))
+    fireEvent.click(screen.getByRole('button', { name: 'Family history' }))
+    await waitFor(() => expect(historyRequests).toHaveLength(2))
+    await act(async () => { historyRequests[1].resolve(new Response(JSON.stringify([{ ...historicalEvent, summary: 'Current family event' }]))) })
+    await screen.findByText('Current family event')
+    await act(async () => { historyRequests[0].resolve(new Response(JSON.stringify([{ ...historicalEvent, summary: 'Stale family event' }]))) })
+    expect(screen.queryByText('Stale family event')).not.toBeInTheDocument()
+  })
   it('recovers a failed initial map request even when the live connection succeeds', async () => {
     vi.useFakeTimers()
     liveMock.state.startMode = 'resolve'
@@ -452,7 +504,7 @@ describe('citizen observer', () => {
     expect(screen.getAllByText('Socialize').length).toBeGreaterThan(0)
     expect(screen.getByText('Citizen 6')).toBeInTheDocument()
     expect(screen.getByText('Demographics')).toBeInTheDocument()
-    expect(screen.getByText('Family')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Family', level: 4 })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/relationships'))).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'View relationship details' }))
     expect(await screen.findByRole('heading', { name: 'Relationships for Elara Venn' })).toBeInTheDocument()
