@@ -351,7 +351,7 @@ export function IsoWorld(props: IsoWorldProps) {
         context.fillStyle = '#218c85'; context.strokeStyle = '#fff6c8'; context.lineWidth = 2
         context.beginPath(); context.arc(c.x, c.y, 11, 0, Math.PI * 2); context.fill(); context.stroke()
         context.fillStyle = '#fff6c8'; context.font = 'bold 11px sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'
-        context.fillText(pose.visible ? String(placement.memberIds.length) : `Z${placement.memberIds.length}`, c.x, c.y)
+        context.fillText(String(placement.memberIds.length), c.x, c.y)
       }
 
       // Weather is a light screen overlay; it never hides the map.

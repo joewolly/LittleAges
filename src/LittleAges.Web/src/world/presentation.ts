@@ -47,10 +47,12 @@ export function citizenActivity(citizen: Citizen, living: LivingWorld | null | u
     if (order.blockedReason) return { label: `${livingLabel(order.kind)} · Blocked: ${livingLabel(order.blockedReason)} · ${progress}`, cue: '!' }
     if (order.workDone >= order.requiredWork) return { label: `${livingLabel(order.kind)} · Work complete · ${progress}`, cue: '✓' }
     const performing = order.phase === 'Work' && citizen.actionPhase === 'Perform'
-    return { label: `${livingLabel(order.kind)} · ${performing ? order.kind === 'AttendFestival' ? 'Celebrating' : 'Work phase' : order.phase === 'Work' ? 'Waiting to work' : livingWorkStage(order)} · ${progress}`, cue: performing ? 'W' : citizen.movementPlan ? '→' : '…' }
+    return { label: `${livingLabel(order.kind)} · ${performing ? order.kind === 'AttendFestival' ? 'Celebrating' : 'Work phase' : order.phase === 'Work' ? 'Waiting to work' : livingWorkStage(order)} · ${progress}`, cue: performing ? order.kind === 'AttendFestival' ? '•' : 'W' : citizen.movementPlan ? '→' : '…' }
   }
   if (citizen.movementPlan) return { label: `${livingLabel(citizen.currentAction)} · Traveling`, cue: '→' }
   if (citizen.currentAction === 'Idle' || citizen.currentAction === 'None') return { label: 'Idle · Between actions', cue: '…' }
+  if (citizen.currentAction === 'Socialize') return { label: 'Socializing', cue: '•' }
+  if (citizen.currentAction === 'Wander' || citizen.currentAction === 'Explore') return { label: livingLabel(citizen.currentAction), cue: '…' }
   return { label: `${livingLabel(citizen.currentAction)} · ${livingLabel(citizen.actionPhase)}`, cue: citizen.actionPhase === 'Perform' ? 'W' : '…' }
 }
 

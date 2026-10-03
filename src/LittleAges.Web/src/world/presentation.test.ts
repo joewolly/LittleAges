@@ -45,6 +45,8 @@ describe('factual activity and authority recovery', () => {
     expect(advanceCitizenPose(pose, citizen, [], { ...observation, visualMinute: 110 }, .1).walking).toBe(false)
     expect(citizenActivity({ ...citizen, currentAction: 'Rest' }, world(), []).label).toBe('Resting')
     expect(citizenActivity({ ...citizen, currentAction: 'Eat' }, world(), []).label).toBe('Eating')
+    expect(citizenActivity({ ...citizen, currentAction: 'Socialize' }, world(), []).cue).toBe('•')
+    expect(citizenActivity(citizen, world({ kind: 'AttendFestival' }), []).cue).toBe('•')
     expect(citizenActivity({ ...citizen, currentAction: 'GatherWood', actionPhase: 'WaitingForStorage' }, world(), []).cue).toBe('!')
   })
 
