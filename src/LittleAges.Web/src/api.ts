@@ -36,6 +36,8 @@ export type Citizen = {
   actionCompletesMinute: number | null
   target: { x: number; y: number } | null
   isAlive: boolean
+  /** Signed recorded minute; absent on older observers. Never reconstructed from age. */
+  birthMinute?: number | null
   deathMinute: number | null
   deathCause: string | null
   hunger: number | null
@@ -779,6 +781,7 @@ export function parseCitizens(value: unknown): Citizen[] {
     const shelter = item.shelter === undefined ? null : parseNullableNonNegativeInteger(item.shelter, 'The server returned an invalid citizen shelter need.')
     const social = item.social === undefined ? null : parseNullableNonNegativeInteger(item.social, 'The server returned an invalid citizen social need.')
     if ([hunger, rest, shelter, social].some(need => need !== null && need > 10000)) throw new Error('The server returned an invalid citizen need.')
+    const birthMinute = parseNullableSignedInteger(item.birthMinute, 'The server returned an invalid citizen birth minute.')
     const deathMinute = item.deathMinute === undefined ? null : parseNullableNonNegativeInteger(item.deathMinute, 'The server returned an invalid citizen death minute.')
     const deathCause = item.deathCause === undefined ? null : parseNullableString(item.deathCause, 'The server returned an invalid citizen death cause.')
     const carriedResource = item.carriedResource === undefined ? null : parseNullableResource(item.carriedResource)
@@ -798,7 +801,7 @@ export function parseCitizens(value: unknown): Citizen[] {
     const householdId = parseNullablePositiveDecimalId(item.householdId, 'The server returned an invalid household ID.')
     const childrenIds = item.childrenIds === undefined ? [] : parseCanonicalIdList(item.childrenIds, 'The server returned invalid children IDs.')
     const targetCitizenId = parseNullablePositiveDecimalId(item.targetCitizenId, 'The server returned an invalid target citizen ID.')
-    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId, movementPlan, ...(item.newcomer == null ? {} : { newcomer: parseNewcomer(item.newcomer) }) } as unknown as Citizen)
+    result.push({ ...item, citizenId, actionStartedMinute, actionCompletesMinute, target, actionPhase, isAlive, birthMinute, deathMinute, deathCause, hunger, rest, shelter, social, carriedResource, carriedQuantity, targetResourceNodeId, homeStructureId, targetStructureId, occupation: occupation as CitizenOccupation, lifetimeWorkActivity, founderOrdinal, parentAId, parentBId, partnerId, householdId, childrenIds, targetCitizenId, movementPlan, ...(item.newcomer == null ? {} : { newcomer: parseNewcomer(item.newcomer) }) } as unknown as Citizen)
   }
   return result
 }

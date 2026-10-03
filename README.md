@@ -86,6 +86,8 @@ meters and villager cards, and a responsive, tabbed record ledger.
 - household property, persistent occupations, a 20% communal contribution, physical
   marketplace barter, public-work payments in goods, and inheritance;
 - append-only factual history, biographies, structured memories, and monthly statistics;
+- a [Family & lineage explorer](docs/family-lineage.md) with named relatives,
+  bounded generation views, exact recorded descendant counts, and explicit map follow;
 - annual harvest festivals, optional shared feasts, and family visits under M16 rules;
 - a painted 2D isometric village with seasons, Shelters that change look as the
   settlement learns, canonical route interpolation, a top-down map overview, and

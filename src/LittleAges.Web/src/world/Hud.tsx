@@ -87,7 +87,7 @@ const NEEDS: Array<{ key: 'hunger' | 'rest' | 'shelter' | 'social'; label: strin
 ]
 
 /** Parchment card for the selected villager. Needs run 0 (met) to 10000 (critical), so bars show how well each is met. */
-export function VillagerCard({ citizen, activity, portrait, following, onFollow, onOpen }: { citizen: Citizen; activity: string; portrait: string; following: boolean; onFollow: () => void; onOpen?: () => void }) {
+export function VillagerCard({ citizen, activity, portrait, following, onFollow, onOpen, onViewFamily }: { citizen: Citizen; activity: string; portrait: string; following: boolean; onFollow: () => void; onOpen?: () => void; onViewFamily?: () => void }) {
   return <div className="world-selection hud-card" role="status">
     <strong className="hud-card-name">{citizen.name}</strong>
     <div className="hud-card-body">
@@ -109,6 +109,7 @@ export function VillagerCard({ citizen, activity, portrait, following, onFollow,
     <div className="hud-card-actions">
       {isCitizenPresent(citizen) && <button type="button" className="hud-button hud-button-green" onClick={onFollow}><HudIcon name="eye" size={20} />{following ? 'Unfollow' : 'Follow'}</button>}
       {onOpen && <button type="button" className="hud-button hud-button-gold" onClick={onOpen}><HudIcon name="book" size={20} />Open record</button>}
+      {onViewFamily && <button type="button" className="hud-button hud-button-cream" onClick={onViewFamily}>View family</button>}
     </div>
   </div>
 }
