@@ -43,6 +43,17 @@ Cosmetic values are neither persisted nor fingerprinted.
   segments; faster speeds, pause and reduced motion snap to authority without
   inventing a path. Resting citizens walk to their shelter's door and disappear
   indoors.
+- Co-located people retain bounded cosmetic slots within 0.45 tiles of their
+  observed tile or timed route. Slots survive roster churn; separation never
+  feeds movement timing or walk animation. Sprites, selection, and follow share
+  displayed anchors. Count badges open a scrollable picker for every member,
+  including dense overflow and indoor occupants. The records map also supports
+  crowd selection and follow.
+- Static cues distinguish travel, work phase, blocked work, and rest. Selected
+  cards and crowd choices show observed work progress and blocked reasons;
+  rest and needs take precedence over retained assignments. A work phase is not
+  proof of output. Work receives no invented animation; pause and reduced motion
+  keep static cues, while fast pace shows the latest authoritative state.
 - External newcomers use the same server movement plans while approaching and
   leaving. Present guests carry a teal `V` badge and can be selected and followed;
   joining retains their citizen identity and follow target. Departed people stay

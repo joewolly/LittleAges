@@ -2,9 +2,10 @@ import { isCitizenGuest, isCitizenPresent } from '../newcomers'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Citizen, Map as WorldMap, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import type { LivingWorld } from '../living'
-import { PresentationClock, doorway, doorwayPlan, restingHome, shouldSnapToAuthority } from './presentation'
+import { PresentationClock, advanceCitizenPose, citizenActivity, type CitizenPose } from './presentation'
+import { CrowdLayout, citizenHitIds, displayedPoint, type CrowdPlacement } from './crowds'
 import { ROAD_STYLES, roadSegments } from './roads'
-import { stableVisualHash, worldPointAlongMovementPlan } from './visuals'
+import { stableVisualHash } from './visuals'
 import { clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt, type IsoCamera } from './iso/projection'
 import { animalSprites, buildStaticScene, cameraFocus, carriedSprite, siteSprites, sortByDepth, villagerSprite, type SceneSprite } from './iso/scene'
 import { TERRAIN_PALETTES, seasonAt, type Season } from './iso/seasons'
@@ -33,6 +34,7 @@ export type IsoWorldProps = {
   controlsEnabled: boolean
   selectedCitizenId: string | null
   onSelectCitizen: (citizenId: string) => void
+  onPickCitizens: (citizenIds: string[]) => void
   resetToken: number
   nudge: CameraNudge
   followCitizenId: string | null
@@ -52,8 +54,6 @@ function lifeStageScale(citizen: Citizen): number {
   }
 }
 
-type CitizenPose = { x: number; y: number; visible: boolean; walking: boolean; facingRight: boolean }
-
 /**
  * The painted 2D settlement. It only draws server observations: every position
  * comes from canonical locations and movement plans, and cosmetic variety comes
@@ -66,6 +66,11 @@ export function IsoWorld(props: IsoWorldProps) {
   const cameraRef = useRef<IsoCamera>({ x: props.map.startingSite.x, y: props.map.startingSite.y, zoom: 24 })
   const sizeRef = useRef({ width: 1, height: 1, ratio: 1 })
   const posesRef = useRef(new Map<string, CitizenPose>())
+  const displayedRef = useRef(new Map<string, CitizenPose>())
+  const crowdsRef = useRef(new CrowdLayout())
+  const placementsRef = useRef(new Map<string, CrowdPlacement>())
+  const activities = useMemo(() => new Map(props.citizens.map(citizen => [citizen.citizenId, citizenActivity(citizen, props.living, props.structures)])), [props.citizens, props.living, props.structures])
+  const activitiesRef = useRef(activities)
   const chunksRef = useRef(new Map<string, TerrainChunk | null>())
   const dirtyRef = useRef(true)
   const [kit] = useState(() => new SpriteKit())
@@ -81,9 +86,12 @@ export function IsoWorld(props: IsoWorldProps) {
 
   useLayoutEffect(() => {
     propsRef.current = props
+    activitiesRef.current = activities
     sceneRef.current = staticScene
     dirtyRef.current = true
   })
+  useLayoutEffect(() => { crowdsRef.current = new CrowdLayout(); posesRef.current.clear(); displayedRef.current.clear() }, [props.map, props.worldSeed])
+  useLayoutEffect(() => { placementsRef.current = crowdsRef.current.update(props.citizens) }, [props.citizens, props.map, props.worldSeed])
   useLayoutEffect(() => { clock.observe(props.worldMinute, props.operationalSpeed, props.paused, performance.now()) }, [clock, props.worldMinute, props.operationalSpeed, props.paused])
   useEffect(() => { kit.load(spriteKeysFor(season)) }, [kit, season])
   useEffect(() => kit.onChange(() => { dirtyRef.current = true }), [kit])
@@ -139,41 +147,18 @@ export function IsoWorld(props: IsoWorldProps) {
       const poses = posesRef.current
       const alive = current.citizens.filter(isCitizenPresent)
       const minute = clock.at(now)
-      const routeMotion = !current.reducedMotion && current.operationalSpeed !== null && current.operationalSpeed > 0 && current.operationalSpeed <= 10
       let moving = false
       const seen = new Set<string>()
       for (const citizen of alive) {
         seen.add(citizen.citizenId)
-        const home = restingHome(citizen, current.structures)
-        const plan = routeMotion && !current.paused ? doorwayPlan(citizen, current.structures) : null
-        let target = plan ? worldPointAlongMovementPlan(plan, minute, current.operationalSpeed) : { ...citizen.location }
-        if (home) target = doorway(home)
-        const pose = poses.get(citizen.citizenId)
-        if (!pose || shouldSnapToAuthority(current.paused, current.reducedMotion, current.operationalSpeed)) {
-          poses.set(citizen.citizenId, { x: target.x, y: target.y, visible: home === null, walking: false, facingRight: false })
-          continue
-        }
-        if (!pose.visible && !home) {
-          // Leaving home: step out of the front door rather than appearing mid-route.
-          const house = current.structures.find(structure => structure.structureId === citizen.homeStructureId)
-          const exit = house ? doorway(house) : target
-          pose.x = exit.x
-          pose.y = exit.y
-          pose.visible = true
-        }
-        const blend = 1 - Math.exp(-Math.min(delta, 0.1) * (plan ? 18 : 12))
-        const dx = target.x - pose.x
-        const dy = target.y - pose.y
-        pose.walking = dx * dx + dy * dy > 0.0004
-        if (dx * dx + dy * dy > 0.00001) {
-          // Screen x grows with (x - y); only turn on a clear sideways step to avoid flicker.
-          const sideways = dx - dy
-          if (Math.abs(sideways) > 0.02) pose.facingRight = sideways > 0
-          pose.x += dx * blend; pose.y += dy * blend; moving = true
-        }
-        if (home && dx * dx + dy * dy < 0.01) pose.visible = false
+        const previous = poses.get(citizen.citizenId)
+        const pose = advanceCitizenPose(previous, citizen, current.structures, { worldMinute: current.worldMinute, visualMinute: minute, speed: current.operationalSpeed, paused: current.paused, reducedMotion: current.reducedMotion }, delta)
+        moving ||= !previous || previous.x !== pose.x || previous.y !== pose.y || previous.visible !== pose.visible || previous.walking !== pose.walking
+        poses.set(citizen.citizenId, pose)
+        // Cosmetic separation never feeds route interpolation or walk animation.
+        displayedRef.current.set(citizen.citizenId, { ...pose, ...(pose.visible ? displayedPoint(pose, placementsRef.current.get(citizen.citizenId)) : pose) })
       }
-      for (const id of [...poses.keys()]) if (!seen.has(id)) poses.delete(id)
+      for (const id of [...poses.keys()]) if (!seen.has(id)) { poses.delete(id); displayedRef.current.delete(id) }
       return moving
     }
 
@@ -290,7 +275,7 @@ export function IsoWorld(props: IsoWorldProps) {
       let selectedPose: CitizenPose | null = null
       for (const citizen of current.citizens) {
         if (!isCitizenPresent(citizen)) continue
-        const pose = posesRef.current.get(citizen.citizenId)
+        const pose = displayedRef.current.get(citizen.citizenId)
         if (!pose || !pose.visible) continue
         if (citizen.citizenId === selected) selectedPose = pose
         const phase = stableVisualHash(citizen.citizenId) % 1000
@@ -342,6 +327,33 @@ export function IsoWorld(props: IsoWorldProps) {
         context.beginPath(); context.moveTo(top.x - size, top.y - size * 1.2); context.lineTo(top.x + size, top.y - size * 1.2); context.lineTo(top.x, top.y); context.closePath(); context.fill(); context.stroke()
       }
 
+      // Static factual cues remain legible at pause, reduced motion and fast pace.
+      // They describe an observed phase, never inferred output or invented work.
+      const groups = new Set<string>()
+      for (const citizen of current.citizens.filter(isCitizenPresent)) {
+        const pose = displayedRef.current.get(citizen.citizenId)
+        if (!pose || pose.x < bounds.minX || pose.x > bounds.maxX || pose.y < bounds.minY || pose.y > bounds.maxY) continue
+        const cue = activitiesRef.current.get(citizen.citizenId)?.cue ?? ''
+        const placement = placementsRef.current.get(citizen.citizenId)
+        if (pose.visible && cue) {
+          const c = project(pose.x, pose.y, 1.15 * lifeStageScale(citizen))
+          c.x += camera.zoom * .35
+          context.fillStyle = cue === '!' ? '#ac4d32' : '#fff6c8'
+          context.beginPath(); context.arc(c.x, c.y, Math.max(7, camera.zoom * .16), 0, Math.PI * 2); context.fill()
+          context.fillStyle = cue === '!' ? '#fff6c8' : '#302a24'
+          context.font = 'bold 10px sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'
+          context.fillText(cue, c.x, c.y)
+        }
+        if (!placement || groups.has(placement.memberIds[0])) continue
+        groups.add(placement.memberIds[0])
+        if (placement.memberIds.length < 2 && pose.visible) continue
+        const c = project(pose.x, pose.y)
+        context.fillStyle = '#218c85'; context.strokeStyle = '#fff6c8'; context.lineWidth = 2
+        context.beginPath(); context.arc(c.x, c.y, 11, 0, Math.PI * 2); context.fill(); context.stroke()
+        context.fillStyle = '#fff6c8'; context.font = 'bold 11px sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle'
+        context.fillText(pose.visible ? String(placement.memberIds.length) : `Z${placement.memberIds.length}`, c.x, c.y)
+      }
+
       // Weather is a light screen overlay; it never hides the map.
       const weather = current.living?.weather
       if (weather === 'ColdSpell') { context.fillStyle = 'rgba(190, 215, 235, 0.18)'; context.fillRect(0, 0, width, height) }
@@ -350,7 +362,7 @@ export function IsoWorld(props: IsoWorldProps) {
         context.fillRect(0, 0, width, height)
         context.strokeStyle = 'rgba(210, 230, 245, 0.55)'
         context.lineWidth = 1.2
-        const drift = current.reducedMotion ? 0 : (now / 6) % 60
+        const drift = current.reducedMotion || current.paused ? 0 : (now / 6) % 60
         context.beginPath()
         for (let i = 0; i < 90; i += 1) {
           const x = (i * 97) % width
@@ -374,7 +386,7 @@ export function IsoWorld(props: IsoWorldProps) {
       const delta = (now - last) / 1000
       const current = propsRef.current
       const moving = stepCitizens(now, delta)
-      const follow = current.followCitizenId ? posesRef.current.get(current.followCitizenId) : undefined
+      const follow = current.followCitizenId ? displayedRef.current.get(current.followCitizenId) : undefined
       if (follow) {
         const camera = cameraRef.current
         const blend = 1 - Math.exp(-Math.min(delta, 0.1) * 5)
@@ -382,7 +394,7 @@ export function IsoWorld(props: IsoWorldProps) {
         const dy = follow.y - camera.y
         if (dx * dx + dy * dy > 0.0001) { cameraRef.current = { ...camera, x: camera.x + dx * blend, y: camera.y + dy * blend }; dirtyRef.current = true }
       }
-      if (moving || dirtyRef.current || current.living?.weather === 'Rain' && !current.reducedMotion) {
+      if (moving || dirtyRef.current || current.living?.weather === 'Rain' && !current.reducedMotion && !current.paused) {
         draw(now)
         dirtyRef.current = false
       }
@@ -443,15 +455,17 @@ export function IsoWorld(props: IsoWorldProps) {
       const current = propsRef.current
       const { width, height } = sizeRef.current
       const camera = cameraRef.current
-      let best: { id: string; distance: number } | null = null
+      const targets: Array<{ id: string; point: { x: number; y: number } }> = []
       for (const citizen of current.citizens) {
-        const pose = posesRef.current.get(citizen.citizenId)
-        if (!isCitizenPresent(citizen) || !pose?.visible) continue
-        const body = worldToScreen(camera, width, height, pose.x, pose.y, 0.45)
-        const distance = Math.hypot(body.x - point.x, body.y - point.y)
-        if (distance < Math.max(16, camera.zoom * 0.6) && (!best || distance < best.distance)) best = { id: citizen.citizenId, distance }
+        const pose = displayedRef.current.get(citizen.citizenId)
+        if (!isCitizenPresent(citizen) || !pose) continue
+        targets.push({ id: citizen.citizenId, point: worldToScreen(camera, width, height, pose.x, pose.y, pose.visible ? .45 : 0) })
+        // The count badge is also a target, including occupants resting indoors.
+        targets.push({ id: citizen.citizenId, point: worldToScreen(camera, width, height, pose.x, pose.y) })
       }
-      if (best) { current.onSelectCitizen(best.id); return }
+      const hits = citizenHitIds(point, targets, Math.max(16, camera.zoom * .6), placementsRef.current)
+      if (hits.length > 1) { current.onPickCitizens(hits); return }
+      if (hits.length === 1) { current.onSelectCitizen(hits[0]); return }
       const tile = screenToWorld(camera, width, height, point.x, point.y)
       const site = current.settlementSites.length > 1 ? current.settlementSites.find(s => Math.abs(s.site.x - tile.x) < 0.8 && Math.abs(s.site.y - tile.y) < 0.8) : undefined
       if (site) current.onFocusSettlementSite(site.settlementId)

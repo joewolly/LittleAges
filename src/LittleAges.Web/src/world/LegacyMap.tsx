@@ -4,18 +4,25 @@ import { useLayoutEffect, useRef } from 'react'
 import type { Citizen, Map, RoadOverlay, SettlementSite, Structure } from '../api'
 import { ROAD_RANK, ROAD_STYLES, roadSegments } from './roads'
 import { containMap } from './visuals'
+import { CrowdLayout, citizenHitIds, displayedPoint, type CrowdPlacement } from './crowds'
 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
 const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175', Storehouse: '#6e4a2c' }
 
-export function LegacyMap({ map, structures, citizens, living, roads = null, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null }: { living?: LivingWorld | null; roads?: RoadOverlay | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null }) {
+export function LegacyMap({ map, structures, citizens, living, roads = null, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null, selectedCitizenId = null, followCitizenId = null, onSelectCitizen, onPickCitizens }: { living?: LivingWorld | null; roads?: RoadOverlay | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null; selectedCitizenId?: string | null; followCitizenId?: string | null; onSelectCitizen?: (id: string) => void; onPickCitizens?: (ids: string[]) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const crowdsRef = useRef(new CrowdLayout())
+  const hitRef = useRef({ targets: [] as Array<{ id: string; point: { x: number; y: number } }>, radius: 8, placements: new Map<string, CrowdPlacement>() })
   const focusedSite = settlementSites.find(site => site.settlementId === focusedSettlementId) ?? null
+  useLayoutEffect(() => { crowdsRef.current = new CrowdLayout() }, [map])
   useLayoutEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const host = canvas.parentElement
     if (!host) return
+    const placements = crowdsRef.current.update(citizens)
+    const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && isCitizenPresent(citizen))
+    const focusPoint = followed ? displayedPoint(followed.location, placements.get(followed.citizenId)) : focusedSite?.site
     const render = () => {
       const bounds = host.getBoundingClientRect()
       const width = Math.max(1, Math.round(bounds.width))
@@ -30,10 +37,10 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
       context.imageSmoothingEnabled = false
       const sites = [map.startingSite, ...structures.map(s => s.location), ...(living?.fields.map(f => f.location) ?? []), ...(living?.facilities.map(f => f.location) ?? [])]
-      const minX = focusedSite ? Math.max(0, focusedSite.site.x - 8) : focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.x)) - 8) : 0
-      const minY = focusedSite ? Math.max(0, focusedSite.site.y - 8) : focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.y)) - 8) : 0
-      const maxX = focusedSite ? Math.min(map.width, focusedSite.site.x + 9) : focusSettlement ? Math.min(map.width, Math.max(...sites.map(s => s.x)) + 9) : map.width
-      const maxY = focusedSite ? Math.min(map.height, focusedSite.site.y + 9) : focusSettlement ? Math.min(map.height, Math.max(...sites.map(s => s.y)) + 9) : map.height
+      const minX = focusPoint ? Math.max(0, Math.floor(focusPoint.x) - 8) : focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.x)) - 8) : 0
+      const minY = focusPoint ? Math.max(0, Math.floor(focusPoint.y) - 8) : focusSettlement ? Math.max(0, Math.min(...sites.map(s => s.y)) - 8) : 0
+      const maxX = focusPoint ? Math.min(map.width, Math.floor(focusPoint.x) + 9) : focusSettlement ? Math.min(map.width, Math.max(...sites.map(s => s.x)) + 9) : map.width
+      const maxY = focusPoint ? Math.min(map.height, Math.floor(focusPoint.y) + 9) : focusSettlement ? Math.min(map.height, Math.max(...sites.map(s => s.y)) + 9) : map.height
       const layout = containMap(width, height, maxX - minX, maxY - minY)
       const { scale } = layout
       const offsetX = layout.offsetX - minX * scale
@@ -111,10 +118,18 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
         context.lineWidth = Math.max(2, scale * .12)
         context.beginPath(); context.moveTo(x - scale, y - scale * .65); context.lineTo(x + scale, y - scale * .65); context.stroke()
       }
+      const targets: Array<{ id: string; point: { x: number; y: number } }> = []
       for (const citizen of citizens.filter(isCitizenPresent)) {
+        const displayed = displayedPoint(citizen.location, placements.get(citizen.citizenId))
+        const x = offsetX + (displayed.x + .5) * scale, y = offsetY + (displayed.y + .5) * scale
+        if (x < layout.offsetX || x > layout.offsetX + layout.drawWidth || y < layout.offsetY || y > layout.offsetY + layout.drawHeight) continue
+        targets.push({ id: citizen.citizenId, point: { x, y } })
         context.fillStyle = citizen.currentAction === 'WorkFarm' ? '#d3ef9a' : citizen.currentAction === 'HaulHarvest' ? '#ffe375' : citizen.currentAction === 'TradeDelivery' ? '#f54aa1' : '#302a24'
-        context.fillRect(offsetX + citizen.location.x * scale + scale * 0.38, offsetY + citizen.location.y * scale + scale * 0.38, Math.max(2, scale * 0.24), Math.max(2, scale * 0.24))
+        const size = Math.max(2, scale * .24)
+        context.fillRect(x - size / 2, y - size / 2, size, size)
+        if (citizen.citizenId === selectedCitizenId) { context.strokeStyle = '#fff6c8'; context.lineWidth = 2; context.strokeRect(x - size, y - size, size * 2, size * 2) }
       }
+      hitRef.current = { targets, radius: Math.max(8, scale * .6), placements }
       if (settlementSites.length > 1) for (const settlement of settlementSites) {
         const centerX = offsetX + (settlement.site.x + 0.5) * scale
         const centerY = offsetY + (settlement.site.y + 0.5) * scale
@@ -136,10 +151,16 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
       observer?.disconnect()
       window.removeEventListener('resize', render)
     }
-  }, [citizens, map, structures, living, roads, focusSettlement, settlementSites, selectedSettlementId, focusedSite])
+  }, [citizens, map, structures, living, roads, focusSettlement, settlementSites, selectedSettlementId, focusedSite, selectedCitizenId, followCitizenId])
 
   const siteDescription = settlementSites.length > 1 ? ` ${settlementSites.length} settlement sites are marked` : ''
   const roadDescription = roads && roads.tiles.length > 0 ? ' Paths are drawn by grade: dashed tan tracks, brown trails, and wide gray roads.' : ''
   const focusDescription = focusedSite ? `, focused on settlement ${focusedSite.settlementId} at (${focusedSite.site.x}, ${focusedSite.site.y})` : focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`
-  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription}${roadDescription} Temporary cream tables and red bunting mark active harvest festivals. Colored squares mark structures and fields; gold outlines mark active work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity.`}><canvas ref={canvasRef} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
+  return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription}${roadDescription} Temporary cream tables and red bunting mark active harvest festivals. Colored squares mark structures and fields; gold outlines mark assigned work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity. Tap citizen points to select or choose crowd members.`}><canvas ref={canvasRef} onClick={event => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const { targets, radius, placements } = hitRef.current
+    const hits = citizenHitIds({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, targets, radius, placements)
+    if (hits.length > 1 && onPickCitizens) onPickCitizens(hits)
+    else if (hits.length) onSelectCitizen?.(hits[0])
+  }} /><span className="world-fallback-legend">Citizen activity: <b className="farm-activity">■</b> farming · <b className="harvest-activity">■</b> harvest · <b className="market-activity">■</b> market</span></div>
 }
