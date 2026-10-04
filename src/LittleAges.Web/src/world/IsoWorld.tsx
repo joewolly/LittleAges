@@ -2,10 +2,10 @@ import { isCitizenGuest, isCitizenPresent } from '../newcomers'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Citizen, Map as WorldMap, RoadOverlay, Settlement, SettlementSite, Structure } from '../api'
 import type { LivingWorld } from '../living'
-import { PresentationClock, advanceCitizenPose, citizenActivity, type CitizenPose } from './presentation'
+import { PresentationClock, advanceCitizenPose, citizenActivity, shouldSnapToAuthority, type CitizenPose } from './presentation'
 import { CrowdLayout, citizenHitIds, displayedPoint, type CrowdPlacement } from './crowds'
 import { ROAD_STYLES, roadSegments } from './roads'
-import { stableVisualHash } from './visuals'
+import { activityPose, citizenMotion, drawActivityGesture } from './iso/activity'
 import { clampCamera, homeZoom, panCamera, screenToWorld, visibleTiles, worldToScreen, zoomCameraAt, type IsoCamera } from './iso/projection'
 import { animalSprites, buildStaticScene, cameraFocus, carriedSprite, siteSprites, sortByDepth, villagerSprite, type SceneSprite } from './iso/scene'
 import { TERRAIN_PALETTES, seasonAt, type Season } from './iso/seasons'
@@ -71,6 +71,11 @@ export function IsoWorld(props: IsoWorldProps) {
   const placementsRef = useRef(new Map<string, CrowdPlacement>())
   const activities = useMemo(() => new Map(props.citizens.map(citizen => [citizen.citizenId, citizenActivity(citizen, props.living, props.structures)])), [props.citizens, props.living, props.structures])
   const activitiesRef = useRef(activities)
+  const motions = useMemo(() => {
+    const orders = new Map((props.living?.orders ?? []).map(order => [order.citizenId, order]))
+    return new Map(props.citizens.map(citizen => [citizen.citizenId, citizenMotion(citizen, orders.get(citizen.citizenId))]))
+  }, [props.citizens, props.living])
+  const motionsRef = useRef(motions)
   const chunksRef = useRef(new Map<string, TerrainChunk | null>())
   const dirtyRef = useRef(true)
   const [kit] = useState(() => new SpriteKit())
@@ -87,6 +92,7 @@ export function IsoWorld(props: IsoWorldProps) {
   useLayoutEffect(() => {
     propsRef.current = props
     activitiesRef.current = activities
+    motionsRef.current = motions
     sceneRef.current = staticScene
     dirtyRef.current = true
   })
@@ -272,17 +278,16 @@ export function IsoWorld(props: IsoWorldProps) {
       visible.push(...siteSprites(current.settlementSites, current.focusedSettlementId), ...animalSprites(current.living))
       const livingOrders = orders()
       const selected = current.selectedCitizenId
+      const animated = !shouldSnapToAuthority(current.paused, current.reducedMotion, current.operationalSpeed)
       let selectedPose: CitizenPose | null = null
       for (const citizen of current.citizens) {
         if (!isCitizenPresent(citizen)) continue
         const pose = displayedRef.current.get(citizen.citizenId)
         if (!pose || !pose.visible) continue
         if (citizen.citizenId === selected) selectedPose = pose
-        const phase = stableVisualHash(citizen.citizenId) % 1000
-        const frame = pose.walking && !current.reducedMotion ? (Math.floor((now + phase) / 170) % 2) as 0 | 1 : 0
-        const bob = pose.walking && !current.reducedMotion ? Math.abs(Math.sin((now + phase) / 170 * Math.PI)) * 0.05 : 0
+        const motion = activityPose(motionsRef.current.get(citizen.citizenId) ?? 'still', citizen.citizenId, now, pose.walking, animated)
         const carried = carriedSprite(citizen, livingOrders.get(citizen.citizenId))
-        visible.push({ key: villagerSprite(current.worldSeed, citizen, frame), x: pose.x, y: pose.y, scale: lifeStageScale(citizen), depth: pose.x + pose.y + 0.3, flip: pose.facingRight, lift: bob, visitor: isCitizenGuest(citizen), overlay: carried === 'empty' ? undefined : `people/carry-${carried}` })
+        visible.push({ key: villagerSprite(current.worldSeed, citizen, motion.frame), x: pose.x, y: pose.y, scale: lifeStageScale(citizen), depth: pose.x + pose.y + 0.3, flip: pose.facingRight, lift: motion.lift, lean: motion.lean, gesture: carried === 'empty' ? motion.gesture : undefined, visitor: isCitizenGuest(citizen), overlay: carried === 'empty' ? undefined : `people/carry-${carried}` })
       }
       if (selectedPose) {
         const c = project(selectedPose.x, selectedPose.y)
@@ -303,9 +308,13 @@ export function IsoWorld(props: IsoWorldProps) {
         const overlayPlacement = sprite.overlay ? spritePlacement(sprite.overlay) : null
         const overlayRaster = sprite.overlay && overlayPlacement ? kit.raster(sprite.overlay, bucket) : null
         if (overlayPlacement && overlayRaster) layers.push([overlayPlacement, overlayRaster])
-        if (sprite.flip) { context.save(); context.translate(anchor.x, 0); context.scale(-1, 1); context.translate(-anchor.x, 0) }
-        for (const [layer, bitmap] of layers) context.drawImage(bitmap, anchor.x - layer.anchorX * unit, anchor.y - layer.anchorY * unit, layer.width * unit, layer.height * unit)
-        if (sprite.flip) context.restore()
+        context.save()
+        context.translate(anchor.x, anchor.y)
+        if (sprite.flip) context.scale(-1, 1)
+        if (sprite.lean) context.rotate(sprite.lean)
+        for (const [layer, bitmap] of layers) context.drawImage(bitmap, -layer.anchorX * unit, -layer.anchorY * unit, layer.width * unit, layer.height * unit)
+        if (sprite.gesture) drawActivityGesture(context, sprite.gesture, unit)
+        context.restore()
         if (sprite.visitor) {
           const badge = project(sprite.x, sprite.y, 1.35)
           const radius = Math.max(7, camera.zoom * 0.22)
@@ -335,7 +344,7 @@ export function IsoWorld(props: IsoWorldProps) {
         if (!pose || pose.x < bounds.minX || pose.x > bounds.maxX || pose.y < bounds.minY || pose.y > bounds.maxY) continue
         const cue = activitiesRef.current.get(citizen.citizenId)?.cue ?? ''
         const placement = placementsRef.current.get(citizen.citizenId)
-        if (pose.visible && cue) {
+        if (citizen.citizenId === selected && pose.visible && cue) {
           const c = project(pose.x, pose.y, 1.15 * lifeStageScale(citizen))
           c.x += camera.zoom * .35
           context.fillStyle = cue === '!' ? '#ac4d32' : '#fff6c8'
@@ -394,7 +403,12 @@ export function IsoWorld(props: IsoWorldProps) {
         const dy = follow.y - camera.y
         if (dx * dx + dy * dy > 0.0001) { cameraRef.current = { ...camera, x: camera.x + dx * blend, y: camera.y + dy * blend }; dirtyRef.current = true }
       }
-      if (moving || dirtyRef.current || current.living?.weather === 'Rain' && !current.reducedMotion && !current.paused) {
+      const animated = !shouldSnapToAuthority(current.paused, current.reducedMotion, current.operationalSpeed)
+      const active = animated && current.citizens.some(citizen => {
+        const pose = displayedRef.current.get(citizen.citizenId)
+        return pose?.visible && (pose.walking || motionsRef.current.get(citizen.citizenId) !== 'still')
+      })
+      if (moving || dirtyRef.current || active || current.living?.weather === 'Rain' && !current.reducedMotion && !current.paused) {
         draw(now)
         dirtyRef.current = false
       }
