@@ -13,8 +13,9 @@ export function advanceCitizenPose(previous: CitizenPose | undefined, citizen: C
   const snap = shouldSnapToAuthority(observation.paused, observation.reducedMotion, observation.speed)
   const home = restingHome(citizen, structures)
   const plan = snap ? null : doorwayPlan(citizen, structures)
-  const target = home ? doorway(home) : plan ? worldPointAlongMovementPlan(plan, observation.visualMinute, observation.speed) : citizen.location
-  const base = { ...target, visible: home === null, walking: false, facingRight: previous?.facingRight ?? false, actionSequence: citizen.actionSequence, observedMinute: observation.worldMinute }
+  const target = home ? doorway(home) : plan ? worldPointAlongMovementPlan(plan, observation.visualMinute) : citizen.location
+  const walking = plan !== null && observation.visualMinute >= (plan.segmentStartedMinute ?? plan.waypoints[0].arriveMinute) && observation.visualMinute < plan.waypoints[plan.waypoints.length - 1].arriveMinute
+  const base = { ...target, visible: home === null, walking, facingRight: previous?.facingRight ?? false, actionSequence: citizen.actionSequence, observedMinute: observation.worldMinute }
   // A new action or restored checkpoint must not blend with a stale route.
   if (!previous || snap || previous.actionSequence !== citizen.actionSequence || observation.worldMinute < previous.observedMinute) return base
   let from = previous
@@ -27,8 +28,7 @@ export function advanceCitizenPose(previous: CitizenPose | undefined, citizen: C
   const blend = 1 - Math.exp(-Math.min(delta, .1) * (plan ? 18 : 12))
   return { ...base, x: distance > .00001 ? from.x + dx * blend : target.x, y: distance > .00001 ? from.y + dy * blend : target.y,
     visible: home ? from.visible && distance >= .01 : true,
-    walking: plan !== null && distance > .0004,
-    facingRight: Math.abs(dx - dy) > .02 ? dx - dy > 0 : from.facingRight }
+    facingRight: Math.abs(dx - dy) > .0001 ? dx - dy > 0 : from.facingRight }
 }
 
 export function citizenActivity(citizen: Citizen, living: LivingWorld | null | undefined, structures: Structure[]): { label: string; cue: string } {

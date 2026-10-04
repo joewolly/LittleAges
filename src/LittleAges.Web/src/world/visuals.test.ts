@@ -43,12 +43,13 @@ describe('diorama visual projection', () => {
     expect(shouldInterpolateCitizen(citizen, { ...citizen, location: { x: 1, y: 0 } }, 10, true)).toBe(false)
   })
 
-  it('shows brisk steps at Normal pace without changing arrival or faster presets', () => {
-    expect(presentationSegmentProgress(100, 114, 108, 1.44)).toBe(0)
-    expect(presentationSegmentProgress(100, 114, 112.2, 1.44)).toBeCloseTo(.5)
-    expect(presentationSegmentProgress(100, 114, 114, 1.44)).toBe(1)
-    expect(presentationSegmentProgress(100, 114, 107, 4.32)).toBe(.5)
-    expect(presentationSegmentProgress(100, 114, 107, null)).toBe(.5)
+  it('walks throughout each segment and clamps to the scheduled arrival', () => {
+    expect(presentationSegmentProgress(100, 114, 99)).toBe(0)
+    expect(presentationSegmentProgress(100, 114, 107)).toBe(.5)
+    expect(presentationSegmentProgress(100, 114, 108)).toBeCloseTo(8 / 14)
+    expect(presentationSegmentProgress(100, 114, 114)).toBe(1)
+    expect(presentationSegmentProgress(100, 114, 200)).toBe(1)
+    expect(presentationSegmentProgress(100, 100, 100)).toBe(1)
   })
 
   it('keeps the visual clock continuous when authority refreshes the same route', () => {

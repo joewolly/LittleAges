@@ -79,18 +79,14 @@ export function positionAlongMovementPlan(plan: CitizenMovementPlan, visualMinut
   return { x: last.x, y: last.y }
 }
 
-/** At Normal pace a tile can take several real seconds. Walk briskly near its
- * authoritative arrival, then remain on the current tile between steps. */
-export function presentationSegmentProgress(start: number, arrival: number, minute: number, speed: number | null): number {
+/** Walk throughout the scheduled segment, keeping its authoritative arrival. */
+export function presentationSegmentProgress(start: number, arrival: number, minute: number): number {
   const duration = arrival - start
   if (duration <= 0) return 1
-  const window = speed !== null && speed > 0 && speed <= 2 ? Math.min(duration, speed * 2.5) : duration
-  if (minute >= arrival) return 1
-  if (minute <= arrival - window) return 0
-  return Math.max(0, Math.min(1, (minute - (arrival - window)) / window))
+  return Math.max(0, Math.min(1, (minute - start) / duration))
 }
 
-export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovementPlan, visualMinute: number, lift = 0, speed: number | null = null): ScenePoint {
+export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovementPlan, visualMinute: number, lift = 0): ScenePoint {
   const first = plan.waypoints[0]
   if (visualMinute <= (plan.segmentStartedMinute ?? first.arriveMinute)) return worldToScene(map, first.x, first.y, lift)
   for (let index = 1; index < plan.waypoints.length; index += 1) {
@@ -98,7 +94,7 @@ export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovement
     if (visualMinute > next.arriveMinute) continue
     const previous = plan.waypoints[index - 1]
     const start = index === 1 ? plan.segmentStartedMinute ?? previous.arriveMinute : previous.arriveMinute
-    const progress = presentationSegmentProgress(start, next.arriveMinute, visualMinute, speed)
+    const progress = presentationSegmentProgress(start, next.arriveMinute, visualMinute)
     const from = worldToScene(map, previous.x, previous.y, lift)
     const to = worldToScene(map, next.x, next.y, lift)
     return { x: from.x + (to.x - from.x) * progress, y: from.y + (to.y - from.y) * progress, z: from.z + (to.z - from.z) * progress }
@@ -107,8 +103,8 @@ export function scenePointAlongMovementPlan(map: WorldMap, plan: CitizenMovement
   return worldToScene(map, last.x, last.y, lift)
 }
 
-/** World-tile position along a movement plan, with the same brisk-step pacing as the scene version. */
-export function worldPointAlongMovementPlan(plan: CitizenMovementPlan, visualMinute: number, speed: number | null = null): WorldPoint {
+/** World-tile position along a movement plan, continuous between observations. */
+export function worldPointAlongMovementPlan(plan: CitizenMovementPlan, visualMinute: number): WorldPoint {
   const first = plan.waypoints[0]
   if (visualMinute <= (plan.segmentStartedMinute ?? first.arriveMinute)) return { x: first.x, y: first.y }
   for (let index = 1; index < plan.waypoints.length; index += 1) {
@@ -116,7 +112,7 @@ export function worldPointAlongMovementPlan(plan: CitizenMovementPlan, visualMin
     if (visualMinute > next.arriveMinute) continue
     const previous = plan.waypoints[index - 1]
     const start = index === 1 ? plan.segmentStartedMinute ?? previous.arriveMinute : previous.arriveMinute
-    const progress = presentationSegmentProgress(start, next.arriveMinute, visualMinute, speed)
+    const progress = presentationSegmentProgress(start, next.arriveMinute, visualMinute)
     return { x: previous.x + (next.x - previous.x) * progress, y: previous.y + (next.y - previous.y) * progress }
   }
   const last = plan.waypoints[plan.waypoints.length - 1]

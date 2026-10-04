@@ -131,7 +131,7 @@ export function WorldViewport(props: WorldViewportProps) {
         return <li key={citizen.citizenId}><button type="button" aria-label={`${citizen.name} · ${activity}`} onClick={() => selectCitizen(citizen.citizenId)}><strong>{citizen.name}</strong><span>{activity}</span></button></li>
       })}</ul>
     </section> : selected && <VillagerCard citizen={selected} activity={selectedActivity} portrait={`/assets/sprites/${villagerSprite(props.worldSeed, selected)}.svg`} following={following} onFollow={toggleFollow} onOpen={props.onOpenSelected ? () => props.onOpenSelected?.(selected.citizenId) : undefined} onViewFamily={props.onViewFamily ? () => props.onViewFamily?.(selected.citizenId) : undefined} />}
-    {!overview && <p className="world-activity-legend">→ travel · W work phase · ! blocked · Z rest · tap counts to choose{props.paused ? ' · Paused' : reducedMotion ? ' · Reduced motion' : ''}</p>}
+    {!overview && <p className="world-activity-legend">Selected: → travel · W work · ! blocked · Z rest{props.paused ? ' · Paused' : reducedMotion ? ' · Reduced motion' : ''}</p>}
     {diagnosticsEnabled && !overview && stats && <output className="world-perf" aria-label="World view performance">{stats.fps} FPS · p95 {stats.p95.toFixed(1)} ms · {stats.sprites} sprites · {stats.chunks} ground chunks · {props.citizens.filter(isCitizenPresent).length} villagers · {stats.season} · shelter tier {stats.tier}</output>}
     <span className="world-accessibility-note">Starting site</span><span className="world-accessibility-note">Keyboard: arrow keys pan, +/− zoom. All citizen details remain available in Observer records.</span>
   </section>

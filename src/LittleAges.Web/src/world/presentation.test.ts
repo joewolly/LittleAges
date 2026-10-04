@@ -61,13 +61,21 @@ describe('factual activity and authority recovery', () => {
     expect(citizenActivity(traveler, null, []).label).toContain('Traveling')
   })
 
-  it('keeps brisk timed travel at 10, and discards stale smoothing after action or checkpoint recovery', () => {
+  it('keeps continuous timed travel, and discards stale smoothing after action or checkpoint recovery', () => {
     const first = advanceCitizenPose(undefined, traveler, [], observation, .1)
     expect(advanceCitizenPose(first, traveler, [], { ...observation, visualMinute: 109, speed: 10 }, .1).walking).toBe(true)
-    expect(advanceCitizenPose(first, traveler, [], { ...observation, visualMinute: 105 }, .1).x).toBe(105)
+    expect(advanceCitizenPose(first, traveler, [], { ...observation, visualMinute: 105 }, .1).x).toBeGreaterThan(105)
     const moved = { ...first, x: 105.9, walking: true }
     expect(advanceCitizenPose(moved, { ...citizen, actionSequence: 2 }, [], observation, .1)).toMatchObject({ x: 105, walking: false })
     expect(advanceCitizenPose(moved, traveler, [], { ...observation, worldMinute: 20, visualMinute: 20 }, .1)).toMatchObject({ x: 105, walking: false })
+  })
+
+  it('keeps a slow walker animated even when smoothing has almost caught up', () => {
+    const previous = { x: 105.499, y: 60, visible: true, walking: true, facingRight: true, actionSequence: 1, observedMinute: 100 }
+    const pose = advanceCitizenPose(previous, traveler, [], { ...observation, visualMinute: 105, speed: 1.44 }, .016)
+    expect(pose.walking).toBe(true)
+    expect(pose.x).toBeLessThanOrEqual(105.5)
+    expect(advanceCitizenPose(pose, traveler, [], { ...observation, visualMinute: 110, speed: 1.44 }, .016).walking).toBe(false)
   })
 
   it('keeps indoor rest and doorway exits, and keeps guests visible with factual visitor states', () => {
