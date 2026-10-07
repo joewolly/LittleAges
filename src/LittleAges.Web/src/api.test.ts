@@ -91,6 +91,10 @@ describe('API response parsing', () => {
   it('accepts plain text health responses', () => expect(parseHealth('Healthy')).toEqual({ ok: true, label: 'Healthy' }))
   it('keeps status safe when fields are missing or malformed', () => expect(parseStatus({ worldMinute: 'later', state: 4 })).toEqual({ state: 'Unknown', worldMinute: null, pendingEventCount: null, worldSeed: null, error: null, paused: false, operationalSpeed: null }))
   it('parses immutable operational controls from status', () => expect(parseStatus({ state: 'Running', paused: true, operationalSpeed: 5 })).toMatchObject({ paused: true, operationalSpeed: 5 }))
+  it('accepts stable observer identity and tolerates older or malformed servers', () => {
+    expect(parseStatus({ worldInstanceId: 'a'.repeat(64) }).worldInstanceId).toBe('a'.repeat(64))
+    for (const value of [undefined, null, '42', 42]) expect(parseStatus({ worldInstanceId: value }).worldInstanceId).toBeUndefined()
+  })
   it('defines normal pace as one 1440-minute day per 1000 real seconds', () => {
     expect(DEFAULT_OPERATIONAL_SPEED).toBe(1.44)
     expect(OPERATIONAL_SPEED_OPTIONS.map(option => option.value)).toEqual([1.44, 4.32, 8.64])

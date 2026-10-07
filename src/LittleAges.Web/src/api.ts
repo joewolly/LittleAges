@@ -7,6 +7,8 @@ export type Status = {
   worldMinute: number | null
   pendingEventCount: number | null
   worldSeed: string | null
+  /** Operational identity of this saved world, independent of its seed. */
+  worldInstanceId?: string | null
   error: string | null
   paused: boolean
   operationalSpeed: number | null
@@ -337,6 +339,7 @@ export function parseStatus(value: unknown): Status {
     worldMinute: typeof data.worldMinute === 'number' && Number.isFinite(data.worldMinute) ? data.worldMinute : null,
     pendingEventCount: typeof data.pendingEventCount === 'number' && Number.isFinite(data.pendingEventCount) ? data.pendingEventCount : null,
     worldSeed: typeof data.worldSeed === 'string' ? data.worldSeed : null,
+    ...(typeof data.worldInstanceId === 'string' && /^[a-f0-9]{64}$/.test(data.worldInstanceId) ? { worldInstanceId: data.worldInstanceId } : {}),
     error: typeof data.error === 'string' ? data.error : null,
     paused: typeof data.paused === 'boolean' ? data.paused : false,
     operationalSpeed: typeof data.operationalSpeed === 'number' && Number.isFinite(data.operationalSpeed) && data.operationalSpeed >= 0 ? data.operationalSpeed : null,

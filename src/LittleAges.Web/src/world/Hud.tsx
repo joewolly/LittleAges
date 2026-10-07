@@ -1,4 +1,5 @@
 import { citizenObservationLabel, isCitizenPresent } from '../newcomers'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import type { Citizen, Settlement } from '../api'
 import type { LivingWorld } from '../living'
@@ -6,6 +7,8 @@ import { livingLabel } from '../living'
 import { seasonAt, type Season } from './iso/seasons'
 
 const ICON_PATHS = {
+  // Lucide star, retrieved through better-icons; follows the existing HUD stroke treatment.
+  star: <path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z" />,
   book: <><path d="M4 5.5C4 4.7 4.7 4 5.5 4H11c1.1 0 2 .9 2 2v14c0-1.1-.9-2-2-2H4z" /><path d="M22 5.5c0-.8-.7-1.5-1.5-1.5H15c-1.1 0-2 .9-2 2v14c0-1.1.9-2 2-2h7z" /></>,
   eye: <><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
   target: <><circle cx="12" cy="12" r="7.5" /><circle cx="12" cy="12" r="2.5" /><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4" /></>,
@@ -87,9 +90,10 @@ const NEEDS: Array<{ key: 'hunger' | 'rest' | 'shelter' | 'social'; label: strin
 ]
 
 /** Parchment card for the selected villager. Needs run 0 (met) to 10000 (critical), so bars show how well each is met. */
-export function VillagerCard({ citizen, activity, portrait, following, onFollow, onOpen, onViewFamily }: { citizen: Citizen; activity: string; portrait: string; following: boolean; onFollow: () => void; onOpen?: () => void; onViewFamily?: () => void }) {
-  return <div className="world-selection hud-card" role="status">
-    <strong className="hud-card-name">{citizen.name}</strong>
+export function VillagerCard({ citizen, activity, portrait, following, onFollow, onOpen, onViewFamily, onLocate, favorite = false, onFavorite, onClear, notice }: { citizen: Citizen; activity: string; portrait: string; following: boolean; onFollow: () => void; onOpen?: () => void; onViewFamily?: () => void; onLocate?: () => void; favorite?: boolean; onFavorite?: () => void; onClear?: () => void; notice?: string | null }) {
+  const [expanded, setExpanded] = useState(false)
+  return <div className={`world-selection hud-card${expanded ? ' is-expanded' : ' is-compact'}`} aria-label="Selected person">
+    <strong className="hud-card-name">{citizen.name}</strong><div className="hud-card-tools"><button type="button" className="card-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Less' : 'Details'}</button>{onClear && <button type="button" onClick={onClear} aria-label="Clear person selection"><HudIcon name="close" size={18} /></button>}</div>
     <div className="hud-card-body">
       <div className="hud-portrait"><img src={portrait} alt="" /></div>
       <div className="hud-card-facts">
@@ -107,9 +111,12 @@ export function VillagerCard({ citizen, activity, portrait, following, onFollow,
       </div>
     })}</div>}
     <div className="hud-card-actions">
+      {onLocate && <button type="button" className="hud-button hud-button-cream" disabled={!isCitizenPresent(citizen)} onClick={onLocate}><HudIcon name="target" size={20} />Locate</button>}
+      {onFavorite && <button type="button" className="hud-button hud-button-cream hud-favorite" aria-pressed={favorite} aria-label={`${favorite ? 'Remove' : 'Add'} ${citizen.name} ${favorite ? 'from' : 'to'} favorites`} onClick={onFavorite}><HudIcon name="star" size={20} />{favorite ? 'Favorited' : 'Favorite'}</button>}
       {isCitizenPresent(citizen) && <button type="button" className="hud-button hud-button-green" onClick={onFollow}><HudIcon name="eye" size={20} />{following ? 'Unfollow' : 'Follow'}</button>}
       {onOpen && <button type="button" className="hud-button hud-button-gold" onClick={onOpen}><HudIcon name="book" size={20} />Open record</button>}
-      {onViewFamily && <button type="button" className="hud-button hud-button-cream" onClick={onViewFamily}>View family</button>}
+      {onViewFamily && <button type="button" className="hud-button hud-button-cream hud-family-action" onClick={onViewFamily}>View family</button>}
     </div>
+    {notice && <p className="hud-favorites-notice" role="status">{notice}</p>}
   </div>
 }

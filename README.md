@@ -204,6 +204,10 @@ see its [release notes](docs/release-v0.7.0.md) and the
 M17 visitors and newcomers remain the default for new worlds.
 Existing civilizations continue under their saved rules.
 
+The next observer update adds people search, browser favorites, Back navigation,
+full-screen phone records and clearer Locate/Follow actions. See the
+[implementation and validation notes](docs/observer-quality-of-life.md).
+
 ## License
 
 No license file is currently included in the repository.

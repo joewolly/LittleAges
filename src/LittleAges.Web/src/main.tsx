@@ -7,6 +7,7 @@ import '@fontsource/nunito/latin-800.css'
 import '@fontsource/nunito/latin-900.css'
 import './styles.css'
 import './hud.css'
+import './observer.css'
 import { App } from './App'
 
 const ArtSlice = import.meta.env.DEV && new URLSearchParams(location.search).has('art-slice')

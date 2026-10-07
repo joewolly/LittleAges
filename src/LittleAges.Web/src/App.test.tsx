@@ -122,6 +122,11 @@ function renderAppWithRecords(tab: 'Overview' | 'Citizens' | 'Buildings' | 'Livi
   return result
 }
 
+async function selectPerson(name = 'Elara Venn') {
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp('^' + name + ',') }))
+  return screen.findByRole('heading', { name, level: 3 })
+}
+
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
@@ -137,10 +142,84 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it('restores Family search, relation pages and graph scroll after recentering', async () => {
+    const children = Array.from({ length: 14 }, (_, index) => ({ ...citizen, citizenId: String(index + 1), name: `Child ${String(index + 1).padStart(2, '0')}`, parentAId: citizen.citizenId }))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/citizens') ? new Response(JSON.stringify([citizen, ...children])) : responseFor(String(input), 12))
+    renderAppWithRecords('Family')
+    await screen.findByRole('heading', { name: `${citizen.name} · #${citizen.citizenId}` })
+    fireEvent.click(screen.getByRole('button', { name: 'Next children' }))
+    fireEvent.change(screen.getByLabelText('Search family roots by name or ID'), { target: { value: 'Child 14' } })
+    const graph = document.querySelector('.family-graph-scroll')!
+    graph.scrollLeft = 40
+    fireEvent.click(within(document.querySelector('.family-search')!).getByRole('button', { name: 'Child 14 · #14' }))
+    await screen.findByRole('heading', { name: 'Child 14 · #14' })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByLabelText('Search family roots by name or ID')).toHaveValue('Child 14')
+    expect(within(document.querySelectorAll('.family-relatives')[1] as HTMLElement).getByText('Page 2 of 2')).toBeInTheDocument()
+    expect(graph.scrollLeft).toBe(40)
+  })
+  it('restores directory filters, scroll and history filters through person and family navigation', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).startsWith('/api/v1/history') ? new Response(JSON.stringify([historicalEvent])) : responseFor(String(input), 12))
+    renderAppWithRecords()
+    await screen.findByRole('button', { name: /^Elara Venn,/ })
+    expect(screen.queryByRole('heading', { name: citizen.name })).not.toBeInTheDocument()
+    expect(document.querySelector('.world-selection')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Search people by name or ID'), { target: { value: 'Venn' } })
+    const results = document.querySelector('.people-results')!
+    results.scrollTop = 180
+    await selectPerson()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByLabelText('Search people by name or ID')).toHaveValue('Venn')
+    expect(results.scrollTop).toBe(180)
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }))
+    await screen.findByText(historicalEvent.summary)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Citizen ID' }), { target: { value: '77' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await screen.findByText(historicalEvent.summary)
+    fireEvent.click(screen.getByRole('button', { name: `${citizen.name} · #${citizen.citizenId}` }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'View family' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Family history' }))
+    expect(screen.getByRole('textbox', { name: 'Family root ID' })).toHaveValue(citizen.citizenId)
+    for (let step = 0; step < 3; step++) fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('textbox', { name: 'Citizen ID' })).toHaveValue('77')
+    expect(screen.getByRole('textbox', { name: 'Family root ID' })).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Close observer records' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    expect(screen.getByRole('textbox', { name: 'Citizen ID' })).toHaveValue('77')
+  })
+
+  it('fences old detail responses and resets preferences/navigation/map on an identified world replacement', async () => {
+    liveMock.state.startMode = 'resolve'
+    let worldId = 'a'.repeat(64)
+    const staleBiography = deferred<Response>()
+    let mapCalls = 0
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/status')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 1, worldSeed: '42', worldInstanceId: worldId }))
+      if (path.endsWith('/map')) { mapCalls++; return new Response(JSON.stringify(worldId.startsWith('a') ? map : { ...map, width: 4, height: 4, terrain: Array(16).fill(3), elevation: Array(16).fill(0) })) }
+      if (path.endsWith('/biography')) return staleBiography.promise
+      return responseFor(path, 1, worldId.startsWith('a') ? citizen.name : 'New world person')
+    })
+    renderAppWithRecords()
+    await selectPerson()
+    fireEvent.click(within(document.querySelector('.citizen-record')!).getByRole('button', { name: 'Add Elara Venn to favorites' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
+    await waitFor(() => expect(liveMock.state.startCalls).toBe(1))
+    worldId = 'b'.repeat(64)
+    await act(async () => liveMock.state.emitWorldFrame({ sequence: 1, sentAtUnixMilliseconds: 1000, revision: 1, status: { state: 'Running', worldMinute: 1, worldSeed: '42', worldInstanceId: worldId }, citizens: [{ ...citizen, name: 'New world person' }], structures: [] }))
+    await screen.findByRole('button', { name: /^New world person,/ })
+    expect(screen.queryByRole('heading', { name: 'New world person' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add New world person to favorites' })).toHaveAttribute('aria-pressed', 'false')
+    await waitFor(() => expect(mapCalls).toBe(2))
+    await screen.findByRole('img', { name: /Settlement map, 4 by 4 tiles/ })
+    await act(async () => staleBiography.resolve(new Response(JSON.stringify({ citizen: { ...citizen, name: 'Old world biography' }, events: [], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 0, deathMinute: null, deathCause: null }))))
+    expect(screen.queryByRole('heading', { name: 'Old world biography' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled()
+  })
   it('opens family from a citizen, retains controls across close/reopen and sends the existing family history filter', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => responseFor(String(input), 12))
     renderAppWithRecords()
-    await screen.findByRole('heading', { name: 'Elara Venn' })
+    await selectPerson()
     fireEvent.click(screen.getAllByRole('button', { name: 'View family' }).at(-1)!)
     await screen.findByRole('heading', { name: `Elara Venn · #${citizen.citizenId}` })
     fireEvent.change(screen.getByLabelText('Direction'), { target: { value: 'descendants' } })
@@ -218,9 +297,9 @@ describe('citizen observer', () => {
       return responseFor(path, 1)
     })
     renderAppWithRecords()
-    await screen.findByRole('heading', { name: citizen.name })
+    await selectPerson()
     await waitFor(() => expect(liveMock.state.startCalls).toBe(1))
-    expect(screen.getByText('Loading households…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Households' })).toBeInTheDocument()
   })
 
   it('accepts lower revisions after a server restart and fences an older REST fallback', async () => {
@@ -233,7 +312,7 @@ describe('citizen observer', () => {
       return responseFor(path, 1)
     })
     renderAppWithRecords()
-    await screen.findByRole('heading', { name: citizen.name })
+    await selectPerson()
     await waitFor(() => expect(liveMock.state.startCalls).toBe(1))
     const frame = { sequence: 1, sentAtUnixMilliseconds: 1000, revision: 100, status: { state: 'Running', worldMinute: 100, pendingEventCount: 1, worldSeed: '42', paused: false, operationalSpeed: 10 }, citizens: [{ ...citizen, name: 'Before restart' }], structures: [structure] }
     await act(async () => liveMock.state.emitWorldFrame(frame))
@@ -282,8 +361,8 @@ describe('citizen observer', () => {
       return new Response(JSON.stringify([citizen]))
     })
     renderAppWithRecords()
-    fireEvent.click(await screen.findByRole('listitem', { name: /Elara Venn/ }))
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /^Elara Venn,/ }))
+    expect(await selectPerson()).toBeInTheDocument()
     expect(screen.getByText('At (1, 2)')).toBeInTheDocument()
   })
 
@@ -298,8 +377,8 @@ describe('citizen observer', () => {
       return responseFor(path, 12)
     })
     renderAppWithRecords()
-    fireEvent.click(await screen.findByRole('listitem', { name: /Elara Venn/ }))
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /^Elara Venn,/ }))
+    expect(await selectPerson()).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Set the pace' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Normal · 1× · 16:40/day' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Fast · 3× · 5:33/day' })).toBeInTheDocument()
@@ -318,7 +397,7 @@ describe('citizen observer', () => {
   it('shows an operational control error without hiding observer data', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/control/pause') ? new Response('unavailable', { status: 503 }) : responseFor(String(input), 12))
     renderAppWithRecords()
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    expect(await selectPerson()).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
     expect(await screen.findByText('Request failed (503)')).toBeInTheDocument()
   })
@@ -382,7 +461,7 @@ describe('citizen observer', () => {
 
     renderAppWithRecords()
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Citizen 1,/ })); expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
     expect(screen.getByText(/Current:.*00:01/)).toBeInTheDocument()
 
     await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
@@ -436,7 +515,7 @@ describe('citizen observer', () => {
     expect(screen.getAllByText('Wood').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Stone').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    expect(await selectPerson()).toBeInTheDocument()
     expect(screen.getByText('Bram Vale')).toBeInTheDocument()
     expect(screen.getByText(/years · Adult · Alive/)).toBeInTheDocument()
     expect(screen.getByText('Perform')).toBeInTheDocument()
@@ -469,17 +548,15 @@ describe('citizen observer', () => {
     })
     render(<App />)
     const selector = await screen.findByRole('combobox', { name: 'Settlement site' })
-    expect(screen.getByText('Population 20 · Food 400 · Wood 120 · Stone 30')).toBeInTheDocument()
+    expect(screen.getByText(/Population 20 · Food 400 · Wood 120 · Stone 30/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /2 settlement sites are marked/ })).toBeInTheDocument()
 
     fireEvent.change(selector, { target: { value: '2' } })
-    expect(screen.getByText('Population 7 · Food 71 · Wood 8 · Stone 9')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Focus site' }))
+    expect(screen.getByText(/Population 7 · Food 71 · Wood 8 · Stone 9/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /focused on settlement 2 at \(2, 2\)/ })).toBeInTheDocument()
 
     fireEvent.change(selector, { target: { value: '1' } })
-    expect(screen.getByText('Population 20 · Food 400 · Wood 120 · Stone 30')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Focus site' }))
+    expect(screen.getByText(/Population 20 · Food 400 · Wood 120 · Stone 30/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /focused on settlement 1 at \(1, 1\)/ })).toBeInTheDocument()
   })
 
@@ -499,16 +576,16 @@ describe('citizen observer', () => {
       return new Response(JSON.stringify([socialCitizen]))
     })
     renderAppWithRecords()
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    expect(await selectPerson()).toBeInTheDocument()
     expect(screen.getByText('Households')).toBeInTheDocument()
     expect(screen.getAllByText('Socialize').length).toBeGreaterThan(0)
-    expect(screen.getByText('Citizen 6')).toBeInTheDocument()
+    expect(screen.getByText('Citizen #6 · record unavailable')).toBeInTheDocument()
     expect(screen.getByText('Demographics')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Family', level: 4 })).toBeInTheDocument()
     expect(fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/relationships'))).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: 'View relationship details' }))
     expect(await screen.findByRole('heading', { name: 'Relationships for Elara Venn' })).toBeInTheDocument()
-    expect(screen.getByText('Bram Vale')).toBeInTheDocument()
+    expect(screen.getAllByText('Citizen #4 · record unavailable').length).toBeGreaterThan(0)
     expect(screen.getByText('Affinity')).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'View household details' }).at(-1)!)
     expect(await screen.findByRole('heading', { name: 'Household 3' })).toBeInTheDocument()
@@ -534,8 +611,10 @@ describe('citizen observer', () => {
     expect(await screen.findByLabelText('Population trend')).toBeInTheDocument()
     expect(screen.getByRole('cell', { name: '43,200' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))
+    await selectPerson()
     fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
     expect(await screen.findByRole('heading', { name: 'Biography' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Biography' })).toHaveFocus()
     expect(screen.getByText('Child Born')).toBeInTheDocument()
     expect(fetchMock.mock.calls.every(([, init]) => init === undefined || init.method === undefined || init.method === 'GET')).toBe(true)
   })
@@ -546,8 +625,8 @@ describe('citizen observer', () => {
     expect(await screen.findByLabelText('Minimum importance')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Minimum importance'), { target: { value: '4' } })
     fireEvent.change(screen.getByLabelText('Event type'), { target: { value: 'CitizenDied' } })
-    fireEvent.change(screen.getByLabelText('Citizen ID'), { target: { value: '7' } })
-    fireEvent.change(screen.getByLabelText('Family root ID'), { target: { value: '8' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Citizen ID' }), { target: { value: '7' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Family root ID' }), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText('Structure ID'), { target: { value: '9' } })
     fireEvent.change(screen.getByLabelText('From minute'), { target: { value: '10' } })
     fireEvent.change(screen.getByLabelText('To minute'), { target: { value: '20' } })
@@ -645,7 +724,7 @@ describe('citizen observer', () => {
       return responseFor(path, statusCalls || 1, `Citizen ${statusCalls || 1}`)
     })
     renderAppWithRecords()
-    expect(await screen.findByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
+    expect(await selectPerson('Citizen 1')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('Live updates: connected')).toBeInTheDocument())
     expect(statusCalls).toBe(1)
 
@@ -681,7 +760,7 @@ describe('citizen observer', () => {
 
     renderAppWithRecords()
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Citizen 1,/ })); expect(screen.getByRole('heading', { name: 'Citizen 1' })).toBeInTheDocument()
     expect(liveMock.state.startCalls).toBe(1)
 
     worldMinute = 2
@@ -732,7 +811,7 @@ describe('citizen observer', () => {
       return responseFor(path, 12)
     })
     renderAppWithRecords()
-    expect(await screen.findByRole('heading', { name: 'Elara Venn' })).toBeInTheDocument()
+    expect(await selectPerson()).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
     await waitFor(() => expect(biographyRequests).toHaveLength(1))
 

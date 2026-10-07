@@ -38,6 +38,8 @@ export type IsoWorldProps = {
   resetToken: number
   nudge: CameraNudge
   followCitizenId: string | null
+  locateRequest?: { citizenId: string; sequence: number; point?: { x: number; y: number } } | null
+  onManualCamera?: () => void
   onStats?: (stats: IsoStats) => void
   /** Development art review only: show this season instead of the calendar's. */
   previewSeason?: Season
@@ -86,8 +88,6 @@ export function IsoWorld(props: IsoWorldProps) {
   const staticScene = useMemo(() => buildStaticScene({ map: props.map, season, worldSeed: props.worldSeed, structures: props.structures, settlement: props.settlement, living: props.living, tier }),
     [props.map, season, props.worldSeed, props.structures, props.settlement, props.living, tier])
   const sceneRef = useRef(staticScene)
-  const focusedSite = props.settlementSites.find(site => site.settlementId === props.focusedSettlementId) ?? null
-  const focus = useMemo(() => cameraFocus(props.map, props.structures, focusedSite), [props.map, props.structures, focusedSite])
 
   useLayoutEffect(() => {
     propsRef.current = props
@@ -104,13 +104,14 @@ export function IsoWorld(props: IsoWorldProps) {
   useEffect(() => { chunksRef.current.clear(); dirtyRef.current = true }, [props.map, season, props.worldSeed])
 
   // Home view: on first layout, on Reset, and when a settlement site is focused.
-  const focusX = focus.x
-  const focusY = focus.y
   useLayoutEffect(() => {
     const width = hostRef.current?.getBoundingClientRect().width || 1024
-    cameraRef.current = clampCamera({ x: focusX, y: focusY, zoom: homeZoom(width) }, props.map.width, props.map.height)
+    const current = propsRef.current
+    const site = current.settlementSites.find(s => s.settlementId === current.focusedSettlementId) ?? null
+    const destination = cameraFocus(current.map, current.structures, site)
+    cameraRef.current = clampCamera({ ...destination, zoom: homeZoom(width) }, current.map.width, current.map.height)
     dirtyRef.current = true
-  }, [focusX, focusY, props.resetToken, props.map.width, props.map.height])
+  }, [props.resetToken, props.map.width, props.map.height])
 
   const nudgeSequence = props.nudge.sequence
   useEffect(() => {
@@ -419,6 +420,17 @@ export function IsoWorld(props: IsoWorldProps) {
     return () => { cancelAnimationFrame(frame); observer?.disconnect() }
   }, [clock, kit])
 
+  const locateSequence = props.locateRequest?.sequence
+  useLayoutEffect(() => {
+    const request = propsRef.current.locateRequest
+    if (!request) return
+    const person = propsRef.current.citizens.find(c => c.citizenId === request.citizenId && isCitizenPresent(c))
+    if (!person) return
+    const point = request.point ?? displayedRef.current.get(person.citizenId) ?? person.location
+    cameraRef.current = clampCamera({ ...cameraRef.current, x: point.x, y: point.y }, propsRef.current.map.width, propsRef.current.map.height)
+    dirtyRef.current = true
+  }, [locateSequence])
+
   // Pointer input: drag to pan, wheel or pinch to zoom, tap to select a villager or a settlement site.
   useEffect(() => {
     const canvas = canvasRef.current
@@ -428,7 +440,7 @@ export function IsoWorld(props: IsoWorldProps) {
     let pinchDistance = 0
     const local = (event: PointerEvent | WheelEvent) => { const rect = canvas.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top } }
     const enabled = () => propsRef.current.controlsEnabled
-    const setCamera = (camera: IsoCamera) => { cameraRef.current = clampCamera(camera, propsRef.current.map.width, propsRef.current.map.height); dirtyRef.current = true }
+    const setCamera = (camera: IsoCamera) => { propsRef.current.onManualCamera?.(); cameraRef.current = clampCamera(camera, propsRef.current.map.width, propsRef.current.map.height); dirtyRef.current = true }
 
     const onWheel = (event: WheelEvent) => {
       if (!enabled()) return

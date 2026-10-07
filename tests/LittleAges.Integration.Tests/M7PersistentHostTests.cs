@@ -16,6 +16,49 @@ public sealed class M7PersistentHostTests
     private static readonly string[] ExpectedConfiguredListenHosts = ["0.0.0.0", "localhost"];
 
     [Fact]
+    public async Task ObserverWorldIdentityIsStableAcrossCheckpointsRestartAndCopiesAndDistinctForFreshWorlds()
+    {
+        var root = CreateDataRoot();
+        IHost? host = null;
+        try
+        {
+            host = BuildHost(root, "original", 0, 0, seed: 42);
+            await host.StartAsync();
+            var simulation = host.Services.GetRequiredService<SimulationHost>();
+            await simulation.WaitForRunningForTestingAsync();
+            var identity = simulation.Status.WorldInstanceId;
+            Assert.Matches("^[0-9a-f]{64}$", identity!);
+            Assert.Equal(identity, WorldStreamFrame.Create(1, simulation.Observation).Status.WorldInstanceId);
+            var before = await LoadSnapshotAsync(Path.Combine(root, "original.db"));
+            for (var index = 0; index < 10; index++) Assert.Equal(identity, simulation.Observation.Status.WorldInstanceId);
+            await simulation.RequestCheckpointAsync();
+            AssertSnapshotsEqual(before, await LoadSnapshotAsync(Path.Combine(root, "original.db")));
+            Assert.Equal(identity, simulation.Status.WorldInstanceId);
+            await StopAndDisposeAsync(host);
+            host = null;
+            File.Copy(Path.Combine(root, "original.db"), Path.Combine(root, "copy.db"));
+
+            foreach (var world in new[] { "original", "copy", "fresh" })
+            {
+                host = BuildHost(root, world, 0, 0, seed: 42);
+                await host.StartAsync();
+                simulation = host.Services.GetRequiredService<SimulationHost>();
+                await simulation.WaitForRunningForTestingAsync();
+                Assert.Equal(before.World!.Fingerprint, simulation.Status.World!.Fingerprint);
+                if (world == "fresh") Assert.NotEqual(identity, simulation.Status.WorldInstanceId);
+                else Assert.Equal(identity, simulation.Status.WorldInstanceId);
+                await StopAndDisposeAsync(host);
+                host = null;
+            }
+        }
+        finally
+        {
+            if (host is not null) await StopAndDisposeAsync(host);
+            CleanupDataRoot(root);
+        }
+    }
+
+    [Fact]
     public void ServerOptionsDefaultsAndConfiguredValuesAreCanonical()
     {
         var root = CreateDataRoot();
