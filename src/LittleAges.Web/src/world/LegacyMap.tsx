@@ -9,7 +9,7 @@ import { CrowdLayout, citizenHitIds, displayedPoint, type CrowdPlacement } from 
 const terrainColors: Record<number, string> = { 1: '#89b8c5', 2: '#d3c78e', 3: '#76966a', 4: '#968873', 5: '#4f785b' }
 const structureColors: Record<Structure['type'], string> = { Shelter: '#c76848', Stockpile: '#805c3d', Workshop: '#75569a', Farm: '#b9a134', Granary: '#b77938', Marketplace: '#bd5175', Storehouse: '#6e4a2c' }
 
-export function LegacyMap({ map, structures, citizens, living, roads = null, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null, selectedCitizenId = null, followCitizenId = null, onSelectCitizen, onPickCitizens }: { living?: LivingWorld | null; roads?: RoadOverlay | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null; selectedCitizenId?: string | null; followCitizenId?: string | null; onSelectCitizen?: (id: string) => void; onPickCitizens?: (ids: string[]) => void }) {
+export function LegacyMap({ map, structures, citizens, living, roads = null, focusSettlement = false, settlementSites = [], selectedSettlementId = null, focusedSettlementId = null, selectedCitizenId = null, followCitizenId = null, locatePoint = null, onSelectCitizen, onPickCitizens }: { living?: LivingWorld | null; roads?: RoadOverlay | null; focusSettlement?: boolean; map: Map; structures: Structure[]; citizens: Citizen[]; settlementSites?: SettlementSite[]; selectedSettlementId?: string | null; focusedSettlementId?: string | null; selectedCitizenId?: string | null; followCitizenId?: string | null; locatePoint?: { x: number; y: number } | null; onSelectCitizen?: (id: string) => void; onPickCitizens?: (ids: string[]) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const crowdsRef = useRef(new CrowdLayout())
   const hitRef = useRef({ targets: [] as Array<{ id: string; point: { x: number; y: number } }>, radius: 8, placements: new Map<string, CrowdPlacement>() })
@@ -22,7 +22,7 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
     if (!host) return
     const placements = crowdsRef.current.update(citizens)
     const followed = citizens.find(citizen => citizen.citizenId === followCitizenId && isCitizenPresent(citizen))
-    const focusPoint = followed ? displayedPoint(followed.location, placements.get(followed.citizenId)) : focusedSite?.site
+    const focusPoint = followed ? displayedPoint(followed.location, placements.get(followed.citizenId)) : locatePoint ?? focusedSite?.site
     const render = () => {
       const bounds = host.getBoundingClientRect()
       const width = Math.max(1, Math.round(bounds.width))
@@ -151,11 +151,11 @@ export function LegacyMap({ map, structures, citizens, living, roads = null, foc
       observer?.disconnect()
       window.removeEventListener('resize', render)
     }
-  }, [citizens, map, structures, living, roads, focusSettlement, settlementSites, selectedSettlementId, focusedSite, selectedCitizenId, followCitizenId])
+  }, [citizens, map, structures, living, roads, focusSettlement, settlementSites, selectedSettlementId, focusedSite, selectedCitizenId, followCitizenId, locatePoint])
 
   const siteDescription = settlementSites.length > 1 ? ` ${settlementSites.length} settlement sites are marked` : ''
   const roadDescription = roads && roads.tiles.length > 0 ? ' Paths are drawn by grade: dashed tan tracks, brown trails, and wide gray roads.' : ''
-  const focusDescription = focusedSite ? `, focused on settlement ${focusedSite.settlementId} at (${focusedSite.site.x}, ${focusedSite.site.y})` : focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`
+  const focusDescription = locatePoint ? ', located person on the map' : focusedSite ? `, focused on settlement ${focusedSite.settlementId} at (${focusedSite.site.x}, ${focusedSite.site.y})` : focusSettlement ? ', focused on the settlement' : `, ${map.width} by ${map.height} tiles`
   return <div className="world-fallback" role="img" aria-label={`Settlement map${focusDescription}.${siteDescription}${roadDescription} Temporary cream tables and red bunting mark active harvest festivals. Colored squares mark structures and fields; gold outlines mark assigned work. Citizen points: green farming, gold harvest hauling, pink market trips, dark other activity. Tap citizen points to select or choose crowd members.`}><canvas ref={canvasRef} onClick={event => {
     const bounds = event.currentTarget.getBoundingClientRect()
     const { targets, radius, placements } = hitRef.current

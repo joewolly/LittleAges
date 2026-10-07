@@ -1,22 +1,24 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { Citizen } from './api'
 import { descendantCounts, descendantIds, familyRelatives, familyTopologyKey, indexFromTopologyKey, projectFamily, type FamilyMode } from './family'
 import { citizenObservationLabel, isCitizenPresent } from './newcomers'
+import { FavoriteButton } from './FavoriteButton'
 
-export type FamilyViewState = { root: string | null; mode: FamilyMode; depth: number }
-type Props = { citizens: Citizen[]; state: FamilyViewState; onChange: (state: FamilyViewState) => void; onBiography: (id: string) => void; onHistory: (id: string) => void; onFollow: (id: string) => void }
+export type FamilyViewState = { root: string | null; mode: FamilyMode; depth: number; search?: string; pages?: Record<string, number> }
+type Props = { citizens: Citizen[]; state: FamilyViewState; onChange: (state: FamilyViewState) => void; onBiography: (id: string) => void; onHistory: (id: string) => void; onFollow: (id: string) => void; followingId?: string | null; onLocate?: (id: string) => void; favorites?: ReadonlySet<string>; onFavorite?: (id: string) => void }
 const minute = (value: number | null | undefined) => value == null ? 'Unknown' : `Minute ${value.toLocaleString('en-US')}`
 const familyOrigin = (c: Citizen) => c.newcomer ? 'External origin · parents before arrival unknown' : c.founderOrdinal !== null ? 'Founder' : 'Origin not recorded'
 
 /** Bounded relation pages keep very large sibling/child groups accessible. */
-function Relatives({ title, ids, roster, onRoot }: { title: string; ids: string[]; roster: Map<string, Citizen>; onRoot: (id: string) => void }) {
-  const [page, setPage] = useState(0)
+function Relatives({ title, ids, roster, onRoot, page, setPage }: { title: string; ids: string[]; roster: Map<string, Citizen>; onRoot: (id: string) => void; page: number; setPage: (page: number) => void }) {
   const current = Math.min(page, Math.max(0, Math.ceil(ids.length / 12) - 1))
   return <div className="family-relatives"><h4>{title} · {ids.length}</h4>{ids.length === 0 ? <p>{title === 'Parents' ? 'Unknown parents' : 'None recorded'}</p> : <><ul>{ids.slice(current * 12, current * 12 + 12).map(id => <li key={id}><button type="button" className="family-link" onClick={() => onRoot(id)}>{roster.get(id)?.name ?? 'Missing record'} · #{id}</button></li>)}</ul>{ids.length > 12 && <div className="family-actions"><button type="button" className="observer-button" disabled={current === 0} onClick={() => setPage(current - 1)}>Previous {title.toLowerCase()}</button><span>Page {current + 1} of {Math.ceil(ids.length / 12)}</span><button type="button" className="observer-button" disabled={(current + 1) * 12 >= ids.length} onClick={() => setPage(current + 1)}>Next {title.toLowerCase()}</button></div>}</>}</div>
 }
 
-export function FamilyRecords({ citizens, state, onChange, onBiography, onHistory, onFollow }: Props) {
-  const [search, setSearch] = useState('')
+export function FamilyRecords({ citizens, state, onChange, onBiography, onHistory, onFollow, followingId, onLocate, favorites, onFavorite }: Props) {
+  const search = state.search ?? ''
+  const setSearch = (search: string) => onChange({ ...state, search })
+  const relationPage = (title: string) => ({ page: state.pages?.[title] ?? 0, setPage: (page: number) => onChange({ ...state, pages: { ...state.pages, [title]: page } }) })
   const topologyKey = familyTopologyKey(citizens)
   const index = useMemo(() => indexFromTopologyKey(topologyKey), [topologyKey])
   const roster = useMemo(() => new Map(citizens.map(c => [c.citizenId, c])), [citizens])
@@ -31,7 +33,7 @@ export function FamilyRecords({ citizens, state, onChange, onBiography, onHistor
   let matchCount = 0
   if (query) for (const c of citizens) if (c.citizenId.includes(query) || c.name.toLocaleLowerCase().includes(query)) { matchCount++; if (matches.length < 20) matches.push(c) }
   const rootCitizen = root ? roster.get(root) : undefined
-  const recenter = (id: string) => { onChange({ ...state, root: id }); queueMicrotask(() => document.getElementById('family-root-heading')?.focus()) }
+  const recenter = (id: string) => { onChange({ ...state, root: id, pages: {} }); queueMicrotask(() => document.getElementById('family-root-heading')?.focus()) }
   return <section className="family-surface" aria-labelledby="family-heading">
     <div className="section-heading"><span className="section-kicker">Recorded kinship</span><h2 id="family-heading">Family & lineage</h2><p className="section-description">Parentage comes from recorded IDs. Partnership is a separate snapshot fact. No ancestry is inferred.</p></div>
     <div className="family-controls"><label>Search family roots by name or ID<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Name or decimal citizen ID" /></label><label>Direction<select aria-label="Direction" value={state.mode} onChange={event => onChange({ ...state, mode: event.target.value as FamilyMode })}><option value="ancestors">Ancestors</option><option value="descendants">Descendants</option></select></label><label>Generations<select aria-label="Generations" value={state.depth} onChange={event => onChange({ ...state, depth: Number(event.target.value) })}>{[1, 2, 3, 4].map(depth => <option key={depth} value={depth}>{depth}</option>)}</select></label></div>
@@ -39,8 +41,9 @@ export function FamilyRecords({ citizens, state, onChange, onBiography, onHistor
     {root === null ? <p>No citizen records are available.</p> : <>
       <h3 id="family-root-heading" tabIndex={-1}>{rootCitizen?.name ?? 'Missing record'} · #{root}</h3>
       <p className="family-counts">{counts.total} unique recorded descendants · {counts.livingResidents} living resident descendants <small>Complete roster counts, independent of graph limits.</small></p>
-      <div className="family-actions"><button type="button" className="observer-button" disabled={!rootCitizen} onClick={() => onBiography(root)}>Biography</button><button type="button" className="observer-button" disabled={!rootCitizen} onClick={() => onHistory(root)}>Family history</button><button type="button" className="observer-button" disabled={!rootCitizen || !isCitizenPresent(rootCitizen)} onClick={() => onFollow(root)}>Follow on map</button></div>
+      <div className="family-actions"><button type="button" className="observer-button" disabled={!rootCitizen} onClick={() => onBiography(root)}>Biography</button><button type="button" className="observer-button" disabled={!rootCitizen} onClick={() => onHistory(root)}>Family history</button><button type="button" className="observer-button" disabled={!rootCitizen || !isCitizenPresent(rootCitizen)} onClick={() => onFollow(root)}>{followingId === root && rootCitizen && isCitizenPresent(rootCitizen) ? 'Unfollow on map' : 'Follow on map'}</button></div>
       {rootCitizen && <p>{citizenObservationLabel(rootCitizen)} · {familyOrigin(rootCitizen)}</p>}
+      {rootCitizen && <div className="family-actions">{favorites && onFavorite && <FavoriteButton id={root} name={rootCitizen.name} favorites={favorites} onToggle={onFavorite} />}{onLocate && <button type="button" className="observer-button" disabled={!isCitizenPresent(rootCitizen)} onClick={() => onLocate(root)}>Locate on map</button>}</div>}
 
       <p className="section-note">{graph?.nodes.length} people shown · {state.depth} {state.mode} generations plus immediate root family · maximum 100 people and 4 generations. Solid lines show parent → child; dashed lines show recorded partnership. Partners' relatives are not expanded.</p>
       {(graph?.depthLimited || graph?.nodeLimited) && <p role="status" className="notice">{graph.nodeLimited ? '100-person limit reached. ' : ''}{graph.depthLimited ? 'More generations exist beyond the selected depth. ' : ''}Recenter on any person or use the paged relatives and root search to reach hidden branches.</p>}
@@ -61,7 +64,7 @@ export function FamilyRecords({ citizens, state, onChange, onBiography, onHistor
           })}</ol>
         </div>
       </div>
-      {relatives && <div className="family-immediate"><Relatives key={`${root}-parents`} title="Parents" ids={relatives.parents} roster={roster} onRoot={recenter} /><Relatives key={`${root}-children`} title="Children" ids={relatives.children} roster={roster} onRoot={recenter} /><Relatives key={`${root}-siblings`} title="Siblings sharing a known parent" ids={relatives.siblings} roster={roster} onRoot={recenter} /><Relatives key={`${root}-partner`} title="Recorded partner" ids={relatives.partner ? [relatives.partner] : []} roster={roster} onRoot={recenter} /></div>}
+      {relatives && <div className="family-immediate"><Relatives key={`${root}-parents`} title="Parents" {...relationPage('Parents')} ids={relatives.parents} roster={roster} onRoot={recenter} /><Relatives key={`${root}-children`} title="Children" {...relationPage('Children')} ids={relatives.children} roster={roster} onRoot={recenter} /><Relatives key={`${root}-siblings`} title="Siblings sharing a known parent" {...relationPage('Siblings')} ids={relatives.siblings} roster={roster} onRoot={recenter} /><Relatives key={`${root}-partner`} title="Recorded partner" {...relationPage('Recorded partner')} ids={relatives.partner ? [relatives.partner] : []} roster={roster} onRoot={recenter} /></div>}
     </>}
   </section>
 }

@@ -45,7 +45,8 @@ public sealed record ServerStatusSnapshot(
     double OperationalSpeed = 0,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? GuestPopulation = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DepartedPopulation = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ArchivedPopulation = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ArchivedPopulation = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WorldInstanceId = null);
 
 public sealed record ServerNewcomerSnapshot(string Origin, NewcomerPhase Phase, string HostSettlementId, string ShelterStructureId,
     TileCoordinate EntryTile, long FirstSeenMinute, long? VisitingStartedMinute, long? StayDeadlineMinute, long? JoinedMinute,
@@ -575,6 +576,7 @@ internal sealed record SetOperationalSpeedCommand(double Speed, TaskCompletionSo
 public sealed partial class SimulationHost : BackgroundService
 {
     private readonly ServerOptions _options;
+    private string? _worldInstanceId;
     private readonly ILogger<SimulationHost> _logger;
     private readonly WorldChangeBroadcaster? _broadcaster;
     private readonly object _migrationTravelCostsCacheGate = new();
@@ -767,6 +769,7 @@ public sealed partial class SimulationHost : BackgroundService
             _engine = SimulationEngine.FromPersistenceSnapshot(snapshot);
             _lastSuccessfulCheckpointWorldMinute = _engine.CurrentMinute.Value;
             _lastSuccessfulCheckpointUtc = await ReadLastCheckpointUtcAsync(cancellationToken);
+            _worldInstanceId = await ReadWorldInstanceIdAsync(cancellationToken);
             _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
             LogWorldResumed(_options.ActiveWorld, _engine.CurrentMinute.Value);
             return;
@@ -774,8 +777,29 @@ public sealed partial class SimulationHost : BackgroundService
 
         _engine = new SimulationEngine(_options.WorldSeed, simulationRulesVersion: _options.NewWorldRules, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
         await WriteCheckpointWithRetriesAsync("initial", cancellationToken);
+        _worldInstanceId = await ReadWorldInstanceIdAsync(cancellationToken);
         _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
         LogWorldCreated(_options.ActiveWorld, _options.DatabasePath);
+    }
+
+    // Observer preferences use existing creation metadata. This never adds canonical state or writes a database row.
+    private async Task<string?> ReadWorldInstanceIdAsync(CancellationToken cancellationToken)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = _options.DatabasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        }.ToString();
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT world_fingerprint, created_utc FROM world_meta WHERE id = 1;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return null;
+        var createdUtc = DateTime.SpecifyKind(DateTime.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind), DateTimeKind.Utc);
+        var identity = reader.GetString(0) + "|" + createdUtc.ToString("O", CultureInfo.InvariantCulture);
+        return Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)));
     }
 
     private async Task<DateTime?> ReadLastCheckpointUtcAsync(CancellationToken cancellationToken)
@@ -1121,7 +1145,8 @@ public sealed partial class SimulationHost : BackgroundService
             OperationalSpeed: Volatile.Read(ref _operationalSpeed),
             GuestPopulation: newcomersEnabled ? guestPopulation : null,
             DepartedPopulation: newcomersEnabled ? departedPopulation : null,
-            ArchivedPopulation: newcomersEnabled ? archivedPopulation : null);
+            ArchivedPopulation: newcomersEnabled ? archivedPopulation : null,
+            WorldInstanceId: _worldInstanceId);
         var roadsEnabled = engine is not null && SimulationEngine.RoadSystemsEnabled(engine.SimulationRulesVersion);
         var roads = roadsEnabled
             ? new ServerRoadsSnapshot(engine!.RoadGrades.Select(static tile => new ServerRoadTileSnapshot(tile.Coordinate.X, tile.Coordinate.Y, tile.Grade)).ToArray())

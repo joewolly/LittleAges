@@ -21,6 +21,8 @@ historical or design context rather than a claim about the current runtime.
 
 ## Current implementation
 
+- [`observer-quality-of-life.md`](./observer-quality-of-life.md) - people search,
+  browser favorites, Back navigation, phone records and explicit camera actions.
 - [`family-lineage.md`](./family-lineage.md) - observer-only family records,
   factual ancestry, bounded graphs, exact descendant counts and compatibility.
 - [`m17-newcomers.md`](./m17-newcomers.md) - default visitors and newcomers,

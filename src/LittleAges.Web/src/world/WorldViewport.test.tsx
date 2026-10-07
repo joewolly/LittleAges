@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Citizen } from '../api'
 import type { IsoWorldProps } from './IsoWorld'
@@ -17,6 +17,34 @@ const citizens = Array.from({ length: 30 }, (_, i) => ({ citizenId: String(i + 1
 const props = { map: { width: 10, height: 10, terrain: [], elevation: [], resources: [], startingSite: { x: 4, y: 4 } }, citizens, structures: [], settlement: null, worldSeed: '0', operationalSpeed: 1.44, worldMinute: 100, paused: true, selectedCitizenId: '1', onSelectCitizen: vi.fn() }
 
 describe('crowd selection and follow', () => {
+  it('locates once, cancels follow on manual input/site/reset, and immediately focuses a selected site', async () => {
+    const sites = [{ settlementId: '1', site: { x: 2, y: 2 }, livingPopulation: 10, foodStored: 5, woodStored: 0, stoneStored: 0 }, { settlementId: '2', site: { x: 8, y: 8 }, livingPopulation: 20, foodStored: 10, woodStored: 0, stoneStored: 0 }]
+    const locateRequest = { citizenId: '1', sequence: 1 }
+    const onFollowingChange = vi.fn()
+    const { rerender } = render(<WorldViewport {...props} settlementSites={sites} onFollowingChange={onFollowingChange} followRequest={{ citizenId: '1', sequence: 1 }} />)
+    await waitFor(() => expect(scene.current?.followCitizenId).toBe('1'))
+    rerender(<WorldViewport {...props} settlementSites={sites} onFollowingChange={onFollowingChange} locateRequest={locateRequest} />)
+    await waitFor(() => expect(scene.current?.locateRequest?.citizenId).toBe('1'))
+    const command = scene.current?.locateRequest
+    expect(scene.current?.followCitizenId).toBeNull()
+    rerender(<WorldViewport {...props} settlementSites={sites} citizens={[{ ...citizens[0], location: { x: 9, y: 9 } }]} locateRequest={locateRequest} />)
+    expect(scene.current?.locateRequest).toBe(command)
+    expect(command?.point).toEqual({ x: 4, y: 4 })
+    fireEvent.click(screen.getByRole('button', { name: 'Follow selected' }))
+    expect(scene.current?.followCitizenId).toBe('1')
+    act(() => scene.current?.onManualCamera?.())
+    expect(scene.current?.followCitizenId).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Follow selected' }))
+    fireEvent.change(screen.getByLabelText('Settlement site'), { target: { value: '2' } })
+    expect(scene.current?.focusedSettlementId).toBe('2')
+    expect(scene.current?.locateRequest).toBeNull()
+    expect(scene.current?.followCitizenId).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Follow selected' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset view' }))
+    expect(scene.current?.followCitizenId).toBeNull()
+    expect(scene.current?.focusedSettlementId).toBeNull()
+    expect(scene.current?.locateRequest).toBeNull()
+  })
   it('keeps family navigation separate from explicit follow, and guards life/presence on follow requests', async () => {
     const onViewFamily = vi.fn()
     const { rerender } = render(<WorldViewport {...props} onViewFamily={onViewFamily} />)
