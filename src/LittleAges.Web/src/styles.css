@@ -229,6 +229,8 @@ body { background: #9fc2a4; }
 .status-strip { min-height: 34px; margin: 0; padding: 7px 12px; border: 1px solid rgba(255,255,255,.25); border-radius: 11px; color: #f9edcf; background: rgba(55,43,31,.82); box-shadow: 0 4px 14px rgba(43,31,21,.2); backdrop-filter: blur(8px); }
 .status-detail { color: #dfcfb0; }
 .notice { z-index: 8; margin: 0; border-radius: 8px; }
+.rules-upgrade-notice { flex: 0 0 auto; padding: 8px 12px; font-size: 13px; }
+.rules-upgrade-notice p { margin: 2px 0 0; }
 .world-viewport, .world-loading { flex: 1 1 auto; min-height: 0; height: auto; border: 3px solid rgba(255,242,205,.75); border-radius: 18px 18px 5px 5px; box-shadow: 0 12px 34px rgba(45,32,21,.3); }
 .world-title { top: 18px; left: 20px; padding: 10px 13px; max-width: min(390px, 48%); border-radius: 12px; color: white; background: linear-gradient(135deg, rgba(68,46,31,.82), rgba(68,46,31,.48)); text-shadow: 0 2px 7px rgba(32,22,15,.72); backdrop-filter: blur(6px); }
 .world-title h2 { margin: 3px 0 1px; font-size: clamp(1.2rem, 2vw, 1.8rem); }

@@ -27,8 +27,9 @@ decline.
 After the phase 6 acceptance runs, `m15-rng1-roads1` became the new-world
 default; M16 later succeeded it. M14 and M15 can still be selected with `--rules` in the
 headless runner or with the server's `NewWorldRules` setting. Existing saves
-keep their recorded rules and behavior, and M14 worlds stay M14. Migrating an existing
-world to M15 is out of scope. M15 includes every M14 system:
+keep their recorded rules under ordinary loading. The server separately supports
+[automatic feature upgrades](world-rules-upgrades.md) from M14 onward.
+M15 includes every M14 system:
 `MigrationSystemsEnabled` and `UnifiedSimulationRulesEnabled` return true for
 both identifiers and M16. `RoadSystemsEnabled` returns true for M15 and M16.
 

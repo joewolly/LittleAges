@@ -4,14 +4,17 @@
 actions, plus the [M16 planned layout](m16-planned-layout.md) (districts,
 storehouses, and shared household surplus). It adds a shared harvest afternoon, family visits timed for the
 gathering, factual memories, and temporary observer decorations. Existing
-worlds retain their recorded rules; this is a new-world feature.
+worlds retain their recorded rules under ordinary loading. Server startup now
+supports [automatic feature upgrades](world-rules-upgrades.md), initializing
+festival occurrences after activation without replaying history.
 
 Festivals were developed on `codex/m16-festivals` against M15 and then ported
 onto the planned layout. `m16-rng1-festivals1` was the v0.5.0 new-world default; it was
 promoted after the seed-17 and seed-42 century acceptance runs passed, including their
 year-80 SQLite continuation and living residents at both settlements.
 M17 builds on these rules and is the v0.6.0 new-world default. Existing M16
-worlds retain their recorded behavior, and M16 remains explicitly selectable.
+worlds can retain their recorded behavior with `AutoUpgradeWorldRules=false`, and
+M16 remains explicitly selectable.
 
 ## Calendar and attendance
 

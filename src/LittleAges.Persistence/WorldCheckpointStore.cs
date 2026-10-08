@@ -8,7 +8,8 @@ namespace LittleAges.Persistence;
 
 internal enum CheckpointFailurePoint
 {
-    AfterRowsWritten
+    AfterRowsWritten,
+    CancellationAfterRowsWritten
 }
 
 internal enum LegacyUpgradeFailurePoint
@@ -37,7 +38,7 @@ internal enum M6UpgradeFailurePoint
 }
 
 /// <summary>Persists and restores the complete M1 canonical snapshot in one explicit transaction.</summary>
-public sealed class WorldCheckpointStore
+public sealed partial class WorldCheckpointStore
 {
     private const int SingletonWorldId = 1;
     private readonly LittleAgesDbContext _context;
@@ -551,7 +552,8 @@ public sealed class WorldCheckpointStore
         }
     }
 
-    private async Task CheckpointCoreAsync(SimulationPersistenceSnapshot snapshot, DateTime checkpointUtc, CheckpointFailurePoint? failurePoint, CancellationToken cancellationToken)
+    private async Task CheckpointCoreAsync(SimulationPersistenceSnapshot snapshot, DateTime checkpointUtc, CheckpointFailurePoint? failurePoint, CancellationToken cancellationToken,
+        WorldRulesUpgradePlan? upgradePlan = null, WorldRulesBackup? upgradeBackup = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var world = ValidateSnapshot(snapshot);
@@ -563,11 +565,12 @@ public sealed class WorldCheckpointStore
             _context.ChangeTracker.Clear();
             var existingMetadata = await _context.WorldMeta.AsNoTracking().ToListAsync(cancellationToken);
             if (existingMetadata.Count > 1) throw new InvalidDataException("A checkpoint cannot replace a database with multiple world_meta rows.");
-            if (existingMetadata.Count == 1 &&
+            if (upgradePlan is not null) await ValidateRulesUpgradeAsync(upgradePlan, cancellationToken);
+            if (upgradePlan is null && existingMetadata.Count == 1 &&
                 (SimulationEngine.MigrationSystemsEnabled(existingMetadata[0].SimulationRulesVersion) ||
                  SimulationEngine.MigrationSystemsEnabled(snapshot.SimulationRulesVersion)) &&
                 existingMetadata[0].SimulationRulesVersion != snapshot.SimulationRulesVersion)
-                throw new InvalidDataException("M14 and M15 state is supported only for new worlds on those rules and cannot convert an existing world.");
+                throw new InvalidDataException("Ordinary checkpoints cannot change saved M14 or later simulation rules; use a verified rules upgrade.");
             if (existingMetadata.Count == 1) LivingValidation.ValidateRetainedFacts(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson);
             if (existingMetadata.Count == 1) NewcomerValidation.ValidateRetainedEpisodes(existingMetadata[0].LivingStateJson, snapshot.LivingStateJson, snapshot.Citizens);
             var createdUtc = existingMetadata.Count == 1 ? existingMetadata[0].CreatedUtc : checkpointUtc;
@@ -595,9 +598,9 @@ public sealed class WorldCheckpointStore
             }
             else if (agricultureRow is not null) throw new InvalidDataException("An agricultural checkpoint cannot be replaced by legacy state.");
             await _context.SaveChangesAsync(cancellationToken);
-
-
+            if (upgradePlan is not null) await WriteRulesUpgradeReceiptAsync(upgradePlan, upgradeBackup!, checkpointUtc, cancellationToken);
             if (failurePoint == CheckpointFailurePoint.AfterRowsWritten) throw new InvalidOperationException("Controlled checkpoint failure requested by the test hook.");
+            if (failurePoint == CheckpointFailurePoint.CancellationAfterRowsWritten) throw new OperationCanceledException("Controlled cancellation after upgrade rows were written.");
             await transaction.CommitAsync(cancellationToken);
         }
         catch

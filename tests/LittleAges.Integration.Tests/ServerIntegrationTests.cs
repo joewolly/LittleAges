@@ -61,7 +61,7 @@ public sealed class ServerIntegrationTests
     [Theory]
     [InlineData(SimulationEngine.PlannedSimulationRulesVersion)]
     [InlineData(SimulationEngine.FestivalsSimulationRulesVersion)]
-    public async Task M17DefaultReopensRecordedM16SQLiteWithoutMigration(string rules)
+    public async Task PreservationModeReopensRecordedM16SQLiteWithoutMigration(string rules)
     {
         var root = CreateDataRoot();
         try
@@ -1093,6 +1093,7 @@ public sealed class ServerIntegrationTests
         {
             builder.UseSetting("DataRoot", dataRoot);
             builder.UseSetting("ActiveWorld", "integration-world");
+            builder.UseSetting("AutoUpgradeWorldRules", "false");
             if (newWorldRules is not null) builder.UseSetting("NewWorldRules", newWorldRules);
             builder.UseSetting("WorldSeed", worldSeed.ToString(System.Globalization.CultureInfo.InvariantCulture));
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");

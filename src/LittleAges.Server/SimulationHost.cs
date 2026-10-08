@@ -46,7 +46,9 @@ public sealed record ServerStatusSnapshot(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? GuestPopulation = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? DepartedPopulation = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? ArchivedPopulation = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WorldInstanceId = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? WorldInstanceId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SimulationRulesVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ServerRulesUpgradeStatus? RulesUpgrade = null);
 
 public sealed record ServerNewcomerSnapshot(string Origin, NewcomerPhase Phase, string HostSettlementId, string ShelterStructureId,
     TileCoordinate EntryTile, long FirstSeenMinute, long? VisitingStartedMinute, long? StayDeadlineMinute, long? JoinedMinute,
@@ -759,13 +761,40 @@ public sealed partial class SimulationHost : BackgroundService
 
     private async Task OpenOrCreateWorldAsync(CancellationToken cancellationToken)
     {
-        _database = await WorldDatabase.OpenAsync(_options.DatabasePath, cancellationToken);
+        WorldRulesBackup? backup = null;
+        Exception? backupFailure = null;
+        // Preservation mode still backs up eligible worlds before pending schema changes.
+        try
+        {
+            ThrowRulesUpgradeFailureForTesting("backup");
+            backup = await WorldRulesBackup.PrepareAsync(_options.DatabasePath, _options.AutoUpgradeWorldRules, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            backupFailure = exception;
+        }
+        try
+        {
+            if (backupFailure is null)
+            {
+                ThrowRulesUpgradeFailureForTesting("schema");
+                _database = await WorldDatabase.OpenAsync(_options.DatabasePath, cancellationToken);
+            }
+            else _database = await WorldDatabase.OpenExistingWithoutMigrationsAsync(_options.DatabasePath, cancellationToken);
+        }
+        catch (Exception exception) when (backup is not null &&
+            (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
+        {
+            backupFailure = exception;
+            _database = await WorldDatabase.OpenExistingWithoutMigrationsAsync(_options.DatabasePath, cancellationToken);
+        }
         _checkpointStore = _database.CreateCheckpointStore();
         LogDatabaseOpened(_options.DatabasePath);
         var hasCheckpoint = await _database.HasCheckpointAsync(cancellationToken);
         if (hasCheckpoint)
         {
             var snapshot = await _checkpointStore.LoadAsync(cancellationToken);
+            snapshot = await UpgradeWorldRulesAsync(snapshot, backup, backupFailure, cancellationToken);
             _engine = SimulationEngine.FromPersistenceSnapshot(snapshot);
             _lastSuccessfulCheckpointWorldMinute = _engine.CurrentMinute.Value;
             _lastSuccessfulCheckpointUtc = await ReadLastCheckpointUtcAsync(cancellationToken);
@@ -776,6 +805,7 @@ public sealed partial class SimulationHost : BackgroundService
         }
 
         _engine = new SimulationEngine(_options.WorldSeed, simulationRulesVersion: _options.NewWorldRules, worldConfiguration: WorldGenerationConfiguration.Default.CanonicalJson);
+        _rulesUpgradeStatus = InitialRulesUpgradeStatus(_engine.SimulationRulesVersion);
         await WriteCheckpointWithRetriesAsync("initial", cancellationToken);
         _worldInstanceId = await ReadWorldInstanceIdAsync(cancellationToken);
         _lastCheckpointAttemptAt = DateTimeOffset.UtcNow;
@@ -1146,7 +1176,9 @@ public sealed partial class SimulationHost : BackgroundService
             GuestPopulation: newcomersEnabled ? guestPopulation : null,
             DepartedPopulation: newcomersEnabled ? departedPopulation : null,
             ArchivedPopulation: newcomersEnabled ? archivedPopulation : null,
-            WorldInstanceId: _worldInstanceId);
+            WorldInstanceId: _worldInstanceId,
+            SimulationRulesVersion: engine?.SimulationRulesVersion,
+            RulesUpgrade: _rulesUpgradeStatus);
         var roadsEnabled = engine is not null && SimulationEngine.RoadSystemsEnabled(engine.SimulationRulesVersion);
         var roads = roadsEnabled
             ? new ServerRoadsSnapshot(engine!.RoadGrades.Select(static tile => new ServerRoadTileSnapshot(tile.Coordinate.X, tile.Coordinate.Y, tile.Grade)).ToArray())

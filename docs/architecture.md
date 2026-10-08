@@ -5,7 +5,11 @@ For the M9 growth, M10 agriculture, and M11 household barter extensions,
 see [Growing Settlement](growing-settlement.md). Fresh worlds now select
 `m17-rng1-newcomers1`; [M17 visitors and newcomers](m17-newcomers.md) inherit
 M16 festivals. All statements below about older defaults describe their
-historical milestone. Existing saves retain their rules. The product design and implementation plan remain preserved separately; this is an implementation record, not a release promise.
+historical milestone. Ordinary loading retains saved rules; the server's
+[automatic upgrade policy](world-rules-upgrades.md) converts M14 onward before
+advancement, with verified backups and operational receipts. The product design
+and implementation plan remain preserved separately; this is an implementation
+record, not a release promise.
 
 The opt-in successor is documented in [Living Settlement v0.2](living-settlement-v0.2.md).
 Its modules reuse these engine, persistence, and observer boundaries while old

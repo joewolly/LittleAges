@@ -272,6 +272,8 @@ public sealed class M4ServerAcceptanceTests
             // Creation metadata distinguishes fresh worlds with identical canonical state.
             // Compare it separately so same-world checkpoint/restart checks retain identity coverage.
             canonicalStatus.Remove("worldInstanceId");
+            // Startup upgrade outcomes are operational metadata and can change on restart.
+            canonicalStatus.Remove("rulesUpgrade");
             var canonicalFingerprint = string.Join("|", new[] { canonicalStatus.ToJsonString() }.Concat(documents.Skip(1).Select(static document => document.RootElement.GetRawText())));
             return new HttpObservation(canonicalFingerprint, worldInstanceId);
         }

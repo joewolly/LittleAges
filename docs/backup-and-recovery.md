@@ -1,6 +1,32 @@
 # Backup and recovery
 
-Little Ages persists one authoritative SQLite checkpoint database per active world. The preferred backup is an offline copy made after a graceful stop and a confirmed successful final checkpoint. Backups are operator-managed; the application does not upload, synchronize, repair, or guess at a damaged database.
+Little Ages persists one authoritative SQLite checkpoint database per active world. The preferred routine backup is an offline copy made after a graceful stop and a confirmed successful final checkpoint. In addition, automatic feature upgrades retain a verified SQLite backup before eligible schema or rules changes. The application does not upload, synchronize, repair, or guess at a damaged database.
+
+## Automatic feature upgrade backups
+
+With `AutoUpgradeWorldRules=true` (the default), eligible M14–M16 worlds are backed
+up through SQLite's online backup API before startup applies schema migrations.
+Committed WAL contents are included in the standalone `world.db` backup. The
+server checks integrity and foreign keys, hashes the closed file with SHA-256,
+and records its location and hash in the operational upgrade receipt. Backups
+live beside the world databases under `rules-upgrade-backups/<world>-<timestamp>-<id>/`.
+Verified backup directories also contain `manifest.json` with the hash and source
+checkpoint reference, including when no upgrade receipt was committed. They are
+retained indefinitely in this first version; operators manage disk space.
+Interrupted preparation may leave an incomplete directory without a manifest;
+do not treat that directory as a verified recovery backup.
+
+Keep the backup unchanged. Inspect a separate copy: opening SQLite with a writer
+can change its bytes and invalidate the recorded hash. To restore an earlier
+application binary, select the matching **pre-upgrade** database backup, stop the
+service, archive the current database and sidecars, and restore the standalone
+backup without old WAL/SHM files. Verify its SHA-256 against the manifest or
+`world_rules_upgrades` in an inspection copy of the upgraded database. For these
+backups, select `world.db` as `$backupDbPath` in the restore sequence below, and
+restore it to the configured active world's database filename. Set `AutoUpgradeWorldRules=false`
+when retaining the earlier rules under a newer server. Follow the restore sequence
+below; application-directory rollback alone does not reverse a world conversion.
+See [world upgrade behavior and failure handling](world-rules-upgrades.md).
 
 ## SQLite WAL caveat
 

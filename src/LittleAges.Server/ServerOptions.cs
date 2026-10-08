@@ -23,6 +23,7 @@ public sealed record ServerOptions
     public required WorldSeed WorldSeed { get; init; }
     public required string ListenUrls { get; init; }
     public string NewWorldRules { get; init; } = SimulationEngine.CurrentSimulationRulesVersion;
+    public bool AutoUpgradeWorldRules { get; init; } = true;
     public double SimulationMinutesPerSecond { get; init; } = DefaultSimulationMinutesPerSecond;
     public int CheckpointSimulationMinutes { get; init; } = DefaultCheckpointSimulationMinutes;
     public int CheckpointMinimumRealSeconds { get; init; } = DefaultCheckpointMinimumRealSeconds;
@@ -64,6 +65,7 @@ public sealed record ServerOptions
             WorldSeed = new WorldSeed(seed),
             ListenUrls = configuration["ListenUrls"] ?? DefaultListenUrls,
             NewWorldRules = configuration["NewWorldRules"] ?? SimulationEngine.CurrentSimulationRulesVersion,
+            AutoUpgradeWorldRules = ParseBoolean(configuration, "AutoUpgradeWorldRules", true),
             SimulationMinutesPerSecond = rate,
             CheckpointSimulationMinutes = ParseNonNegativeInt(configuration, "CheckpointSimulationMinutes", DefaultCheckpointSimulationMinutes),
             CheckpointMinimumRealSeconds = ParseNonNegativeInt(configuration, "CheckpointMinimumRealSeconds", DefaultCheckpointMinimumRealSeconds),
@@ -74,6 +76,13 @@ public sealed record ServerOptions
         };
         options.Validate();
         return options;
+    }
+
+    private static bool ParseBoolean(IConfiguration configuration, string name, bool defaultValue)
+    {
+        var value = configuration[name];
+        if (value is null) return defaultValue;
+        return bool.TryParse(value, out var result) ? result : throw new ArgumentException($"{name} must be true or false.", nameof(configuration));
     }
 
     public IReadOnlyList<Uri> GetListenUris()

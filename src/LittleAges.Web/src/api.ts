@@ -19,6 +19,16 @@ export type Status = {
   guestPopulation?: number | null
   departedPopulation?: number | null
   archivedPopulation?: number | null
+  simulationRulesVersion?: string
+  rulesUpgrade?: RulesUpgradeStatus
+}
+
+export type RulesUpgradeStatus = {
+  state: 'Current' | 'Preserved' | 'Unsupported' | 'Upgraded' | 'Failed'
+  sourceRules: string
+  targetRules: string
+  activationMinute: number | null
+  message: string
 }
 
 export type ResourceType = 'Food' | 'Wood' | 'Stone'
@@ -346,6 +356,14 @@ export function parseStatus(value: unknown): Status {
   }
   for (const field of ['population', 'totalPopulation', 'livingPopulation', 'deadPopulation', 'guestPopulation', 'departedPopulation', 'archivedPopulation'] as const) {
     if (field in data) result[field] = parseOptionalNonNegativeInteger(data[field])
+  }
+  if (typeof data.simulationRulesVersion === 'string') result.simulationRulesVersion = data.simulationRulesVersion
+  const upgrade = data.rulesUpgrade
+  if (isRecord(upgrade) && typeof upgrade.state === 'string' && ['Current', 'Preserved', 'Unsupported', 'Upgraded', 'Failed'].includes(upgrade.state) &&
+      typeof upgrade.sourceRules === 'string' && typeof upgrade.targetRules === 'string' && typeof upgrade.message === 'string' &&
+      (upgrade.activationMinute === null || typeof upgrade.activationMinute === 'number' && Number.isSafeInteger(upgrade.activationMinute) && upgrade.activationMinute >= 0)) {
+    result.rulesUpgrade = { state: upgrade.state as RulesUpgradeStatus['state'], sourceRules: upgrade.sourceRules,
+      targetRules: upgrade.targetRules, activationMinute: upgrade.activationMinute as number | null, message: upgrade.message }
   }
   return result
 }

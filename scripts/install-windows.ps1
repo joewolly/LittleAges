@@ -858,7 +858,7 @@ catch {
     if ($rollbackErrors.Count -gt 0) {
         throw "Little Ages installation failed and rollback reported: $($rollbackErrors -join ' | ') Original error: $failureMessage"
     }
-    throw "Little Ages installation failed; the previous deployment was restored. World data was not modified. Original error: $failureMessage"
+    throw "Little Ages installation failed; the previous deployment was restored. World databases were retained; application rollback does not reverse a committed world upgrade. Restore its matching pre-upgrade database if required. Original error: $failureMessage"
 }
 finally {
     if ($installSucceeded -and (Test-Path -LiteralPath $backupDeployment)) {

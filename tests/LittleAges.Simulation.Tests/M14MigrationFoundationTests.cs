@@ -1282,7 +1282,7 @@ public sealed class M14MigrationFoundationTests
         MigrationValidation.Validate(returned);
     }
 
-    private sealed record RelocationFixture(SimulationEngine Engine, Household Household, Citizen[] Members);
+    internal sealed record RelocationFixture(SimulationEngine Engine, Household Household, Citizen[] Members);
 
     private static long RelocationProvisions(long minute)
     {
@@ -1294,7 +1294,7 @@ public sealed class M14MigrationFoundationTests
             CitizenSimulationRules.FullHungerReduction - 1) / CitizenSimulationRules.FullHungerReduction);
     }
 
-    private static RelocationFixture CreateRelocationEngine(WorldSeed seed, long origin, long destination, string? rules = null)
+    internal static RelocationFixture CreateRelocationEngine(WorldSeed seed, long origin, long destination, string? rules = null)
     {
         var baseFixture = CreateDaughterFixture(seed, rules);
         var engine = SimulationEngine.FromPersistenceSnapshot(baseFixture.Snapshot);
@@ -1535,7 +1535,7 @@ public sealed class M14MigrationFoundationTests
             state.InTransitParties, state.FoundingPressure, state.LastRelocations, state.LastVisitAttemptYear);
     }
 
-    private static (SimulationPersistenceSnapshot Snapshot, TileCoordinate DaughterSite) CreateDaughterFixture(WorldSeed seed, string? rules = null)
+    internal static (SimulationPersistenceSnapshot Snapshot, TileCoordinate DaughterSite) CreateDaughterFixture(WorldSeed seed, string? rules = null)
     {
         var baseline = new SimulationEngine(seed, simulationRulesVersion: rules ?? SimulationEngine.MigrationSimulationRulesVersion).CreatePersistenceSnapshot();
         var world = baseline.World!;

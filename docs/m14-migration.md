@@ -1,8 +1,9 @@
 # M14 — Migration and second settlement rules
 
 **Status:** implemented; `m14-rng1-migration1` was the new-world default until
-[M15](m15-roads-trade.md) replaced it. Existing saves keep their recorded rules
-and behavior. The final
+[M15](m15-roads-trade.md) replaced it. Ordinary loading preserves recorded rules;
+the server now supports [automatic feature upgrades](world-rules-upgrades.md).
+The final
 seed-17 and seed-42 100-year Release acceptance runs are complete; see the
 measured status below.
 
