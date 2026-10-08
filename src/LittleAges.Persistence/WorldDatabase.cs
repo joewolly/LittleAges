@@ -33,10 +33,14 @@ public sealed class WorldDatabase : IAsyncDisposable
     public static Task<WorldDatabase> OpenAsync(string databasePath, CancellationToken cancellationToken = default) =>
         OpenCoreAsync(databasePath, openOptions: null, cancellationToken);
 
+    /// <summary>Resume a validated existing checkpoint without schema changes after backup preparation failed.</summary>
+    public static Task<WorldDatabase> OpenExistingWithoutMigrationsAsync(string databasePath, CancellationToken cancellationToken = default) =>
+        OpenCoreAsync(databasePath, openOptions: null, cancellationToken, applyMigrations: false);
+
     internal static Task<WorldDatabase> OpenAsync(string databasePath, WorldDatabaseOpenOptions? openOptions, CancellationToken cancellationToken = default) =>
         OpenCoreAsync(databasePath, openOptions, cancellationToken);
 
-    private static async Task<WorldDatabase> OpenCoreAsync(string databasePath, WorldDatabaseOpenOptions? openOptions, CancellationToken cancellationToken)
+    private static async Task<WorldDatabase> OpenCoreAsync(string databasePath, WorldDatabaseOpenOptions? openOptions, CancellationToken cancellationToken, bool applyMigrations = true)
     {
         if (string.IsNullOrWhiteSpace(databasePath))
         {
@@ -44,6 +48,7 @@ public sealed class WorldDatabase : IAsyncDisposable
         }
 
         var fullPath = Path.GetFullPath(databasePath);
+        if (!applyMigrations && !File.Exists(fullPath)) throw new FileNotFoundException("An existing world is required for resume.", fullPath);
         var directory = Path.GetDirectoryName(fullPath);
         if (directory is not null)
         {
@@ -53,7 +58,7 @@ public sealed class WorldDatabase : IAsyncDisposable
         var connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = fullPath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
+            Mode = applyMigrations ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite,
             Pooling = false,
             DefaultTimeout = 5,
             ForeignKeys = true
@@ -70,6 +75,11 @@ public sealed class WorldDatabase : IAsyncDisposable
         {
             await context.Database.OpenConnectionAsync(cancellationToken);
             await ConfigureConnectionAsync(context.Database.GetDbConnection(), cancellationToken);
+            if (!applyMigrations)
+            {
+                await database.VerifyConnectionPragmasAsync(cancellationToken);
+                return database;
+            }
             await context.Database.MigrateAsync(cancellationToken);
             await database.VerifyConnectionPragmasAsync(cancellationToken);
             await database.CreateCheckpointStore().UpgradeLegacyM0IfNeededAsync(

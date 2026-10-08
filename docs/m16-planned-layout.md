@@ -29,9 +29,10 @@ M16 puts a settlement planner behind those decisions:
 `UnifiedSimulationRulesEnabled` and `RoadSystemsEnabled` return true for it. A
 new `PlannedLayoutEnabled` returns true only for M16.
 
-Existing saves keep their recorded rules, and M15 and earlier worlds stay on
-them. Their placement code paths, fingerprints and acceptance evidence are
-unchanged. Moving an existing world to M16 is out of scope.
+Ordinary loading preserves recorded rules and their placement code paths,
+fingerprints, and acceptance evidence. The server separately supports
+[automatic feature upgrades](world-rules-upgrades.md) from M14 onward. Conversion
+applies planned layout to future construction while preserving existing buildings.
 
 The database gains one migration, `20260930000000_M16Storehouses`, which
 rebuilds the `structures` table so its type constraint admits storehouses. Every

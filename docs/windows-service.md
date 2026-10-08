@@ -92,16 +92,23 @@ precedence. A fresh installation defaults to loopback. Upgrades preserve the
 existing LAN mode when `-EnableLan` is omitted; use `-EnableLan:$false` to
 explicitly return to loopback.
 
-Growing Settlement and Living Settlement saves retain their own rules during
-upgrade. The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`,
+The combined host supports `m11-rng1-barter1`, `m12-rng1-spaced1`,
 `m13-rng1-unified1`, `m14-rng1-migration1`, `m15-rng1-roads1`, `m16-rng1-planned1`,
 `m16-rng1-festivals1`, `m17-rng1-newcomers1`,
-`v02-rng1-living1`, and `v02-rng1-living2`; installing it does not convert one
-civilization or Living Settlement rules version into another. New worlds keep
-the configured `NewWorldRules`, with M17 as the application default. Existing
-worlds use their saved rules even when the application default changes. M12 remains a historical
-rules boundary for existing worlds. Living2 is an opt-in rule for newly created
-worlds; existing living1 worlds continue under their saved living1 rules.
+`v02-rng1-living1`, and `v02-rng1-living2`. After installation and restart,
+`AutoUpgradeWorldRules` defaults to `true`: supported M14–M16 worlds receive
+M17 features through verified snapshot conversions. The server first retains a
+SQLite backup under `DataRoot/rules-upgrade-backups`, including committed WAL
+contents. Older worlds continue with their supported saved rules and show an
+observer notice. Set `AutoUpgradeWorldRules` to `false` to preserve saved rules;
+this user-owned setting is independent of `NewWorldRules`, which selects rules
+only when creating a world. See [automatic world upgrades](world-rules-upgrades.md).
+
+Application rollback alone cannot undo a committed world upgrade. Restoring an
+earlier binary requires its matching pre-upgrade database backup, with the
+service stopped and the complete current database/WAL set archived first.
+Automatic upgrade backups are retained without cleanup. M12 and Living1/Living2
+remain their historical rules boundaries.
 
 Both branches originally persisted citizen action 13 with different meanings.
 The checkpoint reader interprets it using the saved rules, while checkpoint

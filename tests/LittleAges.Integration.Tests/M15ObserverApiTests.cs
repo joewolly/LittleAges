@@ -98,6 +98,22 @@ public sealed class M15ObserverApiTests
         }
     }
 
+    [Fact]
+    public async Task UpgradingAnActiveTradeRetainsPartyCargoRoutesAndContinuation()
+    {
+        var source = CreateTradeInProgress(new WorldSeed(42)).Snapshot;
+        var plan = WorldRulesUpgrades.Plan(source);
+        Assert.Equal(JsonSerializer.Serialize(source.MigrationState!.InTransitParties), JsonSerializer.Serialize(plan.Snapshot.MigrationState!.InTransitParties));
+        Assert.Equal(JsonSerializer.Serialize(source.MigrationState.Roads), JsonSerializer.Serialize(plan.Snapshot.MigrationState.Roads));
+        Assert.Equal(source.ScheduledEvents, plan.Snapshot.ScheduledEvents);
+        Assert.Equal(source.HistoricalEvents, plan.Snapshot.HistoricalEvents);
+        var uninterrupted = new SimulationEngine(plan.Snapshot);
+        var chunked = new SimulationEngine(plan.Snapshot);
+        uninterrupted.AdvanceUntil(source.WorldMinute.Add(360));
+        for (var step = 1; step <= 6; step++) chunked.AdvanceUntil(source.WorldMinute.Add(step * 60));
+        Assert.Equal(WorldRulesUpgrades.Fingerprint(uninterrupted.CreatePersistenceSnapshot()), WorldRulesUpgrades.Fingerprint(chunked.CreatePersistenceSnapshot()));
+    }
+
     /// <summary>
     /// The phase 4 trade fixture (eight households at a daughter site, site 1 spare fuel, the daughter spare
     /// medicine) with a Track, a Trail, and a Road seeded, advanced until the exchange has been recorded.
@@ -189,6 +205,7 @@ public sealed class M15ObserverApiTests
         {
             builder.UseSetting("DataRoot", dataRoot);
             builder.UseSetting("ActiveWorld", "integration-world");
+            builder.UseSetting("AutoUpgradeWorldRules", "false");
             builder.UseSetting("WorldSeed", "42");
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
             builder.UseSetting("SimulationMinutesPerSecond", "0");

@@ -255,6 +255,9 @@ public sealed class M4ServerAcceptanceTests
             canonicalStatus.Remove("lastSuccessfulCheckpointWorldMinute");
             canonicalStatus.Remove("lastSuccessfulCheckpointUtc");
             canonicalStatus.Remove("consecutiveCheckpointFailures");
+            // Installation identity and startup upgrade outcomes are operational metadata.
+            canonicalStatus.Remove("worldInstanceId");
+            canonicalStatus.Remove("rulesUpgrade");
             return string.Join("|", new[] { canonicalStatus.ToJsonString() }.Concat(documents.Skip(1).Select(static document => document.RootElement.GetRawText())));
         }
         finally

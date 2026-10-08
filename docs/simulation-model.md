@@ -623,3 +623,15 @@ The optional newcomer JSON extension and appended history values 32-37 are
 version-gated. The SQLite history migration preserves old rules, facts and
 fingerprints. M17 also corrects demand for fragmented household shelter without
 changing M16 behavior; see [`m17-exposure-diagnosis.md`](m17-exposure-diagnosis.md).
+
+## Existing-world feature activation
+
+The server's [automatic upgrade policy](world-rules-upgrades.md) can convert
+M14–M16 checkpoints to M17 before advancement. The explicit converter chain
+preserves canonical state and history, freezes M14 routes with the old pathfinder,
+and adjusts legacy farm returns only where M17 requires a resident stockpile.
+New systems begin after activation; elapsed occurrences are not replayed.
+Ordinary loading and headless execution retain their compatibility behavior.
+Upgrade receipts and backup manifests are operational records outside canonical
+history and fingerprints. Future defaults require a registered converter and
+validated deterministic continuation.

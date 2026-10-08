@@ -21,8 +21,9 @@ farmland, storage grows through large storehouses in one yard instead of
 stockpiles scattered across the map, and households share surplus wood and stone
 instead of hoarding it. On top of that it adds annual harvest gatherings,
 optional feasts, timed family visits, personal memories, and temporary festival
-decorations. `m16-rng1-planned1` remains available explicitly. Existing saves
-keep their recorded rules and behavior. See the
+decorations. `m16-rng1-planned1` remains available explicitly. On server restart,
+M14 and newer saves automatically receive the current features while preserving
+their civilization. See [automatic world upgrades](docs/world-rules-upgrades.md) and the
 [M16 festivals contract](docs/m16-festivals.md), the
 [M16 layout contract](docs/m16-planned-layout.md), the
 [M15 rules contract](docs/m15-roads-trade.md), and the
@@ -34,7 +35,9 @@ visit an inhabited settlement and autonomously join or leave. Guests use their
 own provisions and a spare shelter; their counts and histories stay separate
 from residents. It also corrects fragmented household housing demand for M17.
 Fresh worlds select it automatically. Explicit older rules, including M16
-festivals, remain available. Existing saves retain their rules and behavior.
+festivals, remain available. Set `AutoUpgradeWorldRules` to `false` to keep an
+existing world's saved rules. Ordinary database loading and headless runs keep
+their existing compatibility behavior.
 
 The opt-in [v0.2 Living Settlement expansion](docs/living-settlement-v0.2.md)
 adds coordinated work, farming and production, personal lives, weather and
@@ -97,7 +100,7 @@ meters and villager cards, and a responsive, tabbed record ledger.
 
 The `m12-rng1-spaced1` rule leaves a walkable tile gap around new construction
 when a suitable site is available. Existing saves keep their selected rules
-and building locations; there is no automatic gameplay upgrade.
+and building locations; the automatic upgrade path starts at M14.
 The three local v0.2 delivery stages and acceptance evidence are recorded in
 [Growing Settlement](docs/growing-settlement.md).
 Publication and installation are separate from this local implementation.
@@ -193,6 +196,7 @@ version is:
 | Product and design baseline | [`design-v0.1.md`](./docs/design-v0.1.md) · [`implementation-plan-v0.1.md`](./docs/implementation-plan-v0.1.md) |
 | Acceptance and compatibility evidence | [`v0.1-acceptance-report.md`](./docs/v0.1-acceptance-report.md) · [`living-settlement-living2-acceptance.md`](./docs/living-settlement-living2-acceptance.md) · [`living-settlement-acceptance.md`](./docs/living-settlement-acceptance.md) |
 | Windows operations | [`windows-service.md`](./docs/windows-service.md) · [`windows-service.example.json`](./docs/windows-service.example.json) |
+| Feature upgrades | [`world-rules-upgrades.md`](./docs/world-rules-upgrades.md) · [unreleased notes](./docs/release-automatic-world-upgrades.md) |
 | Recovery and hardware checks | [`backup-and-recovery.md`](./docs/backup-and-recovery.md) · [`sleep-resume-checklist.md`](./docs/sleep-resume-checklist.md) |
 | Automation | [`ci.yml`](./.github/workflows/ci.yml) · [`long-tests.yml`](./.github/workflows/long-tests.yml) · [`v01-acceptance.yml`](./.github/workflows/v01-acceptance.yml) · [`windows-package.yml`](./.github/workflows/windows-package.yml) |
 
@@ -202,7 +206,9 @@ version is:
 see its [release notes](docs/release-v0.7.0.md) and the
 [Windows downloads](https://github.com/joewolly/LittleAges/releases).
 M17 visitors and newcomers remain the default for new worlds.
-Existing civilizations continue under their saved rules.
+The upcoming [automatic world upgrade](docs/world-rules-upgrades.md) update adds
+restart upgrades for M14 and newer civilizations, with verified backups and an
+option to retain saved rules.
 
 The next observer update adds people search, browser favorites, Back navigation,
 full-screen phone records and clearer Locate/Follow actions. See the

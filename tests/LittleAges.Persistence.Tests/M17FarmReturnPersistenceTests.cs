@@ -106,9 +106,9 @@ public sealed class M17FarmReturnPersistenceTests
         carrier.TargetStructureId = snapshot.Structures.First(x => x.Type == StructureType.Farm && x.Id != carrier.TargetStructureId).Id;
         Assert.Throws<ArgumentException>(() => LivingValidation.Validate(snapshot));
     }
-    private static SimulationEngine CreateHarvestReturn()
+    internal static SimulationEngine CreateHarvestReturn(string rules = SimulationEngine.NewcomersRulesVersion)
     {
-        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: SimulationEngine.NewcomersRulesVersion);
+        var engine = new SimulationEngine(new WorldSeed(42), simulationRulesVersion: rules);
         engine.AdvanceUntil(new(2L * WorldCalendar.DaysPerSeason * WorldCalendar.MinutesPerDay + 60));
         var snapshot = engine.CreatePersistenceSnapshot();
         var living = LivingWorldCodec.Deserialize(snapshot.LivingStateJson!);
@@ -140,9 +140,12 @@ public sealed class M17FarmReturnPersistenceTests
         foreach (var member in citizens.Values.Where(x => members.Contains(x.Id.Value))) member.HomeStructureId = null;
         Field<Dictionary<long, Household>>(engine, "_households")[householdId.Value].DwellingStructureId = null;
         var crops = Field<SortedDictionary<long, FarmCrop>>(engine, "_farms");
-        var yield = AgricultureRules.LaborYield(engine.World.GetTile(farm.Location), AgricultureRules.PlantingWork, AgricultureRules.TendingWork);
+        // A tiny legacy crop carries food only: the older farm and grain validators
+        // disagree about daughter return destinations when a grain order is present.
+        var planting = rules == SimulationEngine.NewcomersRulesVersion ? AgricultureRules.PlantingWork : 1;
+        var yield = AgricultureRules.LaborYield(engine.World.GetTile(farm.Location), planting, AgricultureRules.TendingWork);
         crops[farm.Id.Value] = new(farm.Id.Value, engine.CurrentMinute.ToCalendar().Year, CropStage.Harvest,
-            AgricultureRules.PlantingWork, AgricultureRules.TendingWork, yield, yield, 0);
+            planting, AgricultureRules.TendingWork, yield, yield, 0);
         var pending = Field<object>(engine, "_scheduledEvents");
         foreach (var item in ((System.Collections.IEnumerable)pending).Cast<object>().ToArray())
         {
@@ -159,6 +162,20 @@ public sealed class M17FarmReturnPersistenceTests
         worker.TargetStructureId = farm.Id;
         worker.TargetCitizenId = null;
         Invoke(engine, "CompleteFarmWork", worker);
+        if (rules != SimulationEngine.NewcomersRulesVersion)
+        {
+            // Valid legacy checkpoints target the original stockpile.
+            foreach (var item in ((System.Collections.IEnumerable)pending).Cast<object>().ToArray())
+            {
+                var type = item.GetType();
+                var name = (string)type.GetProperty("Name")!.GetValue(item)!;
+                var order = (ScheduledEventOrder)type.GetProperty("Order")!.GetValue(item)!;
+                if (order.EntitySortKey == worker.Id.Value && name == CitizenEventNames.MoveStep)
+                    pending.GetType().GetMethod("Remove")!.Invoke(pending, [item]);
+            }
+            Invoke(engine, "BeginTravel", worker, CitizenAction.HaulHarvest, engine.World.StartingSite, null,
+                CitizenActionPhase.ReturnToStockpile, farm.Id);
+        }
         return engine;
     }
 

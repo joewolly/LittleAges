@@ -57,6 +57,7 @@ public sealed class M16FestivalObserverTests
         {
             builder.UseSetting("DataRoot", root);
             builder.UseSetting("ActiveWorld", "festival");
+            builder.UseSetting("AutoUpgradeWorldRules", "false");
             builder.UseSetting("ListenUrls", "http://127.0.0.1:0");
             builder.UseSetting("SimulationMinutesPerSecond", "0");
         }
