@@ -22,10 +22,11 @@ public sealed class M4ServerAcceptanceTests
         var pollingRoot = CreateDataRoot();
         try
         {
-            var noPollingFingerprint = await AdvanceWithoutPollingAsync(noPollingRoot);
-            var pollingFingerprint = await AdvanceWithAggressivePollingAsync(pollingRoot);
+            var noPollingObservation = await AdvanceWithoutPollingAsync(noPollingRoot);
+            var pollingObservation = await AdvanceWithAggressivePollingAsync(pollingRoot);
 
-            Assert.Equal(noPollingFingerprint, pollingFingerprint);
+            Assert.NotEqual(noPollingObservation.WorldInstanceId, pollingObservation.WorldInstanceId);
+            Assert.Equal(noPollingObservation.CanonicalFingerprint, pollingObservation.CanonicalFingerprint);
         }
         finally
         {
@@ -40,7 +41,7 @@ public sealed class M4ServerAcceptanceTests
         var dataRoot = CreateDataRoot();
         try
         {
-            string checkpointFingerprint;
+            HttpObservation checkpointObservation;
             string structureId;
             ConstructionProgress checkpointProgress;
 
@@ -53,7 +54,7 @@ public sealed class M4ServerAcceptanceTests
 
                 await host.AdvanceForTestingAsync(360);
                 (structureId, checkpointProgress) = await GetSingleConstructionProgressAsync(client);
-                checkpointFingerprint = await BuildCanonicalHttpObservationFingerprintAsync(client);
+                checkpointObservation = await BuildHttpObservationAsync(client);
 
                 var checkpoint = await host.RequestCheckpointAsync();
                 Assert.True(checkpoint.Succeeded);
@@ -71,7 +72,7 @@ public sealed class M4ServerAcceptanceTests
                 var host = secondFactory.Services.GetRequiredService<SimulationHost>();
                 await host.WaitForRunningForTestingAsync();
 
-                Assert.Equal(checkpointFingerprint, await BuildCanonicalHttpObservationFingerprintAsync(client));
+                Assert.Equal(checkpointObservation, await BuildHttpObservationAsync(client));
                 Assert.Equal(360, host.Status.WorldMinute);
 
                 var progressed = false;
@@ -101,7 +102,7 @@ public sealed class M4ServerAcceptanceTests
         var dataRoot = CreateDataRoot();
         try
         {
-            string checkpointFingerprint;
+            HttpObservation checkpointObservation;
             string activeStructureId;
             ConstructionProgress checkpointProgress;
 
@@ -136,7 +137,7 @@ public sealed class M4ServerAcceptanceTests
                 Assert.True(foundMilestone, "Fresh seed 42 did not complete a shelter and create the next construction project within 18,000 simulated minutes.");
 
                 await AssertSmokeEndpointShapesAsync(client, activeStructureId);
-                checkpointFingerprint = await BuildCanonicalHttpObservationFingerprintAsync(client);
+                checkpointObservation = await BuildHttpObservationAsync(client);
                 Assert.True((await host.RequestCheckpointAsync()).Succeeded);
             }
             finally
@@ -151,7 +152,7 @@ public sealed class M4ServerAcceptanceTests
                 var host = secondFactory.Services.GetRequiredService<SimulationHost>();
                 await host.WaitForRunningForTestingAsync();
 
-                Assert.Equal(checkpointFingerprint, await BuildCanonicalHttpObservationFingerprintAsync(client));
+                Assert.Equal(checkpointObservation, await BuildHttpObservationAsync(client));
                 await AssertSmokeEndpointShapesAsync(client, activeStructureId);
 
                 var progressed = false;
@@ -175,7 +176,7 @@ public sealed class M4ServerAcceptanceTests
         }
     }
 
-    private static async Task<string> AdvanceWithoutPollingAsync(string dataRoot)
+    private static async Task<HttpObservation> AdvanceWithoutPollingAsync(string dataRoot)
     {
         var factory = new M4ServerFactory(dataRoot);
         try
@@ -183,6 +184,7 @@ public sealed class M4ServerAcceptanceTests
             using var client = factory.CreateClient();
             var host = factory.Services.GetRequiredService<SimulationHost>();
             await host.WaitForRunningForTestingAsync();
+            var worldInstanceId = Assert.IsType<string>(host.Status.WorldInstanceId);
 
             for (var interval = 0; interval < 15; interval++)
             {
@@ -190,7 +192,9 @@ public sealed class M4ServerAcceptanceTests
             }
 
             Assert.Equal(1_800, host.Status.WorldMinute);
-            return await BuildCanonicalHttpObservationFingerprintAsync(client);
+            var observation = await BuildHttpObservationAsync(client);
+            Assert.Equal(worldInstanceId, observation.WorldInstanceId);
+            return observation;
         }
         finally
         {
@@ -198,7 +202,7 @@ public sealed class M4ServerAcceptanceTests
         }
     }
 
-    private static async Task<string> AdvanceWithAggressivePollingAsync(string dataRoot)
+    private static async Task<HttpObservation> AdvanceWithAggressivePollingAsync(string dataRoot)
     {
         var factory = new M4ServerFactory(dataRoot);
         try
@@ -206,16 +210,19 @@ public sealed class M4ServerAcceptanceTests
             using var client = factory.CreateClient();
             var host = factory.Services.GetRequiredService<SimulationHost>();
             await host.WaitForRunningForTestingAsync();
+            var worldInstanceId = Assert.IsType<string>(host.Status.WorldInstanceId);
 
             for (var interval = 0; interval < 15; interval++)
             {
-                await PollReadEndpointsAsync(client, repetitions: 4);
+                await PollReadEndpointsAsync(client, worldInstanceId, repetitions: 4);
                 await host.AdvanceForTestingAsync(120);
-                await PollReadEndpointsAsync(client, repetitions: 4);
+                await PollReadEndpointsAsync(client, worldInstanceId, repetitions: 4);
             }
 
             Assert.Equal(1_800, host.Status.WorldMinute);
-            return await BuildCanonicalHttpObservationFingerprintAsync(client);
+            var observation = await BuildHttpObservationAsync(client);
+            Assert.Equal(worldInstanceId, observation.WorldInstanceId);
+            return observation;
         }
         finally
         {
@@ -223,7 +230,7 @@ public sealed class M4ServerAcceptanceTests
         }
     }
 
-    private static async Task PollReadEndpointsAsync(HttpClient client, int repetitions)
+    private static async Task PollReadEndpointsAsync(HttpClient client, string worldInstanceId, int repetitions)
     {
         for (var repetition = 0; repetition < repetitions; repetition++)
         {
@@ -231,11 +238,16 @@ public sealed class M4ServerAcceptanceTests
             {
                 using var response = await client.GetAsync(endpoint);
                 response.EnsureSuccessStatusCode();
+                if (endpoint == "/api/v1/status")
+                {
+                    using var status = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                    Assert.Equal(worldInstanceId, status.RootElement.GetProperty("worldInstanceId").GetString());
+                }
             }
         }
     }
 
-    private static async Task<string> BuildCanonicalHttpObservationFingerprintAsync(HttpClient client)
+    private static async Task<HttpObservation> BuildHttpObservationAsync(HttpClient client)
     {
         var documents = new List<JsonDocument>();
         try
@@ -250,15 +262,20 @@ public sealed class M4ServerAcceptanceTests
             var status = documents[0].RootElement;
             Assert.Equal("Running", status.GetProperty("state").GetString());
             Assert.False(string.IsNullOrEmpty(status.GetProperty("world").GetProperty("fingerprint").GetString()));
+            var worldInstanceId = status.GetProperty("worldInstanceId").GetString()!;
+            Assert.Matches("^[0-9a-f]{64}$", worldInstanceId);
             var canonicalStatus = JsonNode.Parse(status.GetRawText())!.AsObject();
             canonicalStatus.Remove("persistenceState");
             canonicalStatus.Remove("lastSuccessfulCheckpointWorldMinute");
             canonicalStatus.Remove("lastSuccessfulCheckpointUtc");
             canonicalStatus.Remove("consecutiveCheckpointFailures");
-            // Installation identity and startup upgrade outcomes are operational metadata.
+            // Creation metadata distinguishes fresh worlds with identical canonical state.
+            // Compare it separately so same-world checkpoint/restart checks retain identity coverage.
             canonicalStatus.Remove("worldInstanceId");
+            // Startup upgrade outcomes are operational metadata and can change on restart.
             canonicalStatus.Remove("rulesUpgrade");
-            return string.Join("|", new[] { canonicalStatus.ToJsonString() }.Concat(documents.Skip(1).Select(static document => document.RootElement.GetRawText())));
+            var canonicalFingerprint = string.Join("|", new[] { canonicalStatus.ToJsonString() }.Concat(documents.Skip(1).Select(static document => document.RootElement.GetRawText())));
+            return new HttpObservation(canonicalFingerprint, worldInstanceId);
         }
         finally
         {
@@ -363,6 +380,8 @@ public sealed class M4ServerAcceptanceTests
             Directory.Delete(dataRoot, recursive: true);
         }
     }
+
+    private readonly record struct HttpObservation(string CanonicalFingerprint, string WorldInstanceId);
 
     private readonly record struct ConstructionProgress(int DeliveredWood, int DeliveredStone, int CompletedWork)
     {
