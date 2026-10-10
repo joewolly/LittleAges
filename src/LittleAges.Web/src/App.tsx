@@ -494,7 +494,13 @@ export function App() {
     chooseTab(OBSERVER_TABS[next]); document.getElementById(`observer-tab-${OBSERVER_TABS[next].toLowerCase()}`)?.focus()
   }
   const openCitizenRecord = (citizenId: string) => { selectCitizen(citizenId); setSelectedBiographyCitizenId(citizenId) }
-  const openBiographyRecord = (citizenId: string) => { openCitizenRecord(citizenId); setBiography(null); setBiographyLoading(true); setBiographyError(null); pendingInspector.current = 'biography' }
+  const openBiographyRecord = (citizenId: string) => {
+    openCitizenRecord(citizenId)
+    // Reopening the same ID does not rerun the fetch effect. Keep its loaded,
+    // pending, or error state instead of clearing it without a new request.
+    if (citizenId !== selectedBiographyCitizenId) { setBiography(null); setBiographyLoading(true); setBiographyError(null) }
+    pendingInspector.current = 'biography'
+  }
   const updateControl = async (request: () => Promise<Status>) => { setControlBusy(true); setControlError(null); try { setStatus(await request()) } catch (reason: unknown) { setControlError(errorText(reason, 'The operational control could not be applied.')) } finally { setControlBusy(false) } }
   const connected = health?.ok === true && error === null && liveConnectionState === 'connected'; const stateLabel = status.paused ? 'Paused' : status.state.toLowerCase() === 'running' ? 'Running' : status.state; const activeProject = settlement?.activeConstructionProject; const selectedCitizen = citizens?.find(citizen => citizen.citizenId === selectedCitizenId) ?? null
   const selectedOperationalSpeed = status.operationalSpeed ?? DEFAULT_OPERATIONAL_SPEED
