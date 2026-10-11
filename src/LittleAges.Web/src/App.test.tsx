@@ -142,6 +142,47 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it('keeps the loaded biography when reopening the same person from Family', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/biography')
+      ? new Response(JSON.stringify({ citizen, events: [historicalEvent], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 12, deathMinute: null, deathCause: null }))
+      : responseFor(String(input), 12))
+    renderAppWithRecords()
+    await selectPerson()
+    fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
+    await screen.findByText('Elara Venn was born.')
+
+    for (let visit = 0; visit < 3; visit++) {
+      fireEvent.click(within(document.querySelector('.biography-summary')!).getByRole('button', { name: 'View family' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Biography' }))
+      expect(screen.getByText('Elara Venn was born.')).toBeVisible()
+      expect(screen.queryByText('Loading biography…')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      expect(screen.getByRole('heading', { name: 'Family & lineage' })).toBeVisible()
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+      expect(screen.getByText('Elara Venn was born.')).toBeVisible()
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close observer records' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    expect(screen.getByText('Elara Venn was born.')).toBeVisible()
+    expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/biography'))).toHaveLength(1)
+  })
+
+  it('retains a biography error when returning from Family instead of entering a loading state without a request', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/biography')
+      ? new Response('Temporarily unavailable', { status: 503 })
+      : responseFor(String(input), 12))
+    renderAppWithRecords()
+    await selectPerson()
+    fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
+    await screen.findByText(/Biography unavailable:/)
+    fireEvent.click(screen.getByRole('button', { name: 'View family' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Biography' }))
+    expect(screen.getByText(/Biography unavailable:/)).toBeVisible()
+    expect(screen.queryByText('Loading biography…')).not.toBeInTheDocument()
+    expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/biography'))).toHaveLength(1)
+  })
+
   it('restores Family search, relation pages and graph scroll after recentering', async () => {
     const children = Array.from({ length: 14 }, (_, index) => ({ ...citizen, citizenId: String(index + 1), name: `Child ${String(index + 1).padStart(2, '0')}`, parentAId: citizen.citizenId }))
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/citizens') ? new Response(JSON.stringify([citizen, ...children])) : responseFor(String(input), 12))
