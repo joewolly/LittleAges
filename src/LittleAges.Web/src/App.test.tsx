@@ -330,6 +330,42 @@ describe('citizen observer', () => {
     expect(mapCalls).toBe(2)
   })
 
+  it.each(['/status', '/map', '/living'])('recovers startup and REST polling after a stalled %s read', async stalledPath => {
+    vi.useFakeTimers()
+    const stalled = deferred<Response>()
+    let stalledOnce = false
+    let stalledSignal: AbortSignal | null = null
+    let worldMinute = 1
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input)
+      if (path.endsWith(stalledPath) && !stalledOnce) {
+        stalledOnce = true
+        stalledSignal = init?.signal ?? null
+        return stalled.promise
+      }
+      if (path.endsWith('/living')) return new Response('null')
+      return responseFor(path, worldMinute, `Citizen ${worldMinute}`)
+    })
+    renderAppWithRecords()
+    await act(async () => { await vi.advanceTimersByTimeAsync(14_999) })
+    expect(liveMock.state.startCalls).toBe(0)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+    expect(liveMock.state.startCalls).toBe(1)
+    expect(stalledSignal).toMatchObject({ aborted: true })
+    if (stalledPath !== '/living') expect(screen.getByText(/did not respond within 15 seconds/)).toBeInTheDocument()
+
+    worldMinute = 2
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(screen.getByRole('button', { name: /^Citizen 2,/ })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/map'))).toHaveLength(stalledPath === '/map' ? 2 : 1)
+    expect(screen.queryByText(/did not respond within 15 seconds/)).not.toBeInTheDocument()
+
+    await act(async () => { stalled.resolve(responseFor(`/api/v1${stalledPath}`, 1, 'Stale citizen')) })
+    expect(screen.getByRole('button', { name: /^Citizen 2,/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Stale citizen,/ })).not.toBeInTheDocument()
+  })
+
   it('loads citizens and connects while secondary household and settlement requests are pending', async () => {
     liveMock.state.startMode = 'resolve'
     vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {

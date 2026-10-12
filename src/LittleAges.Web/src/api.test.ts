@@ -410,7 +410,7 @@ describe('API response parsing', () => {
       `/api/v1/citizens/${citizen.citizenId}/biography`,
       '/api/v1/statistics?limit=1',
     ])
-    expect(fetchMock.mock.calls.every(([, init]) => init === undefined)).toBe(true)
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method === undefined && init?.body === undefined && init?.signal instanceof AbortSignal)).toBe(true)
     fetchMock.mockRestore()
   })
 })
