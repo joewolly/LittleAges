@@ -69,6 +69,16 @@ and Open record. Details expands the portrait, needs and family action; Less
 collapses it. Close clears selection. Header controls and activity labels flow
 with their content instead of using fixed vertical offsets.
 
+## Observer read recovery
+
+The shared observer API reads and the living-world snapshot have a 15-second
+deadline covering both headers and response body. A stalled read aborts with
+a visible timeout error where the observer already reports read failures.
+This releases startup and refresh requests so the existing REST fallback can
+retry, rather than leaving the scene or records loading indefinitely. Optional
+404 responses retain their older-server behavior. Operational control requests
+are unchanged and are not retried by this deadline mechanism.
+
 ## Validation on 2026-10-07
 
 | Check | Result |

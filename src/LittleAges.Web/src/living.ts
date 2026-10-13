@@ -1,3 +1,5 @@
+import { readObserverResponse } from './observerRequest'
+
 type Point = { x: number; y: number }
 export const UNIFIED_RULES_VERSION = 'm13-rng1-unified1'
 const UNIFIED_LIVING_SUCCESSOR_RULES_VERSIONS = new Set(['m14-rng1-migration1', 'm15-rng1-roads1', 'm16-rng1-planned1', 'm16-rng1-festivals1', 'm17-rng1-newcomers1'])
@@ -66,11 +68,12 @@ export function festivalStatus(festival: Festival): string {
 }
 
 export async function fetchLivingWorld(): Promise<LivingWorld | null> {
-  const response = await fetch('/api/v1/living')
-  if (response.status === 404) return null
-  if (!response.ok) throw new Error('Living settlement could not be read.')
-  const body = await response.text()
-  return parseLivingWorld(body ? JSON.parse(body) : null)
+  return readObserverResponse('/api/v1/living', async response => {
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error('Living settlement could not be read.')
+    const body = await response.text()
+    return parseLivingWorld(body ? JSON.parse(body) : null)
+  })
 }
 
 export function livingLabel(value: string): string { return value.replace(/([a-z])([A-Z])/g, '$1 $2') }

@@ -1,4 +1,5 @@
 import { NEWCOMER_PHASES, type Newcomer, type NewcomerPhase } from './newcomers'
+import { readObserverResponse } from './observerRequest'
 
 export type Health = { ok: boolean; label: string }
 
@@ -369,9 +370,10 @@ export function parseStatus(value: unknown): Status {
 }
 
 async function get(path: string): Promise<unknown> {
-  const response = await fetch(path)
-  if (!response.ok) throw new Error(`Request failed (${response.status})`)
-  return readResponseValue(response)
+  return readObserverResponse(path, async response => {
+    if (!response.ok) throw new Error(`Request failed (${response.status})`)
+    return readResponseValue(response)
+  })
 }
 
 async function readResponseValue(response: Response): Promise<unknown> {
@@ -380,10 +382,11 @@ async function readResponseValue(response: Response): Promise<unknown> {
 }
 
 async function getIfFound(path: string): Promise<{ found: true; value: unknown } | { found: false }> {
-  const response = await fetch(path)
-  if (response.status === 404) return { found: false }
-  if (!response.ok) throw new Error(`Request failed (${response.status})`)
-  return { found: true, value: await readResponseValue(response) }
+  return readObserverResponse(path, async response => {
+    if (response.status === 404) return { found: false }
+    if (!response.ok) throw new Error(`Request failed (${response.status})`)
+    return { found: true, value: await readResponseValue(response) }
+  })
 }
 
 async function post(path: string, body?: unknown): Promise<unknown> {
