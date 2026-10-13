@@ -792,6 +792,66 @@ describe('citizen observer', () => {
     expect(statisticsPaths[1]).toBe('/api/v1/statistics?fromMinute=4320001&limit=100')
   })
 
+  it.each(['1', '9999999', 'invalid'])('paginates the applied statistics range despite an unsubmitted upper bound of %s', async draft => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/statistics?')) {
+        const params = new URL(path, 'http://localhost').searchParams
+        const from = Number(params.get('fromMinute') ?? 0)
+        const to = Number(params.get('toMinute') ?? Number.MAX_SAFE_INTEGER)
+        return new Response(JSON.stringify(Array.from({ length: 103 }, (_, index) => statisticsAt(index + 1))
+          .filter(sample => sample.worldMinute >= from && sample.worldMinute <= to).slice(0, 100)))
+      }
+      return responseFor(path, 12)
+    })
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '43200' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '4406400' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Load later samples' })).toBeEnabled())
+    const callsBeforeDraft = fetchMock.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: draft } })
+    expect(fetchMock.mock.calls).toHaveLength(callsBeforeDraft)
+    if (draft !== '9999999') {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(fetchMock.mock.calls).toHaveLength(callsBeforeDraft)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Load later samples' }))
+    await waitFor(() => expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(102))
+    const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
+    expect(paths.at(-1)).toBe('/api/v1/statistics?fromMinute=4320001&toMinute=4406400&limit=100')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps statistics controls and the applied query across tabs, Back and close/reopen', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).startsWith('/api/v1/statistics?')
+      ? new Response(JSON.stringify([statisticsSample])) : responseFor(String(input), 12))
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '43200' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '86400' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '99999' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Buildings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('43200')
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('99999')
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Close observer records' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('99999')
+    fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Statistics' }))
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('43200')
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('99999')
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?')).at(-1))
+      .toBe('/api/v1/statistics?fromMinute=43200&toMinute=86400&limit=100')
+  })
+
   it.each(['connected', 'REST fallback'])('retains loaded statistics pages and discovers new samples during %s refreshes', async mode => {
     vi.useFakeTimers()
     liveMock.state.startMode = mode === 'connected' ? 'resolve' : 'reject'
@@ -894,6 +954,9 @@ describe('citizen observer', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(101)
 
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '456' } })
+
     worldId = 'b'.repeat(64)
     await act(async () => {
       liveMock.state.emitWorldFrame({ revision: 1, status: { state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', worldInstanceId: worldId }, citizens: [citizen], structures: [structure] })
@@ -906,6 +969,8 @@ describe('citizen observer', () => {
     expect(rows[0].firstElementChild).toHaveTextContent('43,200')
     const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
     expect(paths.at(-1)).toBe('/api/v1/statistics?limit=100')
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('')
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('')
   })
 
   it('applies connected live frames without replacing the scene through REST', async () => {

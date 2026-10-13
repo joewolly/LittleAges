@@ -8,6 +8,7 @@
 .citizen-details dd { min-width: 0; overflow-wrap: anywhere; }
 .citizen-details dd .record-link { display: block; }
 .record-person-id { overflow-wrap: anywhere; }
+.statistics-surface .population-trend { overflow-x: auto; }
 .people-surface .section-heading { margin-bottom: 12px; }
 .citizens-subviews { margin-bottom: 12px; }
 .observer-drawer .observer-button, .record-link, .person-select { min-height: 44px; }

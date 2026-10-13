@@ -26,6 +26,9 @@ start Follow automatically.
 Statistics refreshes retain loaded pages and reread the current page for new
 monthly samples. Each request stays bounded to 100 samples. Applying a new
 minute range replaces the table; changing worlds restarts pagination.
+Minute inputs remain drafts until Apply range succeeds. Pagination and refresh
+use the applied range, even when a draft is invalid or differs from the table.
+Draft inputs survive tabs, Back and close/reopen; changing worlds clears them.
 
 On screens below 700 pixels, and phone landscape below 951 by 501 pixels,
 records fill the viewport. A section selector replaces the tab bar, and a
