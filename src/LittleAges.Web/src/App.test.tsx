@@ -142,6 +142,241 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it.each(['person', 'close'])('can retry an interrupted building history page after %s navigation', async mode => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    const oldPage = deferred<Response>()
+    let pageCalls = 0
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/history?')) {
+        if (path.includes('beforeEventId=')) {
+          pageCalls += 1
+          return pageCalls === 1 ? oldPage.promise : new Response(JSON.stringify([historyEvent(250)]))
+        }
+        return new Response(JSON.stringify(Array.from({ length: 50 }, (_, index) => historyEvent(300 - index))))
+      }
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Buildings')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View building history' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
+    if (mode === 'person') {
+      fireEvent.click(screen.getAllByRole('button', { name: `Elara Venn · #${citizen.citizenId}` })[0])
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: 'Close observer records' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    }
+    await act(async () => { oldPage.resolve(new Response(JSON.stringify([historyEvent(249)]))); await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.queryByText('Historical event 249')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Load older events' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Historical event 250')).toBeInTheDocument()
+    expect(pageCalls).toBe(2)
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.includes('beforeEventId=')))
+      .toEqual(Array(2).fill('/api/v1/history?minimumImportance=2&structureId=2&beforeEventId=251&limit=50'))
+  })
+
+  it('stops statistics pagination when a full page reaches the applied upper bound', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).startsWith('/api/v1/statistics?')
+      ? new Response(JSON.stringify(Array.from({ length: 100 }, (_, index) => statisticsAt(index + 1)))) : responseFor(String(input), 42))
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '4320000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(100)
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not paginate stale statistics into a different range after Apply fails', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/statistics?')) return path.includes('fromMinute=8640000')
+        ? new Response('Temporarily unavailable', { status: 503 })
+        : new Response(JSON.stringify(Array.from({ length: 100 }, (_, index) => statisticsAt(index + 1))))
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '8640000' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '12960000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await screen.findByText(/Statistics unavailable:/)
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('8640000')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?')).at(-1))
+      .toBe('/api/v1/statistics?fromMinute=8640000&toMinute=12960000&limit=100')
+  })
+
+  it('opens named building occupants and contributors, including dead and missing records, without moving the camera', async () => {
+    const dead = { ...citizen, citizenId: '7', name: 'Bram Vale', isAlive: false, currentAction: 'Dead', deathMinute: 24, deathCause: 'starvation' }
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/citizens')) return new Response(JSON.stringify([citizen, dead]))
+      if (path.endsWith('/structures')) return new Response(JSON.stringify([{ ...structure, currentOccupantIds: [citizen.citizenId, '7', '99'] }]))
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Buildings')
+    const occupants = await screen.findByRole('region', { name: 'Current occupants of Shelter #2' })
+    expect(within(occupants).getByText('Citizen #99 · record unavailable')).toBeInTheDocument()
+    const mapBefore = (await screen.findByRole('img', { name: /Settlement map/ })).getAttribute('aria-label')
+    const body = document.querySelector('.observer-drawer-body')!
+    body.scrollTop = 120
+    fireEvent.click(within(occupants).getByRole('button', { name: 'Bram Vale · #7' }))
+    expect(await screen.findByRole('heading', { name: 'Bram Vale', level: 3 })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Locate on map' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Follow on map' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(body.scrollTop).toBe(120)
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    expect(screen.getByRole('heading', { name: 'Shelter #2', level: 2 })).toHaveFocus()
+    expect(screen.getByText('Construction contributors')).toBeInTheDocument()
+    const contributors = screen.getByRole('region', { name: 'Recorded construction contributions' })
+    expect(within(contributors).getByText('Work 7 · wood 3 · stone 1')).toBeInTheDocument()
+    fireEvent.click(within(contributors).getByRole('button', { name: `Elara Venn · #${citizen.citizenId}` }))
+    expect(await screen.findByRole('heading', { name: 'Elara Venn', level: 3 })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('heading', { name: 'Shelter #2', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Settlement map/ })).toHaveAttribute('aria-label', mapBefore)
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true)
+  })
+
+  it('links citizen, household and historical structure references to a building and restores Back', async () => {
+    const event = { ...historicalEvent, structureLinks: [{ eventId: historicalEvent.eventId, structureId: '2', role: 'subject' }, { eventId: historicalEvent.eventId, structureId: '99', role: 'subject' }] }
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/citizens')) return new Response(JSON.stringify([{ ...citizen, householdId: '3' }]))
+      if (path.endsWith('/households/3')) return new Response(JSON.stringify({ ...household, dwellingStructureId: '2' }))
+      if (path.startsWith('/api/v1/history?')) return new Response(JSON.stringify([event]))
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords()
+    await selectPerson()
+    expect(screen.getByText('Structure #1 · record unavailable')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    expect(screen.getByRole('heading', { name: 'Shelter #2', level: 2 })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('heading', { name: 'Elara Venn', level: 3 })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View household details' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Shelter #2' }))
+    expect(screen.getByRole('heading', { name: 'Shelter #2', level: 2 })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'Household 3', level: 3 })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'History' }))
+    expect(await screen.findByText('Structure #99 · record unavailable')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByText('Elara Venn was born.')).toBeInTheDocument()
+  })
+
+  it('keeps bounded building history pages and filters through person/building Back navigation and isolates other building scopes', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/structures')) return new Response(JSON.stringify([structure, { ...structure, structureId: '3', type: 'Workshop', capacity: null, constructionMultiplierBasisPoints: 11000 }]))
+      if (path.startsWith('/api/v1/history?')) {
+        const params = new URL(path, 'http://localhost').searchParams
+        if (params.get('structureId') === '3') return new Response(JSON.stringify([]))
+        const events = params.has('beforeEventId') ? [historyEvent(250)] : Array.from({ length: 50 }, (_, index) => historyEvent(300 - index))
+        return new Response(JSON.stringify(events.map(event => ({ ...event, structureLinks: [{ eventId: event.eventId, structureId: '2', role: 'subject' }] }))))
+      }
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Buildings')
+    fireEvent.click(await screen.findByRole('button', { name: 'Shelter #2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View building history' }))
+    await screen.findByText('Historical event 300')
+    expect(screen.getByRole('heading', { name: 'History for Shelter #2' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Structure ID')).toHaveValue('2')
+    expect(screen.getByLabelText('Family root ID')).toHaveValue('')
+    fireEvent.change(screen.getByLabelText('Minimum importance'), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await waitFor(() => expect(screen.queryByText('Loading history…')).not.toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Structure ID'), { target: { value: '99' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
+    await screen.findByText('Historical event 250')
+    fireEvent.click(screen.getAllByRole('button', { name: `Elara Venn · #${citizen.citizenId}` })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByText('Historical event 250')).toBeInTheDocument()
+    expect(screen.getByLabelText('Minimum importance')).toHaveValue('3')
+    expect(screen.getByLabelText('Structure ID')).toHaveValue('99')
+    expect(screen.getByRole('heading', { name: 'History for Shelter #2' })).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Shelter #2' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByText('Historical event 250')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Buildings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Workshop #3' }))
+    expect(screen.getByText('1.1×')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View building history' }))
+    await screen.findByText('No historical events match these filters.')
+    const workshopHistory = within(screen.getByRole('region', { name: 'History for Workshop #3' }))
+    expect(workshopHistory.getByLabelText('Structure ID')).toHaveValue('3')
+    expect(workshopHistory.getByLabelText('Minimum importance')).toHaveValue('2')
+    const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/history?'))
+    expect(paths).toContain('/api/v1/history?minimumImportance=3&structureId=2&beforeEventId=251&limit=50')
+    expect(paths.at(-1)).toBe('/api/v1/history?minimumImportance=2&structureId=3&limit=50')
+    expect(paths.every(path => new URL(path, 'http://localhost').searchParams.get('limit') === '50')).toBe(true)
+  })
+
+  it('handles older structure snapshots and an unavailable building history endpoint without inventing records', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/structures')) return new Response(JSON.stringify([{ ...structure, currentOccupantIds: undefined, contributions: undefined }]))
+      if (path.startsWith('/api/v1/history?')) return new Response('Not found', { status: 404 })
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Buildings')
+    await screen.findByText('No current occupants recorded.')
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    expect(screen.getByText('No construction contributions recorded.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View building history' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('History unavailable:')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('heading', { name: 'Shelter #2', level: 2 })).toBeInTheDocument()
+  })
+
+  it('clears building/history navigation and fences late history pages on world replacement', async () => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    let worldId = 'a'.repeat(64)
+    const oldPage = deferred<Response>()
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/status')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 42, pendingEventCount: 1, worldSeed: '42', worldInstanceId: worldId }))
+      if (path.startsWith('/api/v1/history?')) {
+        if (path.includes('beforeEventId=')) return oldPage.promise
+        return new Response(JSON.stringify(worldId.startsWith('a') ? Array.from({ length: 50 }, (_, index) => historyEvent(300 - index)) : [historyEvent(1)]))
+      }
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Buildings')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View building history' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
+    worldId = 'b'.repeat(64)
+    await act(async () => {
+      liveMock.state.emitWorldFrame({ revision: 1, status: { state: 'Running', worldMinute: 42, pendingEventCount: 1, worldSeed: '42', worldInstanceId: worldId }, citizens: [citizen], structures: [] })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => { oldPage.resolve(new Response(JSON.stringify([historyEvent(250)]))); await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByRole('heading', { name: 'What the world remembers' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Structure ID')).toHaveValue('')
+    expect(screen.queryByText('Historical event 250')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('tab', { name: 'Buildings' }))
+    expect(screen.getByRole('heading', { name: 'Shelter, stores, and workshop' })).toBeInTheDocument()
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true)
+  })
+
   it('keeps the loaded biography when reopening the same person from Family', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/biography')
       ? new Response(JSON.stringify({ citizen, events: [historicalEvent], memories: [], parentIds: [], partnerId: null, childrenIds: [], birthMinute: 12, deathMinute: null, deathCause: null }))
@@ -176,7 +411,7 @@ describe('citizen observer', () => {
     await selectPerson()
     fireEvent.click(screen.getByRole('button', { name: 'View biography' }))
     await screen.findByText(/Biography unavailable:/)
-    fireEvent.click(screen.getByRole('button', { name: 'View family' }))
+    fireEvent.click(within(document.querySelector('.citizen-record')!).getByRole('button', { name: 'View family' }))
     fireEvent.click(screen.getByRole('button', { name: 'Biography' }))
     expect(screen.getByText(/Biography unavailable:/)).toBeVisible()
     expect(screen.queryByText('Loading biography…')).not.toBeInTheDocument()
@@ -792,6 +1027,66 @@ describe('citizen observer', () => {
     expect(statisticsPaths[1]).toBe('/api/v1/statistics?fromMinute=4320001&limit=100')
   })
 
+  it.each(['1', '9999999', 'invalid'])('paginates the applied statistics range despite an unsubmitted upper bound of %s', async draft => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/statistics?')) {
+        const params = new URL(path, 'http://localhost').searchParams
+        const from = Number(params.get('fromMinute') ?? 0)
+        const to = Number(params.get('toMinute') ?? Number.MAX_SAFE_INTEGER)
+        return new Response(JSON.stringify(Array.from({ length: 103 }, (_, index) => statisticsAt(index + 1))
+          .filter(sample => sample.worldMinute >= from && sample.worldMinute <= to).slice(0, 100)))
+      }
+      return responseFor(path, 12)
+    })
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '43200' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '4406400' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Load later samples' })).toBeEnabled())
+    const callsBeforeDraft = fetchMock.mock.calls.length
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: draft } })
+    expect(fetchMock.mock.calls).toHaveLength(callsBeforeDraft)
+    if (draft !== '9999999') {
+      fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(fetchMock.mock.calls).toHaveLength(callsBeforeDraft)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Load later samples' }))
+    await waitFor(() => expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(102))
+    const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
+    expect(paths.at(-1)).toBe('/api/v1/statistics?fromMinute=4320001&toMinute=4406400&limit=100')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps statistics controls and the applied query across tabs, Back and close/reopen', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).startsWith('/api/v1/statistics?')
+      ? new Response(JSON.stringify([statisticsSample])) : responseFor(String(input), 12))
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '43200' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '86400' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '99999' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Buildings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('43200')
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('99999')
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Close observer records' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('99999')
+    fireEvent.click(screen.getByRole('tab', { name: 'Citizens' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Statistics' }))
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('43200')
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('99999')
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?')).at(-1))
+      .toBe('/api/v1/statistics?fromMinute=43200&toMinute=86400&limit=100')
+  })
+
   it.each(['connected', 'REST fallback'])('retains loaded statistics pages and discovers new samples during %s refreshes', async mode => {
     vi.useFakeTimers()
     liveMock.state.startMode = mode === 'connected' ? 'resolve' : 'reject'
@@ -894,6 +1189,9 @@ describe('citizen observer', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(101)
 
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '456' } })
+
     worldId = 'b'.repeat(64)
     await act(async () => {
       liveMock.state.emitWorldFrame({ revision: 1, status: { state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', worldInstanceId: worldId }, citizens: [citizen], structures: [structure] })
@@ -906,6 +1204,8 @@ describe('citizen observer', () => {
     expect(rows[0].firstElementChild).toHaveTextContent('43,200')
     const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
     expect(paths.at(-1)).toBe('/api/v1/statistics?limit=100')
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('')
+    expect(screen.getByLabelText('Statistics to minute')).toHaveValue('')
   })
 
   it('applies connected live frames without replacing the scene through REST', async () => {

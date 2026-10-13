@@ -17,6 +17,24 @@ relationships. Person references in household and historical records open
 the same inspector. Missing roster records remain explicit. No ancestry or
 events are inferred.
 
+Building cards name the recorded current occupants and link to their person
+records. Open a building to read its location, start/completion minutes,
+materials, work, condition, type-specific capacity/bonuses or crop stage, and
+named construction contributions. Citizen home/build targets, household
+dwellings and historical structure links open the same building record.
+Missing references remain explicit; dead people keep their records and have
+unavailable map actions. Reading a building or person never moves the camera.
+
+View building history opens History with that structure's ID applied, using
+the existing factual history endpoint and 50-event pages. Each building,
+family and general-history view retains its own filters and loaded pages when
+returning with Back. World replacement clears building selection and history
+scopes and fences pending responses from the previous world. Older snapshots
+without occupant/contributor lists show that no records were supplied;
+unavailable history endpoints show the existing readable error.
+If navigation interrupts loading an older history page, returning releases
+the loading control so it can be retried; the cancelled response stays fenced.
+
 Back retains the last 50 navigation steps, including the directory query and
 page, selected record, Family root/direction/depth/search/relation pages,
 History filters and loaded pages, and record/list/graph scroll positions.
@@ -26,6 +44,13 @@ start Follow automatically.
 Statistics refreshes retain loaded pages and reread the current page for new
 monthly samples. Each request stays bounded to 100 samples. Applying a new
 minute range replaces the table; changing worlds restarts pagination.
+Minute inputs remain drafts until Apply range succeeds. Pagination and refresh
+use the applied range, even when a draft is invalid or differs from the table.
+Draft inputs survive tabs, Back and close/reopen; changing worlds clears them.
+Long population trends scroll inside the chart rather than widening the drawer.
+Pagination stops at the applied upper minute even when the last page is full.
+Apply clears the previous table before reading the new range, so a failed read
+cannot append old-range samples into the new range. Refresh retains loaded pages.
 
 On screens below 700 pixels, and phone landscape below 951 by 501 pixels,
 records fill the viewport. A section selector replaces the tab bar, and a

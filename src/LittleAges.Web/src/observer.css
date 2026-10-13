@@ -8,6 +8,19 @@
 .citizen-details dd { min-width: 0; overflow-wrap: anywhere; }
 .citizen-details dd .record-link { display: block; }
 .record-person-id { overflow-wrap: anywhere; }
+.statistics-surface .population-trend { overflow-x: auto; }
+.observer-drawer-body[data-tab="buildings"] > .building-record { display: block; }
+.structure-card, .building-record { min-width: 0; overflow-wrap: anywhere; }
+.structure-grid { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
+.structure-card-heading h3 { min-width: 0; }
+.structure-card-heading > span { flex-shrink: 0; }
+.building-occupants, .building-contributions { margin-block: 16px; }
+.building-occupants h4, .building-contributions h4 { margin: 0 0 6px; }
+.building-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.building-people li { display: grid; min-width: 0; }
+.building-people small, .building-people li > span { overflow-wrap: anywhere; }
+.building-people small { color: #67503d; }
+.building-record .structure-details { font-size: 14px; }
 .people-surface .section-heading { margin-bottom: 12px; }
 .citizens-subviews { margin-bottom: 12px; }
 .observer-drawer .observer-button, .record-link, .person-select { min-height: 44px; }
