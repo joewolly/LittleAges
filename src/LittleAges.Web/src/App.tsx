@@ -122,7 +122,11 @@ function HistorySurface({ citizens, structures, refreshToken, initialFamilyId, i
   const completedRefresh = useRef('')
   useEffect(() => {
     const refresh = `${refreshToken}:${revision}`
-    if (completedRefresh.current === refresh) return () => { requestRevision.current += 1 }
+    if (completedRefresh.current === refresh) {
+      const request = requestRevision.current
+      queueMicrotask(() => { if (requestRevision.current === request) setLoadingMore(false) })
+      return () => { requestRevision.current += 1 }
+    }
     const request = requestRevision.current + 1
     requestRevision.current = request
     queueMicrotask(() => { if (requestRevision.current === request) { setLoading(true); setLoadingMore(false); setError(null) } })
@@ -157,7 +161,7 @@ function BiographySurface({ biography, loading, error, onFamily, citizens, onPer
 
 type StatisticsDraft = { fromMinute: string; toMinute: string }
 
-function StatisticsSurface({ samples, loading, error, hasMore, refreshToken, draft, onDraft, appliedRange, onQuery, onRefresh }: { draft: StatisticsDraft; onDraft: (draft: StatisticsDraft) => void; appliedRange: StatisticsQuery; samples: StatisticsSample[] | null; loading: boolean; error: string | null; hasMore: boolean; refreshToken: number; onQuery: (query: StatisticsQuery, append: boolean) => void; onRefresh: () => void }) {
+function StatisticsSurface({ samples, loading, error, hasMore, refreshToken, draft, onDraft, appliedRange, onApply, onQuery, onRefresh }: { draft: StatisticsDraft; onDraft: (draft: StatisticsDraft) => void; appliedRange: StatisticsQuery; samples: StatisticsSample[] | null; loading: boolean; error: string | null; hasMore: boolean; refreshToken: number; onApply: (query: StatisticsQuery) => void; onQuery: (query: StatisticsQuery, append: boolean) => void; onRefresh: () => void }) {
   const { fromMinute, toMinute } = draft
   const [rangeError, setRangeError] = useState<string | null>(null)
   useEffect(() => {
@@ -165,7 +169,7 @@ function StatisticsSurface({ samples, loading, error, hasMore, refreshToken, dra
   }, [onRefresh, refreshToken])
   const maxPopulation = samples === null ? 1 : Math.max(...samples.map(sample => sample.population), 1)
   const readRange = (): StatisticsQuery => ({ fromMinute: fromMinute === '' ? undefined : Number(fromMinute), toMinute: toMinute === '' ? undefined : Number(toMinute), limit: STATISTICS_PAGE_SIZE })
-  const applyRange = () => { try { const query = readRange(); buildStatisticsQuery(query); setRangeError(null); onQuery(query, false) } catch (reason: unknown) { setRangeError(errorText(reason, 'Invalid statistics range.')) } }
+  const applyRange = () => { try { const query = readRange(); buildStatisticsQuery(query); setRangeError(null); onApply(query) } catch (reason: unknown) { setRangeError(errorText(reason, 'Invalid statistics range.')) } }
   const loadNext = () => {
     if (!hasMore || loading || samples === null || samples.length === 0) return
     const lastMinute = samples[samples.length - 1].worldMinute
@@ -379,7 +383,8 @@ export function App() {
       if (connection !== null) void connection.stop().catch(() => undefined)
     }
   }, [])
-  const requestStatistics = useCallback((query: StatisticsQuery, append: boolean) => { if (!append) setStatisticsAppliedRange(query); statisticsRefreshRequest.current = { query, append }; const request = statisticsRequest.current + 1; statisticsRequest.current = request; setStatisticsLoading(true); setStatisticsError(null); void fetchStatistics(query).then(value => { if (statisticsRequest.current !== request) return; setStatistics(previous => { if (!append || previous === null) return value; const byMinute = new Map(previous.map(sample => [sample.worldMinute, sample])); for (const sample of value) byMinute.set(sample.worldMinute, sample); return [...byMinute.values()].sort((first, second) => first.worldMinute - second.worldMinute) }); setStatisticsHasMore(value.length === STATISTICS_PAGE_SIZE) }).catch(reason => { if (statisticsRequest.current === request) setStatisticsError(errorText(reason, 'Statistics could not be read.')) }).finally(() => { if (statisticsRequest.current === request) setStatisticsLoading(false) }) }, [])
+  const requestStatistics = useCallback((query: StatisticsQuery, append: boolean) => { if (!append) setStatisticsAppliedRange(query); statisticsRefreshRequest.current = { query, append }; const request = statisticsRequest.current + 1; statisticsRequest.current = request; setStatisticsLoading(true); setStatisticsError(null); void fetchStatistics(query).then(value => { if (statisticsRequest.current !== request) return; setStatistics(previous => { if (!append || previous === null) return value; const byMinute = new Map(previous.map(sample => [sample.worldMinute, sample])); for (const sample of value) byMinute.set(sample.worldMinute, sample); return [...byMinute.values()].sort((first, second) => first.worldMinute - second.worldMinute) }); setStatisticsHasMore(value.length === STATISTICS_PAGE_SIZE && (query.toMinute === undefined || value[value.length - 1].worldMinute < query.toMinute)) }).catch(reason => { if (statisticsRequest.current === request) setStatisticsError(errorText(reason, 'Statistics could not be read.')) }).finally(() => { if (statisticsRequest.current === request) setStatisticsLoading(false) }) }, [])
+  const applyStatistics = useCallback((query: StatisticsQuery) => { setStatistics(null); setStatisticsHasMore(false); requestStatistics(query, false) }, [requestStatistics])
   const refreshStatistics = useCallback(() => { const { query, append } = statisticsRefreshRequest.current; requestStatistics(query, append) }, [requestStatistics])
   useEffect(() => {
     const request = relationshipRequest.current + 1
@@ -554,6 +559,6 @@ export function App() {
     </Activity>
     {familyVisited && <Activity mode={recordsTab === 'Family' ? 'visible' : 'hidden'}><FamilyRecords citizens={citizens ?? []} state={familyState} onChange={next => { if (next.root !== familyState.root) remember(); setFamilyState(next) }} onBiography={openBiographyRecord} onHistory={openFamilyHistory} onFollow={followFamily} followingId={followingCitizenId} onLocate={locatePerson} favorites={favorites.ids} onFavorite={favorites.toggle} /></Activity>}
     {historyRoots.map(root => <Activity key={`${status.worldInstanceId ?? 'session'}:${historyScopeKey(root)}`} mode={recordsTab === 'History' && historyScopeKey(historyScope) === historyScopeKey(root) ? 'visible' : 'hidden'}><HistorySurface citizens={citizens ?? []} structures={structures ?? []} refreshToken={liveRefreshRevision} initialFamilyId={root.familyId} initialStructureId={root.structureId} onPerson={selectCitizen} onStructure={selectStructure} /></Activity>)}
-    {recordsTab === 'Statistics' && <StatisticsSurface draft={statisticsDraft} onDraft={setStatisticsDraft} appliedRange={statisticsAppliedRange} samples={statistics} loading={statisticsLoading} error={statisticsError} hasMore={statisticsHasMore} refreshToken={liveRefreshRevision} onQuery={requestStatistics} onRefresh={refreshStatistics} />}</div></aside></Activity><button ref={recordsButton} type="button" className="observer-records-toggle" aria-expanded={recordsOpen} onClick={() => recordsOpen ? closeRecords() : setRecordsOpen(true)}><HudIcon name="book" />{recordsOpen ? 'Close records' : 'Observer records'}</button><footer><span>Little Ages · Living observer</span><span>Controls affect operational pacing only.</span></footer>
+    {recordsTab === 'Statistics' && <StatisticsSurface draft={statisticsDraft} onDraft={setStatisticsDraft} appliedRange={statisticsAppliedRange} onApply={applyStatistics} samples={statistics} loading={statisticsLoading} error={statisticsError} hasMore={statisticsHasMore} refreshToken={liveRefreshRevision} onQuery={requestStatistics} onRefresh={refreshStatistics} />}</div></aside></Activity><button ref={recordsButton} type="button" className="observer-records-toggle" aria-expanded={recordsOpen} onClick={() => recordsOpen ? closeRecords() : setRecordsOpen(true)}><HudIcon name="book" />{recordsOpen ? 'Close records' : 'Observer records'}</button><footer><span>Little Ages · Living observer</span><span>Controls affect operational pacing only.</span></footer>
   </main>
 }

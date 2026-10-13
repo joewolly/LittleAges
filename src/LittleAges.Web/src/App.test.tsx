@@ -142,6 +142,80 @@ beforeEach(() => {
 })
 
 describe('citizen observer', () => {
+  it.each(['person', 'close'])('can retry an interrupted building history page after %s navigation', async mode => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    const oldPage = deferred<Response>()
+    let pageCalls = 0
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/history?')) {
+        if (path.includes('beforeEventId=')) {
+          pageCalls += 1
+          return pageCalls === 1 ? oldPage.promise : new Response(JSON.stringify([historyEvent(250)]))
+        }
+        return new Response(JSON.stringify(Array.from({ length: 50 }, (_, index) => historyEvent(300 - index))))
+      }
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Buildings')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Shelter #2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'View building history' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
+    if (mode === 'person') {
+      fireEvent.click(screen.getAllByRole('button', { name: `Elara Venn · #${citizen.citizenId}` })[0])
+      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: 'Close observer records' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Observer records' }))
+    }
+    await act(async () => { oldPage.resolve(new Response(JSON.stringify([historyEvent(249)]))); await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.queryByText('Historical event 249')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Load older events' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Historical event 250')).toBeInTheDocument()
+    expect(pageCalls).toBe(2)
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.includes('beforeEventId=')))
+      .toEqual(Array(2).fill('/api/v1/history?minimumImportance=2&structureId=2&beforeEventId=251&limit=50'))
+  })
+
+  it('stops statistics pagination when a full page reaches the applied upper bound', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).startsWith('/api/v1/statistics?')
+      ? new Response(JSON.stringify(Array.from({ length: 100 }, (_, index) => statisticsAt(index + 1)))) : responseFor(String(input), 42))
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '4320000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await waitFor(() => expect(screen.queryByText('Loading statistics…')).not.toBeInTheDocument())
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(100)
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('does not paginate stale statistics into a different range after Apply fails', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/statistics?')) return path.includes('fromMinute=8640000')
+        ? new Response('Temporarily unavailable', { status: 503 })
+        : new Response(JSON.stringify(Array.from({ length: 100 }, (_, index) => statisticsAt(index + 1))))
+      return responseFor(path, 42)
+    })
+    renderAppWithRecords('Statistics')
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '8640000' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '12960000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await screen.findByText(/Statistics unavailable:/)
+    expect(screen.getByLabelText('Statistics from minute')).toHaveValue('8640000')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?')).at(-1))
+      .toBe('/api/v1/statistics?fromMinute=8640000&toMinute=12960000&limit=100')
+  })
+
   it('opens named building occupants and contributors, including dead and missing records, without moving the camera', async () => {
     const dead = { ...citizen, citizenId: '7', name: 'Bram Vale', isAlive: false, currentAction: 'Dead', deathMinute: 24, deathCause: 'starvation' }
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {

@@ -32,6 +32,8 @@ returning with Back. World replacement clears building selection and history
 scopes and fences pending responses from the previous world. Older snapshots
 without occupant/contributor lists show that no records were supplied;
 unavailable history endpoints show the existing readable error.
+If navigation interrupts loading an older history page, returning releases
+the loading control so it can be retried; the cancelled response stays fenced.
 
 Back retains the last 50 navigation steps, including the directory query and
 page, selected record, Family root/direction/depth/search/relation pages,
@@ -46,6 +48,9 @@ Minute inputs remain drafts until Apply range succeeds. Pagination and refresh
 use the applied range, even when a draft is invalid or differs from the table.
 Draft inputs survive tabs, Back and close/reopen; changing worlds clears them.
 Long population trends scroll inside the chart rather than widening the drawer.
+Pagination stops at the applied upper minute even when the last page is full.
+Apply clears the previous table before reading the new range, so a failed read
+cannot append old-range samples into the new range. Refresh retains loaded pages.
 
 On screens below 700 pixels, and phone landscape below 951 by 501 pixels,
 records fill the viewport. A section selector replaces the tab bar, and a
