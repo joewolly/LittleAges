@@ -23,6 +23,10 @@ History filters and loaded pages, and record/list/graph scroll positions.
 Close/reopen preserves the current records view. Selection and reading never
 start Follow automatically.
 
+Statistics refreshes retain loaded pages and reread the current page for new
+monthly samples. Each request stays bounded to 100 samples. Applying a new
+minute range replaces the table; changing worlds restarts pagination.
+
 On screens below 700 pixels, and phone landscape below 951 by 501 pixels,
 records fill the viewport. A section selector replaces the tab bar, and a
 person's detail replaces the directory. Back and Close remain available in

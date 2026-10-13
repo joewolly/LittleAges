@@ -792,6 +792,122 @@ describe('citizen observer', () => {
     expect(statisticsPaths[1]).toBe('/api/v1/statistics?fromMinute=4320001&limit=100')
   })
 
+  it.each(['connected', 'REST fallback'])('retains loaded statistics pages and discovers new samples during %s refreshes', async mode => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = mode === 'connected' ? 'resolve' : 'reject'
+    let sampleCount = 201
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/statistics?')) {
+        const params = new URL(path, 'http://localhost').searchParams
+        const fromMinute = Number(params.get('fromMinute') ?? 0)
+        const samples = Array.from({ length: sampleCount }, (_, index) => statisticsAt(index + 1))
+        return new Response(JSON.stringify(samples.filter(sample => sample.worldMinute >= fromMinute).slice(0, 100)))
+      }
+      return responseFor(path, 12)
+    })
+    renderAppWithRecords('Statistics')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    for (let page = 0; page < 2; page += 1) {
+      fireEvent.click(screen.getByRole('button', { name: 'Load later samples' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    }
+    const table = screen.getByRole('table')
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(201)
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+
+    sampleCount = 202
+    await act(async () => {
+      if (mode === 'connected') liveMock.state.emitWorldChanged({ revision: 2, worldMinute: 13 })
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    const rows = table.querySelectorAll('tbody tr')
+    expect(rows).toHaveLength(202)
+    expect(rows[0].firstElementChild).toHaveTextContent('43,200')
+    expect(rows[100].firstElementChild).toHaveTextContent('4,363,200')
+    expect(rows[201].firstElementChild).toHaveTextContent('8,726,400')
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+    const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
+    expect(paths.at(-1)).toBe('/api/v1/statistics?fromMinute=8640001&limit=100')
+  })
+
+  it('replaces loaded statistics pages when applying a range and fences a late refresh', async () => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    const oldRefresh = deferred<Response>()
+    let holdRefresh = false
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.startsWith('/api/v1/statistics?')) {
+        const params = new URL(path, 'http://localhost').searchParams
+        const fromMinute = Number(params.get('fromMinute') ?? 0)
+        const toMinute = Number(params.get('toMinute') ?? Number.MAX_SAFE_INTEGER)
+        if (holdRefresh && fromMinute === 4320001) return oldRefresh.promise
+        return new Response(JSON.stringify(Array.from({ length: 102 }, (_, index) => statisticsAt(index + 1))
+          .filter(sample => sample.worldMinute >= fromMinute && sample.worldMinute <= toMinute).slice(0, 100)))
+      }
+      return responseFor(path, 12)
+    })
+    renderAppWithRecords('Statistics')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Load later samples' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(102)
+
+    holdRefresh = true
+    liveMock.state.emitReconnected()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByText('Loading statistics…')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Statistics from minute'), { target: { value: '4406400' } })
+    fireEvent.change(screen.getByLabelText('Statistics to minute'), { target: { value: '4406400' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply range' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    await act(async () => { oldRefresh.resolve(new Response(JSON.stringify([statisticsAt(101)]))); await vi.advanceTimersByTimeAsync(0) })
+    liveMock.state.emitReconnected()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    const rows = screen.getByRole('table').querySelectorAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].firstElementChild).toHaveTextContent('4,406,400')
+    expect(screen.queryByRole('button', { name: 'Load later samples' })).not.toBeInTheDocument()
+    const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
+    expect(paths.at(-1)).toBe('/api/v1/statistics?fromMinute=4406400&toMinute=4406400&limit=100')
+  })
+
+  it('starts statistics at the first page after an identified world replacement', async () => {
+    vi.useFakeTimers()
+    liveMock.state.startMode = 'resolve'
+    let worldId = 'a'.repeat(64)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+      const path = String(input)
+      if (path.endsWith('/status')) return new Response(JSON.stringify({ state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', worldInstanceId: worldId }))
+      if (path.startsWith('/api/v1/statistics?')) {
+        const fromMinute = Number(new URL(path, 'http://localhost').searchParams.get('fromMinute') ?? 0)
+        const samples = worldId.startsWith('a') ? Array.from({ length: 101 }, (_, index) => statisticsAt(index + 1)) : [statisticsAt(1)]
+        return new Response(JSON.stringify(samples.filter(sample => sample.worldMinute >= fromMinute).slice(0, 100)))
+      }
+      return responseFor(path, 12)
+    })
+    renderAppWithRecords('Statistics')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: 'Load later samples' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(screen.getByRole('table').querySelectorAll('tbody tr')).toHaveLength(101)
+
+    worldId = 'b'.repeat(64)
+    await act(async () => {
+      liveMock.state.emitWorldFrame({ revision: 1, status: { state: 'Running', worldMinute: 12, pendingEventCount: 1, worldSeed: '42', worldInstanceId: worldId }, citizens: [citizen], structures: [structure] })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    liveMock.state.emitReconnected()
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    const rows = screen.getByRole('table').querySelectorAll('tbody tr')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].firstElementChild).toHaveTextContent('43,200')
+    const paths = fetchMock.mock.calls.map(([input]) => String(input)).filter(path => path.startsWith('/api/v1/statistics?'))
+    expect(paths.at(-1)).toBe('/api/v1/statistics?limit=100')
+  })
+
   it('applies connected live frames without replacing the scene through REST', async () => {
     liveMock.state.startMode = 'resolve'
     let statusCalls = 0

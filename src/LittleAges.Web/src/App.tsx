@@ -202,7 +202,9 @@ export function App() {
   const [recordsOpen, setRecordsOpen] = useState(false); const [recordsTab, setRecordsTab] = useState<ObserverTab>('Overview'); const recordsButton = useRef<HTMLButtonElement>(null); const recordsCloseButton = useRef<HTMLButtonElement>(null)
   const [selectedCitizenId, setSelectedCitizenId] = useState<string | null>(null); const [relationshipCitizenId, setRelationshipCitizenId] = useState<string | null>(null); const [selectedBiographyCitizenId, setSelectedBiographyCitizenId] = useState<string | null>(null); const [relationships, setRelationships] = useState<Relationship[] | null>(null); const [relationshipError, setRelationshipError] = useState<string | null>(null); const [relationshipsLoading, setRelationshipsLoading] = useState(false); const [selectedHouseholdId, setSelectedHouseholdId] = useState<string | null>(null); const [selectedHousehold, setSelectedHousehold] = useState<Household | null>(null); const [householdError, setHouseholdError] = useState<string | null>(null); const [biography, setBiography] = useState<CitizenBiography | null>(null); const [biographyError, setBiographyError] = useState<string | null>(null); const [biographyLoading, setBiographyLoading] = useState(false); const [statistics, setStatistics] = useState<StatisticsSample[] | null>(null); const [statisticsError, setStatisticsError] = useState<string | null>(null); const [statisticsLoading, setStatisticsLoading] = useState(true); const [statisticsHasMore, setStatisticsHasMore] = useState(false); const [liveConnectionState, setLiveConnectionState] = useState<LiveConnectionState>('connecting'); const [liveRefreshRevision, setLiveRefreshRevision] = useState(0)
   const favorites = useFavorites(status.worldInstanceId ?? null)
-  const relationshipRequest = useRef(0); const householdRequest = useRef(0); const biographyRequest = useRef(0); const statisticsRequest = useRef(0); const statisticsBaseQuery = useRef<StatisticsQuery>({ limit: STATISTICS_PAGE_SIZE })
+  const relationshipRequest = useRef(0); const householdRequest = useRef(0); const biographyRequest = useRef(0); const statisticsRequest = useRef(0)
+  // Samples are append-only. Refresh the current page without discarding earlier pages.
+  const statisticsRefreshRequest = useRef<{ query: StatisticsQuery; append: boolean }>({ query: { limit: STATISTICS_PAGE_SIZE }, append: false })
   useEffect(() => {
     let active = true
     let fallbackTimer: number | null = null
@@ -371,8 +373,8 @@ export function App() {
       if (connection !== null) void connection.stop().catch(() => undefined)
     }
   }, [])
-  const requestStatistics = useCallback((query: StatisticsQuery, append: boolean) => { if (!append) statisticsBaseQuery.current = query; const request = statisticsRequest.current + 1; statisticsRequest.current = request; setStatisticsLoading(true); setStatisticsError(null); void fetchStatistics(query).then(value => { if (statisticsRequest.current !== request) return; setStatistics(previous => { if (!append || previous === null) return value; const byMinute = new Map(previous.map(sample => [sample.worldMinute, sample])); for (const sample of value) byMinute.set(sample.worldMinute, sample); return [...byMinute.values()].sort((first, second) => first.worldMinute - second.worldMinute) }); setStatisticsHasMore(value.length === STATISTICS_PAGE_SIZE) }).catch(reason => { if (statisticsRequest.current === request) setStatisticsError(errorText(reason, 'Statistics could not be read.')) }).finally(() => { if (statisticsRequest.current === request) setStatisticsLoading(false) }) }, [])
-  const refreshStatistics = useCallback(() => { requestStatistics(statisticsBaseQuery.current, false) }, [requestStatistics])
+  const requestStatistics = useCallback((query: StatisticsQuery, append: boolean) => { statisticsRefreshRequest.current = { query, append }; const request = statisticsRequest.current + 1; statisticsRequest.current = request; setStatisticsLoading(true); setStatisticsError(null); void fetchStatistics(query).then(value => { if (statisticsRequest.current !== request) return; setStatistics(previous => { if (!append || previous === null) return value; const byMinute = new Map(previous.map(sample => [sample.worldMinute, sample])); for (const sample of value) byMinute.set(sample.worldMinute, sample); return [...byMinute.values()].sort((first, second) => first.worldMinute - second.worldMinute) }); setStatisticsHasMore(value.length === STATISTICS_PAGE_SIZE) }).catch(reason => { if (statisticsRequest.current === request) setStatisticsError(errorText(reason, 'Statistics could not be read.')) }).finally(() => { if (statisticsRequest.current === request) setStatisticsLoading(false) }) }, [])
+  const refreshStatistics = useCallback(() => { const { query, append } = statisticsRefreshRequest.current; requestStatistics(query, append) }, [requestStatistics])
   useEffect(() => {
     const request = relationshipRequest.current + 1
     relationshipRequest.current = request
@@ -427,6 +429,7 @@ export function App() {
       setPeopleQuery(initialPeopleQuery); setCitizensView('people'); setFamilyState({ root: null, mode: 'ancestors', depth: 2 }); setFamilyHistoryRoot(null)
       setHistoryRoots([]); setBiography(null); setRelationships(null); setSelectedHousehold(null); setStatistics(null)
       biographyRequest.current += 1; relationshipRequest.current += 1; householdRequest.current += 1; statisticsRequest.current += 1
+      statisticsRefreshRequest.current = { query: { limit: STATISTICS_PAGE_SIZE }, append: false }
       setFollowingCitizenId(null); setFollowRequest(null); setLocateRequest(null); navigation.current = []; setBackDepth(0)
     })
   }, [status.worldInstanceId])
